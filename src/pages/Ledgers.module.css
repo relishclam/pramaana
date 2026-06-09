@@ -291,6 +291,41 @@
 .ledgerRow:last-child { border-bottom: none; }
 .ledgerRow:hover      { background: rgba(74, 158, 158, 0.05); }
 
+/* ── Mobile: collapse ledger table to card layout ────────────────────────── */
+@media (max-width: 680px) {
+  .ledgerHeader { display: none; }
+
+  .ledgerRow {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    position: relative;
+  }
+
+  /* edit button to top-right corner */
+  .ledgerRow > *:last-child {
+    position: absolute;
+    top: 0.625rem;
+    right: 0.625rem;
+  }
+
+  .ledgerName { font-size: 0.9375rem; }
+
+  .ledgerGroup {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+  }
+
+  /* hide tally name and opening balance on mobile — too much noise */
+  .tallyName,
+  .tallyNameMissing,
+  .openingBal {
+    display: none;
+  }
+}
+
 .ledgerInactive {
   opacity: 0.45;
 }

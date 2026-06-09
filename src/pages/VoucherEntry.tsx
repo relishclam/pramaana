@@ -15,6 +15,7 @@ import {
   type VoucherEntryRow,
 } from '@/lib/vouchers'
 import { supabase } from '@/lib/supabase'
+import SimplifiedPaymentEntry from './SimplifiedPaymentEntry'
 import styles from './VoucherEntry.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -302,55 +303,74 @@ export default function VoucherEntry() {
     )
   }
 
+  const isPayment = activeType?.nature === 'payment'
+
   return (
     <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>New Voucher</h1>
       </div>
 
+      {/* ── Type selector — always visible ─────────────────────────────── */}
+      <div className={styles.section} style={{ maxWidth: isPayment ? 640 : undefined }}>
+        <div className={styles.segmented}>
+          {voucherTypes.map(vt => (
+            <button
+              key={vt.id}
+              type="button"
+              className={`${styles.seg} ${activeType?.id === vt.id ? styles.segActive : ''}`}
+              onClick={() => { setActiveType(vt); setPaymentMode(''); setEntries([emptyEntry(), emptyEntry()]) }}
+            >
+              {vt.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Date — always visible ──────────────────────────────────────── */}
+      <div style={{ maxWidth: isPayment ? 640 : undefined, marginBottom: '0.25rem' }}>
+        <div className={styles.row2} style={{ maxWidth: 360 }}>
+          <div className={styles.field}>
+            <label className={styles.label}>Voucher Date <span className={styles.req}>*</span></label>
+            <input
+              type="date"
+              className={styles.input}
+              value={voucherDate}
+              onChange={e => setVoucherDate(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Payment type → simplified conversational form ──────────────── */}
+      {isPayment && activeType ? (
+        <SimplifiedPaymentEntry
+          key={activeType.id}
+          companyId={companyId}
+          companyCode={companyCode}
+          userId={userId}
+          voucherType={activeType}
+          voucherDate={voucherDate}
+        />
+      ) : (
+
+      /* ── All other types → advanced two-column form ────────────────── */
       <div className={styles.layout}>
         {/* ── LEFT COLUMN: Header fields ─────────────────────────────────── */}
         <div className={styles.leftCol}>
 
-          {/* Voucher Type */}
-          <div className={styles.section}>
-            <div className={styles.segmented}>
-              {voucherTypes.map(vt => (
-                <button
-                  key={vt.id}
-                  type="button"
-                  className={`${styles.seg} ${activeType?.id === vt.id ? styles.segActive : ''}`}
-                  onClick={() => { setActiveType(vt); setPaymentMode('') }}
-                >
-                  {vt.name}
-                </button>
-              ))}
-            </div>
+          {/* Reference No. */}
+          <div className={styles.field}>
+            <label className={styles.label}>Reference No. <span className={styles.labelOpt}>(optional)</span></label>
+            <input
+              className={styles.input}
+              value={refNumber}
+              onChange={e => setRefNumber(e.target.value)}
+              placeholder="Invoice / cheque / PO no."
+            />
           </div>
 
-          {/* Date + Ref */}
-          <div className={styles.row2}>
-            <div className={styles.field}>
-              <label className={styles.label}>Voucher Date <span className={styles.req}>*</span></label>
-              <input
-                type="date"
-                className={styles.input}
-                value={voucherDate}
-                onChange={e => setVoucherDate(e.target.value)}
-              />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.label}>Reference No. <span className={styles.labelOpt}>(optional)</span></label>
-              <input
-                className={styles.input}
-                value={refNumber}
-                onChange={e => setRefNumber(e.target.value)}
-                placeholder="Invoice / cheque / PO no."
-              />
-            </div>
-          </div>
-
-          {/* Entity (Party) — only for Payment / Receipt */}
+          {/* Entity (Party) — only for Receipt */}
           {needsEntity && (
             <div className={styles.field}>
               <label className={styles.label}>Party <span className={styles.req}>*</span></label>
@@ -556,6 +576,7 @@ export default function VoucherEntry() {
           </div>
         </div>
       </div>
+      )}
     </div>
   )
 }

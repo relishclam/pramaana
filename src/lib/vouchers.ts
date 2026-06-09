@@ -93,6 +93,44 @@ export async function fetchBankLedgers(companyId: string) {
   return (data ?? []) as { id: string; name: string; bank_name: string | null; account_number: string | null }[]
 }
 
+// ── Fetch payment accounts (bank + cash) for simplified payment entry ─────────
+
+export interface PaymentAccount {
+  id: string
+  name: string
+  type: 'cash' | 'bank'
+  account_number: string | null
+  bank_name: string | null
+}
+
+export async function fetchPaymentAccounts(companyId: string): Promise<PaymentAccount[]> {
+  // Fetch bank accounts AND any ledger with "cash" in the name (covers Cash, Petty Cash, etc.)
+  const { data, error } = await supabase
+    .schema('pramaana')
+    .from('ledgers')
+    .select('id, name, is_bank_account, bank_name, account_number')
+    .eq('company_id', companyId)
+    .eq('is_active', true)
+    .or('is_bank_account.eq.true,name.ilike.%cash%')
+    .order('name')
+
+  if (error) throw new Error('Failed to load payment accounts: ' + error.message)
+
+  return (data ?? []).map((d: {
+    id: string
+    name: string
+    is_bank_account: boolean
+    bank_name: string | null
+    account_number: string | null
+  }) => ({
+    id:             d.id,
+    name:           d.name,
+    type:           d.is_bank_account ? 'bank' : 'cash',
+    account_number: d.account_number,
+    bank_name:      d.bank_name,
+  })) as PaymentAccount[]
+}
+
 // ── Fetch ledgers for entry rows (typeahead) ──────────────────────────────────
 
 export async function searchLedgers(companyId: string, query: string) {

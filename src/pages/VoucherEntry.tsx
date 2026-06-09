@@ -113,40 +113,69 @@ export default function VoucherEntry() {
   const needsCheque  = needsPayment && paymentMode === 'Cheque'
 
   // ── Entity search ─────────────────────────────────────────────────────────
+  // PostgREST does not support ilike on embedded resource columns, so we do
+  // two queries: (1) match entity names, (2) fetch their roles for this company.
   const searchEntities = useCallback(async (q: string) => {
     if (!q.trim() || !companyId) { setEntityOptions([]); return }
     setEntityLoading(true)
-    type RawRow = {
-      entity_id: string; role: string
-      entity: { id: string; display_name: string; mobile: string | null; upi_id: string | null; bank_name: string | null; account_number: string | null; ifsc: string | null }[]
-    }
-    const { data } = await supabase
-      .schema('registry')
-      .from('entity_roles')
-      .select('entity_id, role, entity:entities(id, display_name, mobile, upi_id, bank_name, account_number, ifsc)')
-      .eq('company_id', companyId)
-      .eq('is_active', true)
-      .in('role', ['Vendor','Supplier','Staff','Management','Contractor','Government','Auditor'])
-      .ilike('entity.display_name', `%${q}%`)
-      .limit(10)
+    try {
+      type RawEntity = {
+        id: string; display_name: string; mobile: string | null
+        upi_id: string | null; bank_name: string | null
+        account_number: string | null; ifsc: string | null
+      }
+      type RawRole = { entity_id: string; role: string }
 
-    if (data) {
-      setEntityOptions(
-        (data as RawRow[])
-          .filter(r => r.entity?.length > 0)
-          .map(r => ({
-            entity_id:      r.entity_id,
-            display_name:   r.entity[0].display_name,
-            mobile:         r.entity[0].mobile,
-            role:           r.role,
-            upi_id:         r.entity[0].upi_id,
-            bank_name:      r.entity[0].bank_name,
-            account_number: r.entity[0].account_number,
-            ifsc:           r.entity[0].ifsc,
-          }))
+      // Step 1: find entities matching the query
+      const { data: entities, error: eErr } = await supabase
+        .schema('registry')
+        .from('entities')
+        .select('id, display_name, mobile, upi_id, bank_name, account_number, ifsc')
+        .ilike('display_name', `%${q}%`)
+        .eq('is_active', true)
+        .limit(20)
+
+      if (eErr || !entities?.length) { setEntityOptions([]); return }
+
+      const entityIds = (entities as RawEntity[]).map(e => e.id)
+
+      // Step 2: find which of those have a role in this company
+      const { data: roles } = await supabase
+        .schema('registry')
+        .from('entity_roles')
+        .select('entity_id, role')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+        .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor'])
+        .in('entity_id', entityIds)
+
+      if (!roles?.length) { setEntityOptions([]); return }
+
+      // Merge
+      const entityMap = new Map<string, RawEntity>(
+        (entities as RawEntity[]).map(e => [e.id, e])
       )
+      setEntityOptions(
+        (roles as RawRole[])
+          .filter(r => entityMap.has(r.entity_id))
+          .slice(0, 10)
+          .map(r => {
+            const e = entityMap.get(r.entity_id)!
+            return {
+              entity_id:      r.entity_id,
+              display_name:   e.display_name,
+              mobile:         e.mobile,
+              role:           r.role,
+              upi_id:         e.upi_id,
+              bank_name:      e.bank_name,
+              account_number: e.account_number,
+              ifsc:           e.ifsc,
+            }
+          })
+      )
+    } finally {
+      setEntityLoading(false)
     }
-    setEntityLoading(false)
   }, [companyId])
 
   const handleEntityInput = (val: string) => {

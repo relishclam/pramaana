@@ -49,10 +49,6 @@
 
 /* ── Section wrapper ─────────────────────────────────────────────────────── */
 
-.section {
-  /* nothing needed — children handle spacing */
-}
-
 .sectionHeader {
   display: flex;
   align-items: center;

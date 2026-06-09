@@ -5,11 +5,14 @@ import Login from '@/pages/Login'
 import CompanySelector from '@/pages/CompanySelector'
 import Ledgers from '@/pages/Ledgers'
 import VoucherEntry from '@/pages/VoucherEntry'
+import ApprovalQueue from '@/pages/ApprovalQueue'
+import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
 function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, signOut } = useAuth()
+  const { user, signOut }    = useAuth()
+  const { pendingCount }     = useApprovalCount()
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>
       {/* Temp sidebar nav — replaced by proper layout component in Screen 3 */}
@@ -22,16 +25,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '36px', width: 'auto' }} />
         </div>
         {[
-          { to: '/',              label: 'Dashboard',  end: true  },
-          { to: '/ledgers',       label: 'Ledgers',    end: false },
-          { to: '/vouchers/new',  label: 'Vouchers',   end: false },
-        ].map(({ to, label, end }) => (
+          { to: '/',             label: 'Dashboard', end: true,  badge: 0            },
+          { to: '/ledgers',      label: 'Ledgers',   end: false, badge: 0            },
+          { to: '/vouchers/new', label: 'Vouchers',  end: false, badge: 0            },
+          { to: '/approvals',    label: 'Approvals', end: false, badge: pendingCount },
+        ].map(({ to, label, end, badge }) => (
           <NavLink
             key={to}
             to={to}
             end={end}
             style={({ isActive }) => ({
-              display: 'block', padding: '0.5rem 1rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0.5rem 1rem',
               color: isActive ? 'var(--teal)' : 'var(--text-muted)',
               background: isActive ? 'var(--teal-light)' : 'none',
               borderRadius: '6px', margin: '0 0.5rem',
@@ -39,7 +44,17 @@ function AppShell({ children }: { children: React.ReactNode }) {
               textDecoration: 'none',
             })}
           >
-            {label}
+            <span>{label}</span>
+            {badge > 0 && (
+              <span style={{
+                background: 'var(--error)', color: '#fff',
+                borderRadius: '10px', padding: '1px 6px',
+                fontSize: '0.6875rem', fontWeight: 700, lineHeight: '1.4',
+                minWidth: '18px', textAlign: 'center',
+              }}>
+                {badge}
+              </span>
+            )}
           </NavLink>
         ))}
         <div style={{ marginTop: 'auto', padding: '0 0.5rem' }}>
@@ -109,6 +124,18 @@ function VoucherEntryGuard() {
   return <AppShell><VoucherEntry /></AppShell>
 }
 
+const APPROVAL_ROLES = new Set(['admin', 'accounts', 'auditor'])
+
+function ApprovalQueueGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && APPROVAL_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><ApprovalQueue /></AppShell>
+}
+
 function AppRoutes() {
   const { user, loading } = useAuth()
 
@@ -152,15 +179,18 @@ function AppRoutes() {
 
   // Fully authenticated with active company
   return (
-    <Routes>
-      <Route path="/" element={<Dashboard />} />
-      <Route path="/ledgers" element={<LedgersGuard />} />
-      <Route path="/vouchers/new" element={<VoucherEntryGuard />} />
-      <Route path="/dashboard" element={<Navigate to="/" replace />} />
-      <Route path="/select-company" element={<Navigate to="/" replace />} />
-      <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <ApprovalProvider companyId={user.activeCompany.id}>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/ledgers" element={<LedgersGuard />} />
+        <Route path="/vouchers/new" element={<VoucherEntryGuard />} />
+        <Route path="/approvals" element={<ApprovalQueueGuard />} />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/select-company" element={<Navigate to="/" replace />} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </ApprovalProvider>
   )
 }
 

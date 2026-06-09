@@ -491,11 +491,9 @@ function LedgersTab() {
               <div key={ledger.id} className={`${styles.ledgerRow} ${!ledger.is_active ? styles.ledgerInactive : ''}`}>
                 <span className={styles.ledgerName}>
                   {tallyMissing && (
-                    <AlertTriangle
-                      size={13}
-                      className={styles.tallyWarn}
-                      title="Tally ledger name missing — will break Tally export"
-                    />
+                    <span title="Tally ledger name missing — will break Tally export">
+                      <AlertTriangle size={13} className={styles.tallyWarn} />
+                    </span>
                   )}
                   {ledger.name}
                 </span>
@@ -589,13 +587,15 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSa
       .limit(10)
 
     if (!error && data) {
+      // Supabase returns embedded relations as arrays, not objects
+      type RawRow = { id: string; entity_id: string; role: string; entity: { id: string; display_name: string }[] }
       setEntityOptions(
-        data
-          .filter((r: { entity: { display_name: string } | null }) => r.entity)
-          .map((r: { id: string; entity_id: string; role: string; entity: { display_name: string } | null }) => ({
+        (data as RawRow[])
+          .filter(r => r.entity?.length > 0)
+          .map(r => ({
             entity_role_id: r.id,
             entity_id:      r.entity_id,
-            display_name:   r.entity?.display_name ?? '',
+            display_name:   r.entity[0].display_name,
             role:           r.role,
           })),
       )

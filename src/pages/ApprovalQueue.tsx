@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   CheckCircle2, XCircle, Loader2, X, ChevronRight,
-  Clock, CheckCircle, AlertCircle, Paperclip,
+  Clock, CheckCircle, AlertCircle, Paperclip, FileText, Image as ImageIcon, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -17,6 +17,12 @@ import {
   type VoucherEntryDetail,
   type ApprovalHistoryItem,
 } from '@/lib/approvals'
+import {
+  fetchVoucherAttachments,
+  isImage,
+  formatFileSize,
+  type AttachmentWithUrl,
+} from '@/lib/attachments'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './ApprovalQueue.module.css'
 
@@ -250,11 +256,24 @@ function DetailPanel({
   const [showRejectForm, setShowRejectForm] = useState(false)
   const [acting,         setActing]         = useState(false)
 
+  // Attachments
+  const [attachments,     setAttachments]     = useState<AttachmentWithUrl[]>([])
+  const [attachLoading,   setAttachLoading]   = useState(false)
+  const [lightboxUrl,     setLightboxUrl]     = useState<string | null>(null)
+
   useEffect(() => {
     setApprovalNote('')
     setRejectReason('')
     setRejectError('')
     setShowRejectForm(false)
+    setAttachments([])
+    setLightboxUrl(null)
+    if (!voucher?.id) return
+    setAttachLoading(true)
+    fetchVoucherAttachments(voucher.id)
+      .then(setAttachments)
+      .catch(() => { /* silently ignore */ })
+      .finally(() => setAttachLoading(false))
   }, [voucher?.id])
 
   const handleApprove = async () => {
@@ -395,13 +414,85 @@ function DetailPanel({
               />
             </div>
 
-            {/* Section 4 — Attachments (Phase 2 placeholder) */}
+            {/* Section 4 — Attachments */}
             <div className={styles.detailSection}>
-              <h3 className={styles.detailSectionTitle}>Attachments</h3>
-              <div className={styles.attachmentsPlaceholder}>
-                <Paperclip size={13} />
-                <span>No attachments · Bill attachment coming in Phase 2</span>
-              </div>
+              <h3 className={styles.detailSectionTitle}>
+                Attachments
+                {attachments.length > 0 && (
+                  <span className={styles.attachCount}>{attachments.length}</span>
+                )}
+              </h3>
+
+              {attachLoading ? (
+                <div className={styles.attachLoading}>
+                  <Loader2 size={14} className={styles.spin} />
+                </div>
+              ) : attachments.length === 0 ? (
+                <div className={styles.attachmentsPlaceholder}>
+                  <Paperclip size={13} />
+                  <span>No bills or receipts attached to this voucher</span>
+                </div>
+              ) : (
+                <div className={styles.attachGrid}>
+                  {attachments.map(att => (
+                    <div key={att.id} className={styles.attachCard}>
+                      {isImage(att.mime_type) ? (
+                        <button
+                          type="button"
+                          className={styles.attachThumbBtn}
+                          onClick={() => setLightboxUrl(att.signed_url)}
+                          title="Click to enlarge"
+                        >
+                          <img
+                            src={att.signed_url}
+                            alt={att.file_name}
+                            className={styles.attachThumb}
+                          />
+                        </button>
+                      ) : (
+                        <div className={styles.attachFileIcon}>
+                          <FileText size={28} />
+                        </div>
+                      )}
+                      <div className={styles.attachMeta}>
+                        <span className={styles.attachName}>{att.file_name}</span>
+                        <span className={styles.attachSize}>{formatFileSize(att.file_size)}</span>
+                      </div>
+                      <a
+                        href={att.signed_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.attachOpen}
+                        title="Open"
+                      >
+                        <ExternalLink size={13} />
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Lightbox */}
+              {lightboxUrl && (
+                <div
+                  className={styles.lightboxBackdrop}
+                  onClick={() => setLightboxUrl(null)}
+                >
+                  <img
+                    src={lightboxUrl}
+                    alt="Attachment"
+                    className={styles.lightboxImg}
+                    onClick={e => e.stopPropagation()}
+                  />
+                  <button
+                    type="button"
+                    className={styles.lightboxClose}
+                    onClick={() => setLightboxUrl(null)}
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}

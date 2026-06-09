@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Plus, Trash2, Check, X, Loader2, Search, Eye, EyeOff } from 'lucide-react'
+import { Plus, Trash2, Check, X, Loader2, Search, Eye, EyeOff, Paperclip, FileText, Image as ImageIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -10,7 +10,13 @@ import {
   type VoucherType,
   type PaymentAccount,
 } from '@/lib/vouchers'
+import {
+  uploadVoucherAttachments,
+  isImage,
+  formatFileSize,
+} from '@/lib/attachments'
 import { supabase } from '@/lib/supabase'
+import QRRelayModal from '@/components/QRRelayModal'
 import styles from './SimplifiedPaymentEntry.module.css'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -82,6 +88,10 @@ export default function SimplifiedPaymentEntry({
   const [refNumber, setRefNumber] = useState('')
   const [narration, setNarration] = useState('')
 
+  // ── Step 7: Attachments ──────────────────────────────────────────────────
+  const [stagedFiles,  setStagedFiles]  = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // ── UI ────────────────────────────────────────────────────────────────────
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [saving,       setSaving]       = useState(false)
@@ -117,6 +127,7 @@ export default function SimplifiedPaymentEntry({
   const show4     = show3 && step3Done
   const show5     = show4 && step4Done && isBankAccount
   const show6     = show4 && step4Done && (!isBankAccount || step5Done)
+  const show7     = show6
   const canSubmit = step3Done && step4Done && step5Done
 
   // ── Auto-reset payment mode when account changes ──────────────────────────
@@ -226,6 +237,21 @@ export default function SimplifiedPaymentEntry({
     },
   ]
 
+  // ── File staging helpers ──────────────────────────────────────────────────
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? [])
+    setStagedFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size))
+      const fresh = picked.filter(f => !existing.has(f.name + f.size))
+      return [...prev, ...fresh]
+    })
+    // reset input so same file can be re-added after removal
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeStagedFile = (idx: number) =>
+    setStagedFiles(prev => prev.filter((_, i) => i !== idx))
+
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -253,7 +279,17 @@ export default function SimplifiedPaymentEntry({
         created_by:          userId,
       }
 
-      await submitVoucher(payload, entries, companyCode, voucherType.prefix)
+      // Create the voucher first (so we have an ID to attach files to)
+      const voucherId = await submitVoucher(payload, entries, companyCode, voucherType.prefix)
+
+      // Upload staged files (non-blocking failures)
+      if (stagedFiles.length > 0) {
+        const { failed } = await uploadVoucherAttachments(voucherId, companyId, userId, stagedFiles)
+        if (failed.length > 0) {
+          toast.warning(`Voucher saved — ${failed.length} file(s) failed to upload: ${failed.join(', ')}`)
+        }
+      }
+
       toast.success('Voucher submitted for approval')
       navigate('/approvals')
     } catch (err: unknown) {
@@ -483,6 +519,84 @@ export default function SimplifiedPaymentEntry({
               value={narration}
               onChange={e => setNarration(e.target.value)}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ════ Step 7 — Attachments ═══════════════════════════════════════ */}
+      {show7 && (
+        <div className={styles.step}>
+          <StepHead num={7} done={stagedFiles.length > 0} optional label="Attach bills or receipts" />
+          <div className={styles.body}>
+            {/* Upload zone */}
+            <div
+              className={styles.uploadZone}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add(styles.uploadZoneDrag) }}
+              onDragLeave={e => e.currentTarget.classList.remove(styles.uploadZoneDrag)}
+              onDrop={e => {
+                e.preventDefault()
+                e.currentTarget.classList.remove(styles.uploadZoneDrag)
+                const dropped = Array.from(e.dataTransfer.files)
+                setStagedFiles(prev => {
+                  const existing = new Set(prev.map(f => f.name + f.size))
+                  return [...prev, ...dropped.filter(f => !existing.has(f.name + f.size))]
+                })
+              }}
+            >
+              <Paperclip size={18} className={styles.uploadIcon} />
+              <span className={styles.uploadText}>
+                Tap to add photos or PDFs
+              </span>
+              <span className={styles.uploadSub}>Invoice, receipt, bank screenshot · max 10 MB each</span>
+            </div>
+
+            {/* QR relay button — for desktop users who want to use phone camera */}
+            <div className={styles.relayRow}>
+              <span className={styles.relayOr}>or</span>
+              <QRRelayModal
+                companyId={companyId}
+                onFileReceived={file => {
+                  setStagedFiles(prev => {
+                    const existing = new Set(prev.map(f => f.name + f.size))
+                    return existing.has(file.name + file.size) ? prev : [...prev, file]
+                  })
+                }}
+              />
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={handleFilePick}
+            />
+
+            {/* Staged file list */}
+            {stagedFiles.length > 0 && (
+              <div className={styles.stagedList}>
+                {stagedFiles.map((file, idx) => (
+                  <div key={idx} className={styles.stagedItem}>
+                    <span className={styles.stagedIcon}>
+                      {isImage(file.type) ? <ImageIcon size={14} /> : <FileText size={14} />}
+                    </span>
+                    <span className={styles.stagedName}>{file.name}</span>
+                    <span className={styles.stagedSize}>{formatFileSize(file.size)}</span>
+                    <button
+                      type="button"
+                      className={styles.stagedRemove}
+                      onClick={e => { e.stopPropagation(); removeStagedFile(idx) }}
+                      aria-label="Remove"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

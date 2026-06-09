@@ -7,7 +7,9 @@ import CompanySelector from '@/pages/CompanySelector'
 import Ledgers from '@/pages/Ledgers'
 import VoucherEntry from '@/pages/VoucherEntry'
 import ApprovalQueue from '@/pages/ApprovalQueue'
+import VoucherRegister from '@/pages/VoucherRegister'
 import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
+import RelayCapture from '@/pages/RelayCapture'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -22,7 +24,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const NAV_ITEMS = [
     { to: '/',             label: 'Dashboard', end: true,  badge: 0            },
     { to: '/ledgers',      label: 'Ledgers',   end: false, badge: 0            },
-    { to: '/vouchers/new', label: 'Vouchers',  end: false, badge: 0            },
+    { to: '/vouchers',     label: 'Vouchers',  end: false, badge: 0            },
     { to: '/approvals',    label: 'Approvals', end: false, badge: pendingCount },
   ]
 
@@ -210,6 +212,12 @@ function VoucherEntryGuard() {
 
 const APPROVAL_ROLES = new Set(['admin', 'accounts', 'auditor'])
 
+function VoucherRegisterGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  return <AppShell><VoucherRegister /></AppShell>
+}
+
 function ApprovalQueueGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -245,8 +253,9 @@ function AppRoutes() {
   if (!user) {
     return (
       <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/login"  element={<Login />} />
+        <Route path="/relay"  element={<RelayCapture />} />
+        <Route path="*"       element={<Navigate to="/login" replace />} />
       </Routes>
     )
   }
@@ -256,7 +265,8 @@ function AppRoutes() {
     return (
       <Routes>
         <Route path="/select-company" element={<CompanySelector />} />
-        <Route path="*" element={<Navigate to="/select-company" replace />} />
+        <Route path="/relay"          element={<RelayCapture />} />
+        <Route path="*"               element={<Navigate to="/select-company" replace />} />
       </Routes>
     )
   }
@@ -265,10 +275,12 @@ function AppRoutes() {
   return (
     <ApprovalProvider companyId={user.activeCompany.id}>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/ledgers" element={<LedgersGuard />} />
-        <Route path="/vouchers/new" element={<VoucherEntryGuard />} />
-        <Route path="/approvals" element={<ApprovalQueueGuard />} />
+        <Route path="/"            element={<Dashboard />} />
+        <Route path="/relay"       element={<RelayCapture />} />
+        <Route path="/ledgers"     element={<LedgersGuard />} />
+        <Route path="/vouchers"     element={<VoucherRegisterGuard />} />
+        <Route path="/vouchers/new"  element={<VoucherEntryGuard />} />
+        <Route path="/approvals"     element={<ApprovalQueueGuard />} />
         <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/select-company" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

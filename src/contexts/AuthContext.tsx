@@ -44,9 +44,8 @@ async function fetchCompanyUsers(userId: string): Promise<CompanyUser[]> {
   const { data: cuRows, error: cuError } = await supabase
     .schema('registry')
     .from('company_users')
-    .select('id, user_id, company_id, role, is_active')
+    .select('id, user_id, company_id, role')
     .eq('user_id', userId)
-    .eq('is_active', true)
 
   if (cuError) {
     console.error('[AuthContext] fetchCompanyUsers error:', cuError.message)
@@ -69,7 +68,7 @@ async function fetchCompanyUsers(userId: string): Promise<CompanyUser[]> {
     (companies ?? []).map((c: Company) => [c.id, c])
   )
 
-  return (cuRows ?? []).map((cu: { id: string; user_id: string; company_id: string; role: CompanyUserRole; is_active: boolean }) => ({
+  return (cuRows ?? []).map((cu: { id: string; user_id: string; company_id: string; role: CompanyUserRole }) => ({
     ...cu,
     company: companyMap.get(cu.company_id),
   }))

@@ -24,7 +24,6 @@ export interface CompanyUser {
   user_id: string
   company_id: string
   role: CompanyUserRole
-  is_active: boolean
   company?: Company
 }
 

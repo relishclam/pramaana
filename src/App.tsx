@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import Login from '@/pages/Login'
 import CompanySelector from '@/pages/CompanySelector'
 import Ledgers from '@/pages/Ledgers'
+import VoucherEntry from '@/pages/VoucherEntry'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -21,13 +22,14 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '36px', width: 'auto' }} />
         </div>
         {[
-          { to: '/',        label: 'Dashboard' },
-          { to: '/ledgers', label: 'Ledgers' },
-        ].map(({ to, label }) => (
+          { to: '/',              label: 'Dashboard',  end: true  },
+          { to: '/ledgers',       label: 'Ledgers',    end: false },
+          { to: '/vouchers/new',  label: 'Vouchers',   end: false },
+        ].map(({ to, label, end }) => (
           <NavLink
             key={to}
             to={to}
-            end
+            end={end}
             style={({ isActive }) => ({
               display: 'block', padding: '0.5rem 1rem',
               color: isActive ? 'var(--teal)' : 'var(--text-muted)',
@@ -84,7 +86,8 @@ function Dashboard() {
 
 // ── Route guard ───────────────────────────────────────────────────────────────
 
-const LEDGER_ROLES = new Set(['admin', 'accounts', 'auditor'])
+const LEDGER_ROLES   = new Set(['admin', 'accounts', 'auditor'])
+const VOUCHER_ROLES  = new Set(['admin', 'accounts'])
 
 function LedgersGuard() {
   const { user } = useAuth()
@@ -94,6 +97,16 @@ function LedgersGuard() {
     (user.activeRole !== null && LEDGER_ROLES.has(user.activeRole))
   if (!allowed) return <Navigate to="/" replace />
   return <AppShell><Ledgers /></AppShell>
+}
+
+function VoucherEntryGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && VOUCHER_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><VoucherEntry /></AppShell>
 }
 
 function AppRoutes() {
@@ -142,6 +155,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<Dashboard />} />
       <Route path="/ledgers" element={<LedgersGuard />} />
+      <Route path="/vouchers/new" element={<VoucherEntryGuard />} />
       <Route path="/dashboard" element={<Navigate to="/" replace />} />
       <Route path="/select-company" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Navigate to="/" replace />} />

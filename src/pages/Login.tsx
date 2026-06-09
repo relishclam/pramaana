@@ -41,7 +41,7 @@ export default function Login() {
           <img src="/Logo_3D.png" alt="Pramaana" className={styles.logo} />
         </div>
 
-        <p className={styles.tagline}>Relish Group · Accounts &amp; Payments</p>
+        <p className={styles.tagline}>Relish. Accounts. Payments</p>
 
         <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate>
           {/* Email */}
@@ -97,7 +97,7 @@ export default function Login() {
           </button>
         </form>
 
-        <p className={styles.footer}>Relish Business Suite · Pramaana v0.1</p>
+        <p className={styles.footer}>Developed &amp; Maintained by FoodStream Ltd, Hong Kong</p>
       </div>
     </div>
   )

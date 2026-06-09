@@ -132,7 +132,6 @@ export default function VoucherEntry() {
         .from('entities')
         .select('id, display_name, mobile, upi_id, bank_name, account_number, ifsc')
         .ilike('display_name', `%${q}%`)
-        .eq('is_active', true)
         .limit(20)
 
       if (eErr || !entities?.length) { setEntityOptions([]); return }

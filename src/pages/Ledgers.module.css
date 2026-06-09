@@ -1,0 +1,662 @@
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+
+.page {
+  padding: 1.5rem;
+  max-width: 1100px;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+
+.tabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  padding: 0.625rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tabActive {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+}
+
+.content {
+  /* nothing needed — children handle their own layout */
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.toolbarTitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.btnPrimary:hover:not(:disabled) { opacity: 0.88; }
+.btnPrimary:disabled              { opacity: 0.5; cursor: not-allowed; }
+
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btnSecondary:hover { border-color: var(--border-2); color: var(--text); }
+
+/* ── Loading / Empty ─────────────────────────────────────────────────────── */
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-muted);
+}
+
+.emptyState {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+/* ── Group Tree ──────────────────────────────────────────────────────────── */
+
+.tree {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.groupRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-right: 0.75rem;
+  height: 38px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+
+.groupRow:last-child {
+  border-bottom: none;
+}
+
+.groupRowSystem {
+  background: var(--surface);
+}
+
+.groupRowCompany {
+  background: var(--surface-2);
+}
+
+.groupRow:hover {
+  background: rgba(74, 158, 158, 0.06);
+}
+
+.expandBtn {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+}
+
+.expandBtn:hover {
+  color: var(--text);
+  background: var(--border);
+}
+
+.groupName {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.natureBadge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.lockIcon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.rowActionBtn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.rowActionBtn:hover {
+  color: var(--teal);
+  border-color: var(--teal);
+}
+
+/* ── Search ──────────────────────────────────────────────────────────────── */
+
+.searchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  max-width: 360px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 0.75rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 2.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.searchInput::placeholder { color: var(--text-dim); }
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+
+.searchClear {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.2rem;
+}
+
+/* ── Ledger Table ────────────────────────────────────────────────────────── */
+
+.ledgerTable {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.ledgerHeader {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 90px 1.5fr 130px 36px;
+  gap: 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ledgerRow {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 90px 1.5fr 130px 36px;
+  gap: 0;
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  background: var(--surface-2);
+  transition: background 0.1s;
+}
+
+.ledgerRow:last-child { border-bottom: none; }
+.ledgerRow:hover      { background: rgba(74, 158, 158, 0.05); }
+
+.ledgerInactive {
+  opacity: 0.45;
+}
+
+.ledgerName {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tallyWarn {
+  color: #c9a84c;
+  flex-shrink: 0;
+}
+
+.ledgerGroup {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.tallyName {
+  font-size: 0.8125rem;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.tallyNameMissing {
+  color: #c9a84c;
+  font-style: italic;
+  font-family: var(--font-sans);
+}
+
+.openingBal {
+  font-size: 0.8125rem;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.drCr {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ── Slide-over Drawer ───────────────────────────────────────────────────── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer {
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.drawerTitle {
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.drawerClose {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+  border-radius: 4px;
+}
+
+.drawerClose:hover { color: var(--text); background: var(--border); }
+
+.drawerForm {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.drawerActions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+}
+
+/* ── Form Fields ─────────────────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.req {
+  color: var(--error);
+  margin-left: 0.125rem;
+}
+
+.labelOptional {
+  font-weight: 400;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.input {
+  padding: 0.5625rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.input::placeholder { color: var(--text-dim); }
+
+.input:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+
+.inputFlex {
+  flex: 1;
+}
+
+.select {
+  padding: 0.5625rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  width: 100%;
+  cursor: pointer;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+
+.fieldHint {
+  font-size: 0.75rem;
+  color: #c9a84c;
+  line-height: 1.4;
+}
+
+/* ── Nature segmented control ─────────────────────────────────────────────── */
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.375rem;
+}
+
+.seg {
+  padding: 0.4rem 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.04em;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.segActive {
+  background: rgba(74, 158, 158, 0.1);
+}
+
+/* ── Opening balance row ─────────────────────────────────────────────────── */
+
+.balanceRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.drCrToggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.drCrBtn {
+  padding: 0.5rem 0.875rem;
+  background: var(--bg);
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.drCrBtn + .drCrBtn {
+  border-left: 1px solid var(--border);
+}
+
+.drCrBtnActive {
+  background: var(--teal);
+  color: #fff;
+}
+
+/* ── Entity typeahead ────────────────────────────────────────────────────── */
+
+.typeaheadWrap {
+  position: relative;
+}
+
+.typeaheadSpinner {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+}
+
+.typeaheadDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  z-index: 200;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.typeaheadOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.typeaheadOption:hover {
+  background: rgba(74, 158, 158, 0.1);
+}
+
+.entityRole {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  padding: 0.125rem 0.4rem;
+  border-radius: 4px;
+}
+
+.entitySelected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5625rem 0.75rem;
+  background: rgba(74, 158, 158, 0.1);
+  border: 1px solid var(--teal);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.entityClear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.1rem;
+}
+
+.entityClear:hover { color: var(--error); }
+
+/* ── Active toggle ───────────────────────────────────────────────────────── */
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border-2);
+  border: none;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.toggleOn {
+  background: var(--teal);
+}
+
+.toggleOn::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* ── Spin animation ──────────────────────────────────────────────────────── */
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.7s linear infinite; }

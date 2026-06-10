@@ -52,7 +52,8 @@ export default function SettleCapture() {
   const [session,    setSession]    = useState<PublicSession | null>(null)
   const [rows,       setRows]       = useState<Row[]>([blankRow(1)])
   const [nextId,     setNextId]     = useState(2)
-  const [errMsg,     setErrMsg]     = useState('')
+  const [errMsg,        setErrMsg]        = useState('')
+  const [submittedCount, setSubmittedCount] = useState(0)
   const formRef = useRef<HTMLDivElement>(null)
 
   // ── Load session ────────────────────────────────────────────────────────────
@@ -126,6 +127,7 @@ export default function SettleCapture() {
         }
         await submitExpenseEntry(payload)
       }
+      setSubmittedCount(rows.length)
       setPageState('done')
     } catch (e: unknown) {
       setErrMsg(e instanceof Error ? e.message : 'Submission failed')
@@ -211,7 +213,7 @@ export default function SettleCapture() {
           <CheckCircle size={42} className={styles.successIcon} />
           <h2 className={styles.title}>Submitted!</h2>
           <p className={styles.sub}>
-            Your {rows.length === 1 ? 'entry has' : `${rows.length} entries have`} been submitted and
+            Your {submittedCount === 1 ? 'entry has' : `${submittedCount} entries have`} been submitted and
             are pending approval by the accounts team.
           </p>
           <button className={styles.secondaryBtn} onClick={resetForAnother}>

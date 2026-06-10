@@ -1,7 +1,7 @@
 {
-  "name": "Pramaana — Relish Group Accounts",
+  "name": "Pramaana — Relish Accounts",
   "short_name": "Pramaana",
-  "description": "Accounting and voucher management for Relish Group",
+  "description": "Accounting and voucher management for Relish",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

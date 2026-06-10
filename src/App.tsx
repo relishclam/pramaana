@@ -8,6 +8,8 @@ import Ledgers from '@/pages/Ledgers'
 import VoucherEntry from '@/pages/VoucherEntry'
 import ApprovalQueue from '@/pages/ApprovalQueue'
 import VoucherRegister from '@/pages/VoucherRegister'
+import SuspenseRegister from '@/pages/SuspenseRegister'
+import SuspenseEntry from '@/pages/SuspenseEntry'
 import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
 import RelayCapture from '@/pages/RelayCapture'
 
@@ -24,8 +26,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const NAV_ITEMS = [
     { to: '/',             label: 'Dashboard', end: true,  badge: 0            },
     { to: '/ledgers',      label: 'Ledgers',   end: false, badge: 0            },
-    { to: '/vouchers',     label: 'Vouchers',  end: false, badge: 0            },
-    { to: '/approvals',    label: 'Approvals', end: false, badge: pendingCount },
+    { to: '/vouchers',   label: 'Vouchers',  end: false, badge: 0            },
+    { to: '/suspense',   label: 'Suspense',  end: false, badge: 0            },
+    { to: '/approvals',  label: 'Approvals', end: false, badge: pendingCount },
   ]
 
   const sidebarContent = (
@@ -218,6 +221,22 @@ function VoucherRegisterGuard() {
   return <AppShell><VoucherRegister /></AppShell>
 }
 
+function SuspenseRegisterGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  return <AppShell><SuspenseRegister /></AppShell>
+}
+
+function SuspenseEntryGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && VOUCHER_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/suspense" replace />
+  return <AppShell><SuspenseEntry /></AppShell>
+}
+
 function ApprovalQueueGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -278,9 +297,11 @@ function AppRoutes() {
         <Route path="/"            element={<Dashboard />} />
         <Route path="/relay"       element={<RelayCapture />} />
         <Route path="/ledgers"     element={<LedgersGuard />} />
-        <Route path="/vouchers"     element={<VoucherRegisterGuard />} />
-        <Route path="/vouchers/new"  element={<VoucherEntryGuard />} />
-        <Route path="/approvals"     element={<ApprovalQueueGuard />} />
+        <Route path="/vouchers"      element={<VoucherRegisterGuard />} />
+        <Route path="/vouchers/new"   element={<VoucherEntryGuard />} />
+        <Route path="/suspense"       element={<SuspenseRegisterGuard />} />
+        <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
+        <Route path="/approvals"      element={<ApprovalQueueGuard />} />
         <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/select-company" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

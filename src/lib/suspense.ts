@@ -75,10 +75,10 @@ export interface PublicSession {
 }
 
 export interface VoucherEntryPayload {
-  ledger_id:   string
-  entry_type:  'Dr' | 'Cr'
-  amount:      number
-  description: string | null
+  ledger_id:  string
+  entry_type: 'Dr' | 'Cr'
+  amount:     number
+  narration:  string | null
 }
 
 export interface CreateSuspensePayload {
@@ -260,12 +260,12 @@ export async function createSuspenseVoucher(
     .from('voucher_entries')
     .insert(
       entries.map(e => ({
-        voucher_id:  voucher.id,
-        company_id:  payload.company_id,
-        ledger_id:   e.ledger_id,
-        entry_type:  e.entry_type,
-        amount:      e.amount,
-        description: e.description,
+        voucher_id: voucher.id,
+        ledger_id:  e.ledger_id,
+        entry_type: e.entry_type,
+        amount:     e.amount,
+        narration:  e.narration,
+        sort_order: 0,
       }))
     )
   if (eErr) {

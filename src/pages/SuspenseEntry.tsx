@@ -186,8 +186,8 @@ export default function SuspenseEntry() {
           created_by:       userId,
         },
         [
-          { ledger_id: selectedLedger!.id,  entry_type: 'Dr', amount: amountNum, description: purpose.trim() },
-          { ledger_id: selectedAccount!.id, entry_type: 'Cr', amount: amountNum, description: purpose.trim() },
+          { ledger_id: selectedLedger!.id,  entry_type: 'Dr', amount: amountNum, narration: purpose.trim() },
+          { ledger_id: selectedAccount!.id, entry_type: 'Cr', amount: amountNum, narration: purpose.trim() },
         ],
       )
       toast.success('Suspense advance created — awaiting approval')

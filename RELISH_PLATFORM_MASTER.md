@@ -330,11 +330,13 @@ supabase.schema('registry').rpc('next_fy_sequence', {...})
 
 ### 8.8 SMS Integration (2Factor)
 
-| Template | Status | Variables |
-|----------|--------|-----------|
-| `Pramaana-Payment-Approval` | ✅ Approved (Vilpower + 2Factor) | XXXX = OTP |
-| `Pramaana-Settlement-Link` | ✅ Approved (Vilpower + 2Factor) | XXXX=name, XXXX=amount, XXXX=url |
-| `Pramaana-Payment-Confirmed` | ✅ Approved (Vilpower + 2Factor) | XXXX=amount, XXXX=voucher_no |
+| Template | 2Factor | Vilpower/DLT | Variables |
+|----------|:-------:|:------------:|-----------|
+| `Pramaana-Payment-Approval` | ✅ | ✅ | XXXX = OTP |
+| `Pramaana-Settlement-Link` | ✅ | ⏳ Resubmit needed | XXXX=name, XXXX=amount, XXXX=url |
+| `Pramaana-Payment-Confirmed` | ✅ | ⏳ Resubmit needed | XXXX=amount, XXXX=voucher_no |
+
+> **Note:** SMS works end-to-end only when BOTH 2Factor and Vilpower/DLT are approved. Currently only `Pramaana-Payment-Approval` (OTP) works end-to-end. Settlement-Link and Payment-Confirmed are approved on 2Factor but rejected on Vilpower — resubmit under Banking/Financial Services category.
 
 Edge Function: `api/send-sms.ts` (Vercel)  
 Env var: `TWOFACTOR_API_KEY` (set in Vercel dashboard)
@@ -535,6 +537,13 @@ Auth, company switching, RBAC, Purchase Orders, Commercial Invoices, GST Invoice
 ### ✅ Phase 2 — Pramaana Core (Complete)
 Ledger Master, Voucher Entry (simplified + advanced mode), Approval Queue, Voucher Register, Suspense Advances, Settlement Page (public), Bill Relay Capture, SMS Integration (2Factor)
 
+### 🔲 Immediate — Pramaana Dashboard (replaces placeholder)
+Four KPI cards:
+- **Today's Payments** — sum of payment vouchers posted today
+- **Pending Approvals** — count of `status='pending_approval'` vouchers for this company
+- **Bank Balance** — sum of closing balances across all bank ledgers
+- **Open Suspense Advances** — count of suspense vouchers with `status='open'` or `'partial'`
+
 ### 🔲 Next — Suite Entity Master (BLOCKER for Pramaana testing)
 Add Entities tab to `/master-data` in Suite.  
 Creates vendors, staff, customers in `registry.entities` + `registry.entity_roles`.  
@@ -581,6 +590,8 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 | `fp_forms` table empty | ClamFlow | — | Plant not processing batches yet. Sync will work when data exists. |
 | WhatsApp API not configured | Both | Medium | Interakt/Wati evaluation pending |
 | `/vouchers/:id/edit` route | Pramaana | Medium | **FIXED** — VoucherEdit.tsx built, route added to App.tsx (draft status only) |
+| Voucher Edit form not tested end-to-end | Pramaana | Medium | VoucherEdit.tsx built but no confirmation it saves correctly — test with a real draft voucher |
+| Vilpower Settlement-Link + Payment-Confirmed rejected | SMS/DLT | Medium | Change category to Banking/Financial Services, add Implicit consent template, resubmit on Vilpower |
 
 ---
 

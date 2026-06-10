@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
-  AlertCircle, Send, RotateCcw, Copy, Check, Wallet, Building2, FileText,
+  AlertCircle, Send, RotateCcw, Copy, Check, Wallet, FileText,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -311,7 +311,7 @@ function DetailPanel({
     try {
       await submitExpenseEntry({
         advance_voucher_id: row.id,
-        session_id:         session?.id ?? '',
+        session_id:         session?.id ?? null,
         company_id:         companyId,
         entity_id:          row.entity_id,
         amount:             parseFloat(entryAmount),

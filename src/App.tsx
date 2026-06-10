@@ -12,6 +12,7 @@ import SuspenseRegister from '@/pages/SuspenseRegister'
 import SuspenseEntry from '@/pages/SuspenseEntry'
 import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
 import RelayCapture from '@/pages/RelayCapture'
+import SettleCapture from '@/pages/SettleCapture'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -272,9 +273,10 @@ function AppRoutes() {
   if (!user) {
     return (
       <Routes>
-        <Route path="/login"  element={<Login />} />
-        <Route path="/relay"  element={<RelayCapture />} />
-        <Route path="*"       element={<Navigate to="/login" replace />} />
+        <Route path="/login"        element={<Login />} />
+        <Route path="/relay"        element={<RelayCapture />} />
+        <Route path="/settle/:token" element={<SettleCapture />} />
+        <Route path="*"             element={<Navigate to="/login" replace />} />
       </Routes>
     )
   }
@@ -285,6 +287,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/select-company" element={<CompanySelector />} />
         <Route path="/relay"          element={<RelayCapture />} />
+        <Route path="/settle/:token"  element={<SettleCapture />} />
         <Route path="*"               element={<Navigate to="/select-company" replace />} />
       </Routes>
     )
@@ -295,7 +298,8 @@ function AppRoutes() {
     <ApprovalProvider companyId={user.activeCompany.id}>
       <Routes>
         <Route path="/"            element={<Dashboard />} />
-        <Route path="/relay"       element={<RelayCapture />} />
+        <Route path="/relay"        element={<RelayCapture />} />
+        <Route path="/settle/:token" element={<SettleCapture />} />
         <Route path="/ledgers"     element={<LedgersGuard />} />
         <Route path="/vouchers"      element={<VoucherRegisterGuard />} />
         <Route path="/vouchers/new"   element={<VoucherEntryGuard />} />

@@ -97,7 +97,7 @@ export interface CreateSuspensePayload {
 
 export interface SubmitExpensePayload {
   advance_voucher_id: string
-  session_id:         string
+  session_id:         string | null
   company_id:         string
   entity_id:          string | null
   amount:             number

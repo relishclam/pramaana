@@ -1,0 +1,472 @@
+/* ── Full-page shell ─────────────────────────────────────────────────────── */
+
+.page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #0e1117;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 0 3rem;
+  overflow-y: auto;
+}
+
+/* ── Card / form wrap ────────────────────────────────────────────────────── */
+
+.card,
+.doneCard {
+  width: 100%;
+  max-width: 420px;
+  background: #1a1f2e;
+  border: 1px solid #2a2f3e;
+  border-radius: 16px;
+  padding: 2rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  text-align: center;
+  margin: 2rem 1rem;
+}
+
+.formWrap {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem 1rem 2rem;
+}
+
+/* ── Logo ────────────────────────────────────────────────────────────────── */
+
+.logo {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #4a9e9e;
+}
+
+/* ── Header block ────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.heading {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: #e8eaf0;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.advanceMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.purposeTag {
+  display: inline-block;
+  background: #2a3040;
+  color: #8a90a0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 20px;
+  padding: 3px 10px;
+  align-self: flex-start;
+}
+
+.balanceRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.balLabel {
+  font-size: 0.8125rem;
+  color: #8a90a0;
+}
+
+.balAmount {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #4a9e9e;
+}
+
+.balanceTrack {
+  height: 4px;
+  background: #2a2f3e;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.balanceFill {
+  height: 100%;
+  background: #4a9e9e;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.balMeta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #5a6070;
+}
+
+/* ── Entry card ──────────────────────────────────────────────────────────── */
+
+.entryCard {
+  background: #1a1f2e;
+  border: 1px solid #2a2f3e;
+  border-radius: 12px;
+  padding: 1.125rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.entryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.entryNum {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #5a6070;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.removeBtn {
+  background: none;
+  border: none;
+  color: #f87171;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.removeBtn:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+/* ── Type pills ──────────────────────────────────────────────────────────── */
+
+.typePills {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.typePill {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid #2a2f3e;
+  background: #141820;
+  color: #8a90a0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.typePillActive {
+  background: #1e3030;
+  border-color: #4a9e9e;
+  color: #4a9e9e;
+  font-weight: 600;
+}
+
+.typePillRefund.typePillActive {
+  background: #2a1e1e;
+  border-color: #f87171;
+  color: #f87171;
+}
+
+/* ── Fields ──────────────────────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #8a90a0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.req {
+  color: #f87171;
+}
+
+.input {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: #141820;
+  border: 1px solid #2a2f3e;
+  border-radius: 8px;
+  color: #e8eaf0;
+  font-size: 0.9375rem;
+  outline: none;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+}
+
+.input:focus {
+  border-color: #4a9e9e;
+}
+
+.input::placeholder {
+  color: #3a404e;
+}
+
+.amountWrap {
+  display: flex;
+  align-items: center;
+  background: #141820;
+  border: 1px solid #2a2f3e;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.amountWrap:focus-within {
+  border-color: #4a9e9e;
+}
+
+.rupee {
+  padding: 0 0.75rem;
+  color: #5a6070;
+  font-size: 1rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.amountInput {
+  flex: 1;
+  padding: 0.65rem 0.75rem 0.65rem 0;
+  background: transparent;
+  border: none;
+  color: #e8eaf0;
+  font-size: 1rem;
+  font-weight: 600;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.amountInput::placeholder {
+  color: #3a404e;
+  font-weight: 400;
+}
+
+/* ── Invoice toggle ──────────────────────────────────────────────────────── */
+
+.invoiceToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: none;
+  border: 1px solid #2a2f3e;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  color: #5a6070;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  align-self: flex-start;
+}
+
+.invoiceToggle.invoiceOn {
+  border-color: #4a9e9e44;
+  color: #4a9e9e;
+}
+
+.toggleDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #2a2f3e;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.invoiceOn .toggleDot {
+  background: #4a9e9e;
+}
+
+/* ── Running total ───────────────────────────────────────────────────────── */
+
+.totalRow {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.totalItem {
+  flex: 1;
+  background: #1a1f2e;
+  border: 1px solid #2a2f3e;
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.totalLabel {
+  font-size: 0.6875rem;
+  color: #5a6070;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.totalAmt {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #e8eaf0;
+}
+
+.totalOver {
+  color: #f87171;
+}
+
+/* ── Error banner ────────────────────────────────────────────────────────── */
+
+.errBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 8px;
+  padding: 0.625rem 0.875rem;
+  color: #f87171;
+  font-size: 0.875rem;
+}
+
+/* ── Actions ─────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.addBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.75rem;
+  background: none;
+  border: 1px dashed #2a2f3e;
+  border-radius: 10px;
+  color: #5a6070;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.addBtn:hover {
+  border-color: #4a9e9e;
+  color: #4a9e9e;
+}
+
+.submitBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 1rem;
+  background: #4a9e9e;
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.submitBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.submitBtn:not(:disabled):active {
+  opacity: 0.85;
+}
+
+.secondaryBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.75rem;
+  background: none;
+  border: 1px solid #2a2f3e;
+  border-radius: 12px;
+  color: #8a90a0;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  margin-top: 0.25rem;
+}
+
+/* ── Foot note ───────────────────────────────────────────────────────────── */
+
+.footNote {
+  font-size: 0.75rem;
+  color: #3a404e;
+  text-align: center;
+  margin: 0;
+}
+
+/* ── Status icons ────────────────────────────────────────────────────────── */
+
+.errorIcon   { color: #f87171; }
+.warnIcon    { color: #f59e0b; }
+.successIcon { color: #4a9e9e; }
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+
+.spin {
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Text ────────────────────────────────────────────────────────────────── */
+
+.title {
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: #e8eaf0;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.sub {
+  font-size: 0.9375rem;
+  color: #8a90a0;
+  margin: 0;
+  line-height: 1.5;
+}

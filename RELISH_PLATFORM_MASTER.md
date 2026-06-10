@@ -177,7 +177,7 @@ supabase.schema('registry').rpc('next_fy_sequence', {
 | Commercial Invoices | `/invoices` | Export invoices with packing list |
 | GST Tax Invoice | `/gst-invoices` | RFPL factory lease to Peninsular Fisheries |
 | CalciWorks | `/calciworks` | Shell stock ledger (RHHF division) |
-| Master Data | `/master-data` | Vendors, Buyers, Products, Delivery Addresses |
+| Master Data | `/master-data` | Vendors, Buyers, Products, Delivery Addresses, **Entities** |
 | Tally Export | `/tally-export` | Reads Relish Approvals (READ ONLY), generates XML |
 | User Management | `/admin/users` | super_admin only |
 | Settings | `/settings` | Profile + company settings |
@@ -190,7 +190,7 @@ supabase.schema('registry').rpc('next_fy_sequence', {
 | Buyers | `registry.entity_roles` WHERE role='Customer' | entity_id → registry.entities |
 | Products | `suite.products` | default_unit field (not 'unit') |
 | Delivery Addresses | `suite.delivery_addresses` | pincode field (not 'postal_code') |
-| **Entities** | `registry.entities` + `entity_roles` | **NOT YET BUILT — PENDING** |
+| **Entities** | `registry.entities` + `entity_roles` | **✅ BUILT — June 2026** |
 
 ### 7.3 Key Lib Files
 
@@ -207,6 +207,7 @@ supabase.schema('registry').rpc('next_fy_sequence', {
 | `src/lib/invoices.js` | suite | suite.invoices + line items |
 | `src/lib/auditLog.js` | registry | registry.audit_log |
 | `src/lib/permissions.js` | — | Role → permission map (source of truth) |
+| `src/lib/entities.js` | registry | registry.entities + entity_roles — full CRUD, dup check, multi-role |
 
 ### 7.4 Suite Schema Query Pattern
 ```javascript
@@ -236,10 +237,33 @@ const entity = await supabase.schema('registry').from('entities')
 | 005_rls_and_grants.sql | ✅ Applied (patched) | Non-recursive RLS via is_super_admin() |
 | 006_rls_fixes.sql | ✅ Applied | Documents 4 dashboard fixes |
 | 007_calciworks_shell_stock.sql | ✅ Applied | shell_stock table + GST counter at 35 |
+| 010_entities_bank_swift.sql | ✅ Applied | ADD COLUMN bank_swift on registry.entities |
+| 011_entities_local_registration.sql | ✅ Applied | ADD COLUMN local_reg_number + local_tax_number on registry.entities |
+
+### 7.7 Entity Model — Implementation Notes (June 2026)
+
+**Multi-role entities:** A single `registry.entities` row can have multiple `entity_roles` rows (e.g. FoodStream Ltd. is both Vendor and Customer). The `UNIQUE(entity_id, company_id, role)` constraint prevents duplicate roles per company.
+
+**Duplicate check on create:** Before inserting, `searchDuplicateEntity()` in `entities.js` checks GSTIN → mobile → display_name (in priority order). If a match is found the UI presents an inline warning with an "Add [Role] to this" option — avoiding duplicate entity records.
+
+**Country-aware form fields:**
+
+| Country | Registration fields | Bank routing field |
+|---|---|---|
+| India (or blank) | GSTIN (role-conditional) + PAN | IFSC Code |
+| Any other | Company Reg. No. + Tax/VAT Reg. No. | SWIFT / BIC Code |
+
+Overseas registration formats (Company Reg. No.):
+- Hong Kong: BRC No. · Singapore: UEN · China: USCC (18-char) · Japan: Corporate No. (13-digit) · Thailand: CR No. · UAE: CR No. · UK: Companies House No.
+
+For China and Japan the tax number is the same as the company registration number — leave Tax/VAT Reg. blank.
+
+**Pramaana Ledger Name:** The `tally_ledger` column in `entity_roles` is displayed as "Pramaana Ledger Name" in the UI. It still powers Tally XML export during cut-over AND will be the Pramaana ledger reference post cut-over.
+
+**Pre-deployment reset:** `supabase/scripts/pre_deployment_data_reset.sql` — run once manually in Supabase SQL editor before functional go-live. Clears all test entities, vouchers, POs, sequences. Preserves companies, users, ledger_groups, voucher_types.
 
 ---
 
-## 8. Pramaana — Module Map
 
 ### 8.1 Modules Built ✅
 
@@ -326,20 +350,31 @@ supabase.schema('registry').rpc('next_fy_sequence', {...})
 
 | Bucket | Access | Used For |
 |--------|--------|---------|
-| `voucher-attachments` | Private — signed URLs | Bills, receipts, invoices attached to vouchers |
+| `voucher-attachments` | Private — signed URLs | Bills, receipts, invoices & transaction records attached to vouchers |
 
-### 8.8 SMS Integration (2Factor)
+### 8.8 Messaging Integration
+
+#### SMS via 2Factor (OTP only)
 
 | Template | 2Factor | Vilpower/DLT | Variables |
 |----------|:-------:|:------------:|-----------|
 | `Pramaana-Payment-Approval` | ✅ | ✅ | XXXX = OTP |
-| `Pramaana-Settlement-Link` | ✅ | ⏳ Resubmit needed | XXXX=name, XXXX=amount, XXXX=url |
-| `Pramaana-Payment-Confirmed` | ✅ | ⏳ Resubmit needed | XXXX=amount, XXXX=voucher_no |
 
-> **Note:** SMS works end-to-end only when BOTH 2Factor and Vilpower/DLT are approved. Currently only `Pramaana-Payment-Approval` (OTP) works end-to-end. Settlement-Link and Payment-Confirmed are approved on 2Factor but rejected on Vilpower — resubmit under Banking/Financial Services category.
+> **Decision:** SMS is used exclusively for Payment Approval OTP. This is the only template that needs to remain active on 2Factor + Vilpower/DLT.
 
 Edge Function: `api/send-sms.ts` (Vercel)  
 Env var: `TWOFACTOR_API_KEY` (set in Vercel dashboard)
+
+#### WhatsApp API (Settlement Links & Payment Confirmations) — ⏳ TBD
+
+| Message Type | Variables | Notes |
+|-------------|-----------|-------|
+| Settlement Link | name, amount, url | Link sent as a WhatsApp button; payee can also install the Settlement Page as a PWA from the chat |
+| Payment Confirmed | amount, voucher_no | Rich confirmation message with voucher reference |
+
+> **Rationale:** WhatsApp enables rich message formatting — interactive buttons for the settlement link, PWA install prompt for the Settlement Page on the payee's device, and better delivery rates than plain SMS for non-OTP flows.
+
+**Provider evaluation pending:** Interakt, Wati, or similar BSP. Once decided, implement in a new `api/send-whatsapp.ts` Vercel function and add `WHATSAPP_API_KEY` / `WHATSAPP_PHONE_ID` env vars.
 
 ---
 
@@ -545,9 +580,33 @@ Four KPI cards:
 - **Open Suspense Advances** — count of suspense vouchers with `status='open'` or `'partial'`
 
 ### 🔲 Next — Suite Entity Master (BLOCKER for Pramaana testing)
-Add Entities tab to `/master-data` in Suite.  
+~~Add Entities tab to `/master-data` in Suite.~~  
+**✅ DONE (June 2026)** — `src/lib/entities.js` + Entities tab in MasterData.jsx  
 Creates vendors, staff, customers in `registry.entities` + `registry.entity_roles`.  
-Without this, Pramaana payee typeahead returns nothing.
+Pramaana payee typeahead will now return results once entities are seeded here.
+
+**Fields per entity type (India):**
+
+| Field | Vendor | Staff | Customer | Management |
+|-------|:------:|:-----:|:--------:|:----------:|
+| Display Name | ✅ Required | ✅ Required | ✅ Required | ✅ Required |
+| Mobile | ✅ | ✅ | ✅ | ✅ |
+| GSTIN | ✅ Required | | ✅ | |
+| PAN | ✅ | ✅ | ✅ | ✅ |
+| Bank Details | ✅ Required | ✅ Required | ✅ Optional | ✅ Required |
+| IFSC | ✅ | ✅ | | ✅ |
+| UPI ID | ✅ | ✅ | ✅ | ✅ |
+| Pramaana Ledger Name | ✅ Required | | ✅ Required | |
+| Designation | | ✅ | | ✅ Required |
+
+**Fields per entity type (Overseas — country ≠ India):**
+
+| Field | Replaces |
+|-------|----------|
+| Company Reg. No. | GSTIN |
+| Tax / VAT Reg. No. | PAN |
+| SWIFT / BIC Code | IFSC Code |
+| Account / IBAN | Account Number |
 
 **Fields per entity type:**
 
@@ -583,15 +642,13 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 
 | Issue | Location | Priority | Notes |
 |-------|----------|----------|-------|
-| Vilpower templates pending re-approval | SMS | Medium | Settlement-Link + Payment-Confirmed rejected (wrong category). Resubmit under Banking/Financial Services. |
 | Entity typeahead in Pramaana searches ALL entities | `VoucherEntry.tsx` | Low | Should filter to Staff+Management for suspense. Acceptable for now. |
 | Dashboard is placeholder | Both apps | Medium | No live KPI cards yet |
 | CalciWorks sync button | Suite | Low | Query proven, no plant data yet |
 | `fp_forms` table empty | ClamFlow | — | Plant not processing batches yet. Sync will work when data exists. |
-| WhatsApp API not configured | Both | Medium | Interakt/Wati evaluation pending |
+| WhatsApp API not configured | Pramaana | High | Needed for Settlement Links + Payment Confirmations. Evaluate Interakt/Wati. Implement `api/send-whatsapp.ts` once provider chosen. |
 | `/vouchers/:id/edit` route | Pramaana | Medium | **FIXED** — VoucherEdit.tsx built, route added to App.tsx (draft status only) |
 | Voucher Edit form not tested end-to-end | Pramaana | Medium | VoucherEdit.tsx built but no confirmation it saves correctly — test with a real draft voucher |
-| Vilpower Settlement-Link + Payment-Confirmed rejected | SMS/DLT | Medium | Change category to Banking/Financial Services, add Implicit consent template, resubmit on Vilpower |
 
 ---
 
@@ -651,6 +708,11 @@ TWOFACTOR_API_KEY=<2Factor API key>
 | 2026-06-08 | relish-suite | `ea7f564` | Add Pramaana schema DDL (008) — 19 tables, triggers, RLS |
 | 2026-06-08 | relish-suite | `4ad605c` | feat: Screen 2 - Ledger Master complete with bank fields |
 | 2026-06-08 | relish-suite | `c218b3f` | chore: extract pramaana/ into standalone repo |
+| 2026-06-11 | relish-suite | `c9ccd3a` | feat(master-data): add Entities tab — registry.entities + entity_roles CRUD |
+| 2026-06-11 | relish-suite | `ffbfdf3` | feat(entities): duplicate detection + multi-role support |
+| 2026-06-11 | relish-suite | `426c12c` | feat(entities): SWIFT/BIC support — migration 010 |
+| 2026-06-11 | relish-suite | `adc72e6` | feat(entities): overseas reg fields, Pramaana ledger label, reset script — migrations 010+011 |
+| 2026-06-11 | relish-suite | `54a0c37` | chore(entities): expand overseas reg placeholder to include JP/CN/TH |
 | 2026-06-10 | pramaana | `63107bd` | fix: mobile sidebar overlay + PWA manifest with square icons |
 | 2026-06-10 | pramaana | `8b86ac0` | fix: remove is_active filter from entities query, fix deprecated PWA meta |
 | 2026-06-10 | pramaana | `75789a9` | fix: add icon.png to PWA manifest and apple-touch-icon |

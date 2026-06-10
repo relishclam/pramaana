@@ -13,6 +13,7 @@ import SuspenseEntry from '@/pages/SuspenseEntry'
 import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
 import RelayCapture from '@/pages/RelayCapture'
 import SettleCapture from '@/pages/SettleCapture'
+import VoucherEdit from '@/pages/VoucherEdit'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -238,6 +239,16 @@ function SuspenseEntryGuard() {
   return <AppShell><SuspenseEntry /></AppShell>
 }
 
+function VoucherEditGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && VOUCHER_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/vouchers" replace />
+  return <AppShell><VoucherEdit /></AppShell>
+}
+
 function ApprovalQueueGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -301,8 +312,9 @@ function AppRoutes() {
         <Route path="/relay"        element={<RelayCapture />} />
         <Route path="/settle/:token" element={<SettleCapture />} />
         <Route path="/ledgers"     element={<LedgersGuard />} />
-        <Route path="/vouchers"      element={<VoucherRegisterGuard />} />
-        <Route path="/vouchers/new"   element={<VoucherEntryGuard />} />
+        <Route path="/vouchers"            element={<VoucherRegisterGuard />} />
+        <Route path="/vouchers/new"         element={<VoucherEntryGuard />} />
+        <Route path="/vouchers/:id/edit"    element={<VoucherEditGuard />} />
         <Route path="/suspense"       element={<SuspenseRegisterGuard />} />
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />

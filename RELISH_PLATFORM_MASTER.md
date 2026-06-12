@@ -493,7 +493,7 @@ ALL apps READ from here. No app owns its own person data.
 | Management (Directors, Partners) | Suite Entities tab | admin / super_admin |
 | Office Staff (accounts, HR, ops) | Suite Entities tab | admin / HR role |
 | Vendors, Customers, Government, Auditors | Suite Entities tab | admin / accounts |
-| Plant Employees + Daily Wage Workers (RHHF Panavally) | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor on tablet |
+| Plant Employees + Daily Wage Workers (RHHF Panavally) | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor (PWA on phone at plant) |
 | Fishers / Boat Operators | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor |
 | Raw Material Suppliers (clams, coir, shell) | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor |
 | Overseas / Foreign entities | Suite Entities tab (overseas mode) | admin |
@@ -524,7 +524,8 @@ ALL apps READ from here. No app owns its own person data.
 - `suspense_eligible = TRUE` toggle for daily wage advance payments
 - `authorized_locations` multi-select (e.g. panavally_plant)
 - `legacy_clamflow_person_id` auto-populated when registering existing ClamFlow workers
-- Accessible to hr and operations roles; designed for tablet use at plant
+- Accessible to `hr` and `operations` roles
+- **Mobile-first PWA** — designed for use on a phone at the plant floor, not a desktop
 
 **Phase 3 — ClamFlow Reads from Registry (future):**
 - ClamFlow face scanner queries `registry.biometrics` instead of its own `person_photos` table
@@ -764,6 +765,7 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 3. ClamFlow database (`idwgenbkguejgwtzbicu`) is READ ONLY — zero INSERT/UPDATE/DELETE
 4. CalciWorks is NOT a company — never show it in company selectors
 5. Cross-schema FK joins do not work in Supabase JS — always fetch separately and merge in JS
+6. **Every app in the Relish ecosystem is a PWA — there are no native apps, no separate tablet apps, no Electron apps.** Mobile-first always. Some features are desktop-optimised (reports, tally export, admin) but the app itself must be installable and usable on a phone.
 
 ### Suite Only
 6. `supabaseApprovalsReadOnly` is the only client for the Approvals database — renamed to make this explicit
@@ -917,6 +919,37 @@ ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker 
 | E4 | Shift definition schema | `registry.shifts` (new table — design after reading ClamFlow) | 🔲 |
 | E5 | Attendance event schema | `registry.attendance` (DDL needs to match ClamFlow's structure) | 🔲 |
 | E6 | Supplier onboarding form | `registry.entities` WHERE role=Supplier | 🔲 |
+
+**F. Security / Visitor Detection Flow**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| F1 | Is there a visitors / gate log table? What is its full schema? | 🔲 | |
+| F2 | How does visitor check-in work — face scan, manual entry, or QR/badge? | 🔲 | |
+| F3 | What happens when an unknown face is detected — alert, photo stored, manual override? | 🔲 | |
+| F4 | Is visitor identity linked to `person_records` (pre-registered) or a separate visitors table? | 🔲 | |
+| F5 | Are gate access logs separate from plant-floor attendance logs? | 🔲 | |
+| F6 | Is there a blacklist / watchlist mechanism? | 🔲 | |
+| F7 | What does the security guard UI look like — live camera feed, notification popup, or manual log? | 🔲 | |
+
+**G. `ClamFlow_Onboard/` — Dedicated Onboarding Module**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| G1 | Is `ClamFlow_Onboard/` a separate standalone PWA or a route/module within `clamflow_frontend/`? | 🔲 | |
+| G2 | What tech stack is it built on (React, Vue, plain HTML)? | 🔲 | |
+| G3 | Is it optimised for phone use at the plant gate or desktop use in an HR office? | 🔲 | |
+| G4 | Does it handle both new worker registration AND visitor pre-registration? | 🔲 | |
+| G5 | What Supabase tables does it write to? | 🔲 | |
+| G6 | Is there a multi-step wizard (personal details → face photo → RFID → confirm)? | 🔲 | |
+| G7 | How does it handle duplicate detection before creating a new record? | 🔲 | |
+
+**H. Production / Costing (`ClamFlow_Costing/`)**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| H1 | What production data is recorded — batch weight, shell yield, waste, processing time? | 🔲 | |
+| H2 | Is production linked to supplier receipts (raw material in → processed batch out)? | 🔲 | |
+| H3 | Are production batches linked to specific workers (who processed which batch)? | 🔲 | |
+| H4 | Does costing data flow into Pramaana as accounting entries, or is it standalone? | 🔲 | |
+| H5 | Is `ClamFlow_Costing/` a separate app, or a module in the main ClamFlow frontend? | 🔲 | |
 
 ---
 

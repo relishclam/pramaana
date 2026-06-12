@@ -968,8 +968,8 @@ Pramaana is active and in use. This sub-section tracks features that exist in th
 
 | # | Feature | Source Inspiration | Priority | Status |
 |---|---------|-------------------|----------|--------|
-| P1 | WhatsApp share button for settlement links | User request (June 2026) | High | 🔲 |
-| P2 | Payment Confirmed action in Voucher Register | User request (June 2026) | High | 🔲 |
+| P1 | WhatsApp share button for settlement links | User request (June 2026) | High | ✅ Done June 12 2026 |
+| P2 | Payment Confirmed action in Voucher Register | User request (June 2026) | High | ✅ Done June 12 2026 |
 | P3 | Trial Balance report | Accounting standard | High | 🔲 |
 | P4 | Ledger Statement (date-range, per ledger) | Accounting standard | High | 🔲 |
 | P5 | Day Book (all vouchers in date order) | Accounting standard | Medium | 🔲 |

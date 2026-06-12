@@ -158,7 +158,6 @@ export default function SimplifiedPaymentEntry({
         .schema('registry')
         .from('entity_roles')
         .select('entity_id, role')
-        .eq('company_id', companyId)
         .eq('is_active', true)
         .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government'])
         .in('entity_id', ids)
@@ -166,9 +165,12 @@ export default function SimplifiedPaymentEntry({
       if (!roles?.length) { setEntityOptions([]); return }
 
       const map = new Map((entities as RawEntity[]).map(e => [e.id, e]))
+      // Deduplicate by entity_id — an entity may have roles in multiple companies;
+      // show each entity only once (first matching role).
+      const seen = new Set<string>()
       setEntityOptions(
         (roles as RawRole[])
-          .filter(r => map.has(r.entity_id))
+          .filter(r => map.has(r.entity_id) && !seen.has(r.entity_id) && seen.add(r.entity_id) !== undefined)
           .slice(0, 8)
           .map(r => {
             const e = map.get(r.entity_id)!

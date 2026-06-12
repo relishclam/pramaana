@@ -139,12 +139,11 @@ export default function VoucherEntry() {
 
       const entityIds = (entities as RawEntity[]).map(e => e.id)
 
-      // Step 2: find which of those have a role in this company
+      // Step 2: find which of those have any payable role across all companies
       const { data: roles } = await supabase
         .schema('registry')
         .from('entity_roles')
         .select('entity_id, role')
-        .eq('company_id', companyId)
         .eq('is_active', true)
         .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor'])
         .in('entity_id', entityIds)
@@ -155,9 +154,12 @@ export default function VoucherEntry() {
       const entityMap = new Map<string, RawEntity>(
         (entities as RawEntity[]).map(e => [e.id, e])
       )
+      // Deduplicate by entity_id — an entity may have roles in multiple companies;
+      // show each entity only once (first matching role).
+      const seen = new Set<string>()
       setEntityOptions(
         (roles as RawRole[])
-          .filter(r => entityMap.has(r.entity_id))
+          .filter(r => entityMap.has(r.entity_id) && !seen.has(r.entity_id) && seen.add(r.entity_id) !== undefined)
           .slice(0, 10)
           .map(r => {
             const e = entityMap.get(r.entity_id)!

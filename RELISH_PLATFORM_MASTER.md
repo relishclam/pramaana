@@ -1,5 +1,5 @@
 # Relish Platform — Master Reference Document
-**Last Updated:** June 2026  
+**Last Updated:** June 12, 2026  
 **Maintained by:** Motty Philip · motty.philip@gmail.com  
 **Update this file** after every significant build session in Suite or Pramaana.
 
@@ -128,11 +128,28 @@ Example: "Coastal Suppliers Pvt Ltd"
 ### Entity Role Values
 `Management | Staff | Vendor | Supplier | Customer | Auditor | Government | Fisher | Contractor`
 
+### Entities, Personnel and Vendors — What's the Difference?
+
+These three views in Suite Master Data are often confused:
+
+| Tab | Shows | Source | Editable |
+|-----|-------|--------|----------|
+| **Vendors** | entity_roles WHERE role=Vendor only | registry schema | Yes |
+| **Buyers** | entity_roles WHERE role=Customer only | registry schema | Yes |
+| **Entities** | ALL roles — Vendor, Customer, Staff, Management, Government, Contractor, Fisher, Auditor, Supplier | registry schema | Yes |
+| **Personnel** | ClamFlow plant workers at RHHF Panavally only | ClamFlow DB (READ-ONLY) | No |
+
+**Entities is the master view.** It is NOT a vendors list. It shows every person and organisation registered against the active company, regardless of role.
+
+**Personnel tab** is a read-only view of workers from the legacy ClamFlow database. These people are not yet in `registry.entities`. They cannot be paid via Pramaana until the Plant Worker Onboarding module (Phase 2.5) is built.
+
 ### Who Can Be a Payee in Pramaana?
 Any entity with role NOT 'Customer'. The payee typeahead filters:
 ```typescript
 .in('role', ['Vendor','Supplier','Staff','Management','Contractor','Government','Auditor'])
 ```
+
+**Payee search is GLOBAL — not scoped to the active company (June 12, 2026).** An entity registered under RFPL appears in RHHF payee search and vice versa. This reflects reality: Motty Philip, Anil Kumar, Sebin Jose and others work across both companies. The voucher itself remains company-scoped.
 
 ---
 
@@ -186,11 +203,15 @@ supabase.schema('registry').rpc('next_fy_sequence', {
 
 | Tab | Table | Notes |
 |-----|-------|-------|
-| Vendors | `registry.entity_roles` WHERE role='Vendor' | entity_id → registry.entities |
-| Buyers | `registry.entity_roles` WHERE role='Customer' | entity_id → registry.entities |
+| Companies | `registry.companies` | super_admin only |
+| Vendors | `registry.entity_roles` WHERE role=Vendor | Subset of Entities — legacy simplified view |
+| Buyers | `registry.entity_roles` WHERE role=Customer | Subset of Entities — legacy simplified view |
 | Products | `suite.products` | default_unit field (not 'unit') |
 | Delivery Addresses | `suite.delivery_addresses` | pincode field (not 'postal_code') |
-| **Entities** | `registry.entities` + `entity_roles` | **✅ BUILT — June 2026** |
+| **Entities** | `registry.entities` + `entity_roles` — ALL roles | **BUILT June 2026** — master view for all people and organisations |
+| Tally Config | `suite.tally_config` | Per-company Tally XML export settings |
+| ClamFlow Suppliers | ClamFlow `suppliers` + `person_records` (READ-ONLY) | Raw material suppliers at Panavally plant |
+| Personnel | ClamFlow `person_records` (READ-ONLY) | Plant workers at Panavally. NOT in `registry.entities`. Cannot be Pramaana payees until Phase 2.5 is built |
 
 ### 7.3 Key Lib Files
 
@@ -448,6 +469,72 @@ Suite: CalciWorks page records shell stock receipts/sales
 
 ---
 
+### 9.6 Registry as Platform Master — ClamFlow Integration Plan
+
+#### The North Star
+
+```
+Suite Registry (registry.entities) = The ONE Master Record.
+ALL onboarding happens here.
+ALL apps READ from here. No app owns its own person data.
+
+         Suite Registry
+              │
+    ┌─────────┼──────────┬──────────────┐
+    ▼         ▼          ▼              ▼
+ Pramaana  ClamFlow   Future App    Future App
+ (reads)   (reads)    (reads)       (reads)
+```
+
+#### Who Onboards Whom
+
+| Category | Onboarding Flow | Who Does It |
+|----------|----------------|-------------|
+| Management (Directors, Partners) | Suite Entities tab | admin / super_admin |
+| Office Staff (accounts, HR, ops) | Suite Entities tab | admin / HR role |
+| Vendors, Customers, Government, Auditors | Suite Entities tab | admin / accounts |
+| Plant Employees + Daily Wage Workers (RHHF Panavally) | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor on tablet |
+| Fishers / Boat Operators | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor |
+| Raw Material Suppliers (clams, coir, shell) | Suite Plant Worker Onboarding — Phase 2.5 | Plant supervisor |
+| Overseas / Foreign entities | Suite Entities tab (overseas mode) | admin |
+
+**Single Rule:** Every person and organisation lands in `registry.entities` before any other system can reference them. ClamFlow does not own people. Approvals does not own payees.
+
+#### Deduplication Keys (already in schema)
+
+| Column on `registry.entities` | Purpose |
+|-------------------------------|---------|
+| `legacy_clamflow_person_id` | Links to ClamFlow `person_records.id` — prevents re-creating existing plant workers during migration |
+| `legacy_clamflow_supplier_id` | Links to ClamFlow `suppliers.id` |
+| `legacy_approvals_payee_id` | Links to Approvals payee — used in 022_seed_entities_from_approvals.sql (June 2026) |
+
+#### Three-Phase ClamFlow Migration
+
+**Phase 1 — Immediate Workaround (now):**
+- Personnel tab in Suite shows ClamFlow workers (read-only view already built)
+- Add a "Register in Suite" button (first task of Phase 2.5) that pre-fills entity form from the ClamFlow record
+- Sets `legacy_clamflow_person_id` on the new `registry.entities` row
+- Worker immediately becomes a valid Pramaana payee
+
+**Phase 2 — Plant Worker Onboarding in Suite (Phase 2.5):**
+- Dedicated onboarding form for Staff / Fisher / Supplier roles
+- RFID tag assignment (requires migration 023 — see Known Issues)
+- Face photo capture → AWS Rekognition enrollment → `registry.biometrics`
+- Aadhaar last-4 capture (NEVER the full 12-digit number)
+- `suspense_eligible = TRUE` toggle for daily wage advance payments
+- `authorized_locations` multi-select (e.g. panavally_plant)
+- `legacy_clamflow_person_id` auto-populated when registering existing ClamFlow workers
+- Accessible to hr and operations roles; designed for tablet use at plant
+
+**Phase 3 — ClamFlow Reads from Registry (future):**
+- ClamFlow face scanner queries `registry.biometrics` instead of its own `person_photos` table
+- ClamFlow attendance events write to `registry.attendance` (soft ref to `shift_assignment_id`)
+- ClamFlow supplier lookup reads `registry.entities WHERE role='Supplier'`
+- ClamFlow `person_records`, `person_photos`, `attendance_logs` become read-only archives
+- ClamFlow becomes a pure UI terminal — owns zero master data
+
+---
+
 ## 10. Permissions Map
 
 ### Suite (src/lib/permissions.js)
@@ -621,6 +708,21 @@ Pramaana payee typeahead will now return results once entities are seeded here.
 | Tally Ledger Name | ✅ Required | | ✅ Required | |
 | Designation | | ✅ | | ✅ Required |
 
+### 🔲 Phase 2.5 — Plant Worker Onboarding (Suite)
+
+Dedicated onboarding flow inside Suite for plant employees, daily wage workers, fishers and raw material suppliers. This is the entry point for all RHHF Panavally personnel into the Suite Registry.
+
+- "Register in Suite" button on Personnel tab — pre-fills form from ClamFlow `person_records`
+- RFID tag assignment field
+- Face photo capture → AWS Rekognition enrollment → `registry.biometrics`
+- Aadhaar last-4 capture
+- `suspense_eligible = TRUE` toggle for advance-eligible workers
+- `authorized_locations` multi-select per worker
+- `legacy_clamflow_person_id` set automatically when registering existing ClamFlow workers
+- Accessible to `hr` and `operations` roles
+
+**Prerequisite:** Migration 023 — `ALTER TABLE registry.biometrics ADD COLUMN rfid_tag TEXT UNIQUE; ADD COLUMN rfid_issued_at TIMESTAMPTZ; ADD COLUMN rfid_issued_by UUID REFERENCES auth.users(id);`
+
 ### 🔲 Phase 3 — Pramaana Financial Reports
 Trial Balance, Ledger Statement, Day Book, P&L, Balance Sheet
 
@@ -642,7 +744,9 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 
 | Issue | Location | Priority | Notes |
 |-------|----------|----------|-------|
-| Entity typeahead in Pramaana searches ALL entities | `VoucherEntry.tsx` | Low | Should filter to Staff+Management for suspense. Acceptable for now. |
+| Entity payee search is intentionally GLOBAL | `VoucherEntry.tsx`, `SimplifiedPaymentEntry.tsx` | Resolved June 12 2026 | Removed company_id filter — entities from either company visible as payees in any voucher. Voucher itself remains company-scoped. |
+| `rfid_tag` column missing from `registry.biometrics` | DB Schema | Medium | Required before Phase 2.5. Pending migration 023: ADD COLUMN rfid_tag TEXT UNIQUE + rfid_issued_at + rfid_issued_by |
+| Plant workers (ClamFlow) not in `registry.entities` | ClamFlow migration | High | Cannot be Pramaana payees until Phase 2.5 built. Workaround: manually add via Entities tab with `legacy_clamflow_person_id` set |
 | Dashboard is placeholder | Both apps | Medium | No live KPI cards yet |
 | CalciWorks sync button | Suite | Low | Query proven, no plant data yet |
 | `fp_forms` table empty | ClamFlow | — | Plant not processing batches yet. Sync will work when data exists. |
@@ -728,6 +832,10 @@ TWOFACTOR_API_KEY=<2Factor API key>
 | 2026-06-10 | pramaana | `b888a5c` | fix: voucher_entries insert - remove company_id, rename to narration |
 | 2026-06-10 | pramaana | `bb33df7` | feat: 2Factor SMS integration - payment OTP, settlement link, payment confirmed |
 | 2026-06-10 | pramaana | `c8a0b46` | fix: SettleCapture submittedCount state + manifest update |
+| 2026-06-12 | relish-suite | — | seed: 022_seed_entities_from_approvals.sql — 109 entities (Vendors, Staff, Management, Government) for RFPL + RHHF from Approvals payee list; all Indian mobiles normalised to +91XXXXXXXXXX |
+| 2026-06-12 | pramaana | — | fix: entity payee search made global — removed company_id filter from entity_roles query in SimplifiedPaymentEntry.tsx and VoucherEntry.tsx |
+| 2026-06-12 | relish-suite | — | chore: RELISH_PLATFORM_MASTER.md updated — entity/personnel/vendor distinction, Registry Migration Plan, ClamFlow three-phase integration, Phase 2.5 roadmap |
+| 2026-06-12 | pramaana | — | chore: RELISH_PLATFORM_MASTER.md synced with Suite copy |
 
 ---
 
@@ -741,6 +849,148 @@ TWOFACTOR_API_KEY=<2Factor API key>
 | 2Factor.in | SMS OTP | Relish Hao Hao Chi Foods |
 | Vilpower (Vi Business) | DLT SMS registration | Motty Philip — motty.philip@gmail.com |
 | AWS Rekognition | Face recognition (ClamFlow) | ap-south-1 region |
+
+---
+
+## 21. Legacy App Integration Harvest
+
+This section is the **working checklist** for what must be understood and extracted from each legacy app before we can replace or integrate it. Updated each time a folder is opened for editing.
+
+Status key: 🔲 Not started · 🔍 Folder open / in progress · ✅ Done · ⚠️ Blocked
+
+---
+
+### 21.1 ClamFlow — `idwgenbkguejgwtzbicu` (READ ONLY)
+
+ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker registration, face recognition, RFID attendance, shift assignments, raw material (clam/shell) receipts from fishers, and daily production records.
+
+**Folder status:** 🔲 Not yet opened
+
+#### What We Need to Understand
+
+**A. Person / Worker Onboarding Flow**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| A1 | What is the full schema of `person_records`? (all columns, types, nullability) | 🔲 | |
+| A2 | What is the onboarding UI flow — which form fields does the supervisor fill in for a new worker? | 🔲 | |
+| A3 | How is the face photo captured — webcam component, mobile upload, or dedicated scanner? | 🔲 | |
+| A4 | How is the face photo sent to AWS Rekognition — direct from browser, or via a Supabase Edge Function? | 🔲 | |
+| A5 | What does ClamFlow store back from Rekognition — just `rekognition_face_id`? Full response? | 🔲 | |
+| A6 | Where is the face photo stored — Supabase Storage bucket name and path pattern? | 🔲 | |
+| A7 | Is there an Aadhaar field? What is stored — last-4 only, or more? | 🔲 | |
+| A8 | Is there a mobile number field on `person_records`? | 🔲 | |
+| A9 | What worker categories / roles exist in ClamFlow (equivalent of our entity `role` enum)? | 🔲 | |
+| A10 | What is `person_records.department` — is it a free-text field or a fixed enum? | 🔲 | |
+
+**B. RFID / Attendance Flow**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| B1 | What is the schema of the RFID / attendance events table (name, all columns)? | 🔲 | |
+| B2 | How is an RFID tag assigned to a worker — admin screen, or during onboarding? | 🔲 | |
+| B3 | What does an RFID scan event look like — is it clock-in only, or clock-in + clock-out? | 🔲 | |
+| B4 | How are shifts defined — is there a `shifts` table? What is its schema? | 🔲 | |
+| B5 | How is daily attendance calculated from scan events (late, present, absent logic)? | 🔲 | |
+| B6 | Does the RFID reader talk directly to Supabase or through a middleware service? | 🔲 | |
+
+**C. Face Recognition Attendance Flow**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| C1 | How does the face scanner identify a worker — which Rekognition API call? | 🔲 | |
+| C2 | What happens after a face match — which table is written, what columns? | 🔲 | |
+| C3 | Is face attendance separate from RFID attendance, or do both write the same table? | 🔲 | |
+| C4 | Is there a confidence threshold below which a scan is rejected or flagged? | 🔲 | |
+
+**D. Suppliers / Raw Material Flow**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| D1 | Full schema of `suppliers` table | 🔲 | |
+| D2 | Are fishers in `person_records` or `suppliers`, or both? | 🔲 | |
+| D3 | What is the raw material receipt flow — form fields, table written, approval step? | 🔲 | |
+| D4 | How is a supplier payment triggered from ClamFlow — does it create anything in Approvals? | 🔲 | |
+
+**E. What We Must Copy Into Suite Registry**
+| # | What to copy | Target in Suite | Status |
+|---|-------------|-----------------|--------|
+| E1 | Face photo capture + Rekognition enrollment | `registry.biometrics` + Storage bucket | 🔲 |
+| E2 | RFID tag assignment UI | `registry.biometrics.rfid_tag` (migration 023) | 🔲 |
+| E3 | Worker onboarding form (name, DOB, Aadhaar-4, mobile, department, role) | `registry.entities` + `entity_roles` | 🔲 |
+| E4 | Shift definition schema | `registry.shifts` (new table — design after reading ClamFlow) | 🔲 |
+| E5 | Attendance event schema | `registry.attendance` (DDL needs to match ClamFlow's structure) | 🔲 |
+| E6 | Supplier onboarding form | `registry.entities` WHERE role=Supplier | 🔲 |
+
+---
+
+### 21.2 Relish Approvals — `ewbguvwrejdvlhzcqlbp` (READ ONLY)
+
+Approvals is the legacy payment workflow app. It holds RHHF and RFPL payees, historical payment approvals, and the mobile-OTP settlement link flow that Pramaana is replacing.
+
+**Folder status:** 🔲 Not yet opened
+
+#### What We Need to Understand
+
+**A. Payee / Entity Data**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| A1 | Full schema of the payees table (name, columns, types) | 🔲 | |
+| A2 | What payee categories exist? Do they map cleanly to our `role` enum? | 🔲 | |
+| A3 | Are mobile numbers stored with `+91` prefix, without prefix, or mixed? | 🔲 | |
+| A4 | Is there a GSTIN / PAN field on payees? | 🔲 | |
+| A5 | Are there duplicate payees across RHHF and RFPL, or is each payee scoped to one company? | 🔲 | Partially known — Motty Philip, Anil Kumar etc. appear in both |
+| A6 | Are payees ever shared with ClamFlow (same person as a ClamFlow supplier)? | 🔲 | |
+
+**B. Approval / Payment Workflow**
+| # | Question | Status | Answer |
+|---|----------|--------|--------|
+| B1 | Full flow from payment request → approval → disbursement — what tables are written at each step? | 🔲 | |
+| B2 | What is the `approval_status` enum — all possible values? | 🔲 | |
+| B3 | How are multi-level approvals handled — is there an approver hierarchy table? | 🔲 | |
+| B4 | What triggers an SMS to the payee — which event, which table write? | 🔲 | |
+| B5 | What does the settlement link contain — token, amount, expiry? Schema of settlements table? | 🔲 | |
+| B6 | How does a payee submit receipts / proof — file upload to Storage? Which bucket? | 🔲 | |
+
+**C. What We Must Copy Into Pramaana**
+| # | What to copy | Target in Pramaana | Status |
+|---|-------------|-------------------|--------|
+| C1 | Settlement link generation (token + expiry) | `pramaana.suspense` settlement_token + settlement_expires_at | ✅ Already built |
+| C2 | SMS notification on payment approval | `pramaana.sms_log` — Pramaana sends via 2Factor.in | ✅ Already built |
+| C3 | Payee list (all 109 entities) | `registry.entities` seed (022_seed_entities_from_approvals.sql) | ✅ Seed written, not yet run |
+| C4 | Multi-level approval hierarchy (if any) | `pramaana.approvals` — design TBD | 🔲 |
+| C5 | Receipt / proof upload flow | Pramaana settlement capture page | 🔲 |
+| C6 | Historical payment records (for opening balances) | `pramaana.vouchers` opening balance import | 🔲 |
+
+---
+
+### 21.3 Pramaana (Self-Reference — Features Still Needed)
+
+Pramaana is active and in use. This sub-section tracks features that exist in the Approvals app or are user-requested that Pramaana still needs to build.
+
+**Folder status:** ✅ Open — primary development app
+
+| # | Feature | Source Inspiration | Priority | Status |
+|---|---------|-------------------|----------|--------|
+| P1 | WhatsApp share button for settlement links | User request (June 2026) | High | 🔲 |
+| P2 | Payment Confirmed action in Voucher Register | User request (June 2026) | High | 🔲 |
+| P3 | Trial Balance report | Accounting standard | High | 🔲 |
+| P4 | Ledger Statement (date-range, per ledger) | Accounting standard | High | 🔲 |
+| P5 | Day Book (all vouchers in date order) | Accounting standard | Medium | 🔲 |
+| P6 | Profit & Loss Statement | Accounting standard | Medium | 🔲 |
+| P7 | Balance Sheet | Accounting standard | Medium | 🔲 |
+| P8 | Multi-level payment approval hierarchy | Approvals app | Medium | 🔲 |
+| P9 | Receipt / proof upload by payee at settlement | Approvals app | Medium | 🔲 |
+| P10 | Period lock (prevent editing posted vouchers before lock date) | Accounting standard | Low | 🔲 |
+
+---
+
+### 21.4 Update Protocol
+
+When a legacy folder is opened for editing:
+1. Read the schema files / migration SQL first
+2. Fill in the Answer column for every open question in 21.1 / 21.2
+3. Move answered rows to status ✅
+4. Update the **Folder status** line
+5. Add any new questions discovered during the session
+6. Sync identical changes to `pramaana/RELISH_PLATFORM_MASTER.md`
+7. Commit both copies together
 
 ---
 

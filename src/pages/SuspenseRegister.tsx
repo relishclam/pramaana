@@ -34,6 +34,30 @@ function fmtDateTime(iso: string) {
   })
 }
 
+// ── WhatsApp URL builder ─────────────────────────────────────────────────────
+
+function buildWhatsAppUrl(
+  mobile: string,
+  name: string,
+  amount: number,
+  purpose: string | null,
+  settlementUrl: string,
+  companyCode: string,
+): string {
+  const digits = mobile.replace(/\D/g, '') // strip + and any non-digits
+  const amtStr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount)
+  const purposeStr = purpose ?? 'company expenses'
+  const msg =
+    `\u{1F9FE} *Relish Accounts \u2014 Advance Settlement*\n\n` +
+    `Hi ${name},\n\n` +
+    `You have a pending advance of *${amtStr}* from ${companyCode} for ${purposeStr}.\n\n` +
+    `Please submit your expenses using the link below:\n\n` +
+    `\uD83D\uDC49 ${settlementUrl}\n\n` +
+    `_This link is valid for 7 days. Tap "Add to Home Screen" to save it for quick access._\n\n` +
+    `\u2014 Relish Accounts`
+  return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
+}
+
 // ── Status Badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -425,6 +449,26 @@ function DetailPanel({
                     {copiedLink ? <Check size={14} /> : <Copy size={14} />}
                     {copiedLink ? 'Copied!' : 'Copy'}
                   </button>
+                  {row.entity_mobile ? (
+                    <a
+                      href={buildWhatsAppUrl(
+                        row.entity_mobile,
+                        row.entity_name ?? 'there',
+                        row.amount,
+                        row.suspense_purpose,
+                        settlementUrl,
+                        companyCode,
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.waBtn}
+                      title="Send via WhatsApp"
+                    >
+                      WhatsApp
+                    </a>
+                  ) : (
+                    <span className={styles.noMobile}>No mobile on file</span>
+                  )}
                 </div>
               ) : (
                 <button className={styles.btnPrimary} onClick={handleSendLink} disabled={actioning}>

@@ -764,6 +764,18 @@
 .btnDanger:disabled,
 .btnWarning:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.waBtn {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.4375rem 0.875rem; background: #25D366; border: none;
+  border-radius: var(--radius); color: #fff; font-size: 0.8125rem; font-weight: 600;
+  cursor: pointer; text-decoration: none; transition: opacity 0.15s;
+}
+.waBtn:hover { opacity: 0.88; }
+
+.noMobile {
+  font-size: 0.8125rem; color: var(--text-dim); font-style: italic;
+}
+
 .comingSoon {
   font-size: 0.625rem;
   font-weight: 700;

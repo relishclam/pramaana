@@ -18,6 +18,7 @@ export interface SuspenseVoucher {
   created_by:       string
   created_at:       string
   entity_name:      string | null
+  entity_mobile:    string | null
   created_by_name:  string
   voucher_type:     { code: string; name: string; prefix: string }
   session:          SuspenseSession | null
@@ -156,8 +157,8 @@ export async function fetchSuspenseVouchers(
   const [profilesRes, entitiesRes, sessionsRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', creatorIds),
     entityIds.length > 0
-      ? supabase.schema('registry').from('entities').select('id, display_name').in('id', entityIds)
-      : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
+      ? supabase.schema('registry').from('entities').select('id, display_name, mobile').in('id', entityIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string; mobile: string | null }[] }),
     supabase.schema('pramaana').from('settlement_sessions').select('*').in('advance_voucher_id', voucherIds),
   ])
 
@@ -166,8 +167,12 @@ export async function fetchSuspenseVouchers(
       .map(p => [p.id, p.full_name ?? 'Unknown'])
   )
   const entityMap = new Map(
-    ((entitiesRes.data ?? []) as { id: string; display_name: string }[])
+    ((entitiesRes.data ?? []) as { id: string; display_name: string; mobile: string | null }[])
       .map(e => [e.id, e.display_name])
+  )
+  const entityMobileMap = new Map(
+    ((entitiesRes.data ?? []) as { id: string; display_name: string; mobile: string | null }[])
+      .map(e => [e.id, e.mobile ?? null])
   )
   const sessionMap = new Map<string, SuspenseSession>(
     ((sessionsRes.data ?? []) as SuspenseSession[])
@@ -191,6 +196,7 @@ export async function fetchSuspenseVouchers(
       created_by:       r.created_by,
       created_at:       r.created_at,
       entity_name:      r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
+      entity_mobile:    r.entity_id ? (entityMobileMap.get(r.entity_id) ?? null) : null,
       created_by_name:  profileMap.get(r.created_by) ?? 'Unknown',
       voucher_type:     r.voucher_type ?? { code: '?', name: 'Unknown', prefix: '' },
       session:          sessionMap.get(r.id) ?? null,

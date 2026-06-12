@@ -14,7 +14,8 @@ export interface PendingVoucher {
   created_by: string
   // resolved
   created_by_name: string
-  entity_name: string | null
+  entity_name:     string | null
+  entity_mobile:   string | null
   voucher_type: { id: string; code: string; name: string; nature: string }
 }
 
@@ -99,8 +100,8 @@ export async function fetchPendingVouchers(companyId: string): Promise<PendingVo
       ? supabase.schema('registry').from('profiles').select('id, full_name').in('id', creatorIds)
       : Promise.resolve({ data: [] as { id: string; full_name: string | null }[] }),
     entityIds.length > 0
-      ? supabase.schema('registry').from('entities').select('id, display_name').in('id', entityIds)
-      : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
+      ? supabase.schema('registry').from('entities').select('id, display_name, mobile').in('id', entityIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string; mobile: string | null }[] }),
   ])
 
   const profileMap = new Map<string, string>(
@@ -108,8 +109,12 @@ export async function fetchPendingVouchers(companyId: string): Promise<PendingVo
       .map(p => [p.id, p.full_name ?? 'Unknown'])
   )
   const entityMap = new Map<string, string>(
-    ((entitiesRes.data ?? []) as { id: string; display_name: string }[])
+    ((entitiesRes.data ?? []) as { id: string; display_name: string; mobile: string | null }[])
       .map(e => [e.id, e.display_name])
+  )
+  const entityMobileMap = new Map<string, string | null>(
+    ((entitiesRes.data ?? []) as { id: string; display_name: string; mobile: string | null }[])
+      .map(e => [e.id, e.mobile ?? null])
   )
 
   return rows.map(r => ({
@@ -124,7 +129,8 @@ export async function fetchPendingVouchers(companyId: string): Promise<PendingVo
     created_by: r.created_by,
     voucher_type: r.voucher_type ?? { id: '', code: '?', name: 'Unknown', nature: '' },
     created_by_name: profileMap.get(r.created_by) ?? 'Unknown',
-    entity_name: r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
+    entity_name:   r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
+    entity_mobile: r.entity_id ? (entityMobileMap.get(r.entity_id) ?? null) : null,
   }))
 }
 
@@ -182,7 +188,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   const [profilesRes, entityRes, bankRes, costRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', profileIds),
     v.entity_id
-      ? supabase.schema('registry').from('entities').select('id, display_name').eq('id', v.entity_id).maybeSingle()
+      ? supabase.schema('registry').from('entities').select('id, display_name, mobile').eq('id', v.entity_id).maybeSingle()
       : Promise.resolve(null),
     v.bank_ledger_id
       ? supabase.schema('pramaana').from('ledgers').select('id, name').eq('id', v.bank_ledger_id).maybeSingle()
@@ -197,7 +203,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
       .map(p => [p.id, p.full_name ?? 'Unknown'])
   )
 
-  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string } | null }).data : null
+  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string; mobile: string | null } | null }).data : null
   const bankData     = bankRes     ? (bankRes     as { data: { name: string }           | null }).data : null
   const costData     = costRes     ? (costRes     as { data: { name: string }           | null }).data : null
 
@@ -214,6 +220,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     voucher_type: v.voucher_type ?? { id: '', code: '?', name: 'Unknown', nature: '' },
     created_by_name: profileMap.get(v.created_by) ?? 'Unknown',
     entity_name:       entityData ? entityData.display_name : null,
+    entity_mobile:     entityData ? (entityData.mobile ?? null) : null,
     ref_document_number: v.ref_document_number,
     payment_mode:        v.payment_mode,
     bank_ledger_name:    bankData   ? bankData.name   : null,

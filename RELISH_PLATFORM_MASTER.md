@@ -325,7 +325,8 @@ For China and Japan the tax number is the same as the company registration numbe
 | `src/lib/approvals.ts` | fetchPendingVouchers, fetchVoucherFull, approveVoucher, rejectVoucher, fetchPendingCount |
 | `src/lib/suspense.ts` | Full suspense workflow — see Section 8.5 |
 | `src/lib/attachments.ts` | fetchVoucherAttachments, signed URLs |
-| `src/lib/sms.ts` | sendSettlementLinkSms, sendPaymentConfirmedSms, sendPaymentOtpSms |
+| `src/lib/sms.ts` | sendSettlementLinkSms, sendPaymentApprovalOtpSms |
+| `src/lib/whatsapp.ts` | buildWhatsAppLink, settlement link share — see Section 8.8 |
 | `src/lib/permissions.ts` | getPermissions(role) → Permissions object |
 | `src/contexts/AuthContext.tsx` | user, profile, activeCompany, activeRole, signOut |
 | `src/contexts/ApprovalContext.tsx` | pendingCount, refreshCount |
@@ -386,16 +387,49 @@ supabase.schema('registry').rpc('next_fy_sequence', {...})
 Edge Function: `api/send-sms.ts` (Vercel)  
 Env var: `TWOFACTOR_API_KEY` (set in Vercel dashboard)
 
-#### WhatsApp API (Settlement Links & Payment Confirmations) — ⏳ TBD
+#### WhatsApp — Interim via `wa.me` deep link (no API required)
 
-| Message Type | Variables | Notes |
-|-------------|-----------|-------|
-| Settlement Link | name, amount, url | Link sent as a WhatsApp button; payee can also install the Settlement Page as a PWA from the chat |
-| Payment Confirmed | amount, voucher_no | Rich confirmation message with voucher reference |
+**Status: Implemented June 12 2026** (see Section 21.3, P1)
 
-> **Rationale:** WhatsApp enables rich message formatting — interactive buttons for the settlement link, PWA install prompt for the Settlement Page on the payee's device, and better delivery rates than plain SMS for non-OTP flows.
+`https://wa.me/{mobile}?text={url_encoded_message}` opens WhatsApp Web or the WhatsApp app with the message pre-filled in the chat box. The user reviews and taps Send manually — no Business API approval needed, works with any regular WhatsApp number.
 
-**Provider evaluation pending:** Interakt, Wati, or similar BSP. Once decided, implement in a new `api/send-whatsapp.ts` Vercel function and add `WHATSAPP_API_KEY` / `WHATSAPP_PHONE_ID` env vars.
+```typescript
+function buildWhatsAppLink(phone: string, message: string): string {
+  const cleanPhone = phone.replace(/[^\d]/g, '') // strip +, spaces — wa.me wants digits only
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+}
+```
+
+**Settlement Link template:**
+```
+🧾 *Relish — Advance Settlement*
+
+Hi {{name}},
+
+You have a pending advance of *₹{{amount}}* from RHHF for {{purpose}}.
+
+Please submit your expenses using the link below:
+👉 {{settlement_url}}
+
+_This link is valid for 7 days. Tap "Add to Home Screen" to save it for quick access._
+
+— Relish Accounts
+```
+
+> **Note:** No "Payment Confirmed" message is sent. If a payee has not received a payment, they will contact the office directly — a confirmation message is unnecessary overhead.
+
+"Send via WhatsApp" button appears next to the existing settlement link in the Suspense Advances settlement screen. If the entity has no mobile number on record, the button is hidden and "No mobile number on file" is shown instead.
+
+#### WhatsApp — Full Business API via 2Factor (Phase 2)
+
+**Status: Onboarding initiated June 12 2026** — 2Factor connect request submitted via `2factor.in/v3/lp/official-whatsapp-business-api-india.php`. Same 2Factor account/API key as SMS — no separate Meta Developer integration needed. Typical approval window 24-48h for existing customers.
+
+Once approved:
+- `api/send-whatsapp.ts` Vercel Edge Function
+- Env vars: `TWOFACTOR_WHATSAPP_KEY`, `TWOFACTOR_WHATSAPP_PHONE_ID`
+- The Settlement Link template above gets submitted for Meta template approval (via 2Factor) — same content, now with a tappable URL button instead of a plain link
+- `messaging.ts` becomes channel-aware: WhatsApp preferred for settlement links, SMS retained only for OTP
+- The "Send via WhatsApp" button in Pramaana switches from opening `wa.me` to calling `api/send-whatsapp.ts` directly — same message content, no UI rework needed
 
 ---
 
@@ -658,7 +692,7 @@ Save as: `RHHF_Vouchers_Apr_Jul_2026.xlsx`, `RFPL_Vouchers_Apr_Jul_2026.xlsx`
 Auth, company switching, RBAC, Purchase Orders, Commercial Invoices, GST Invoice, CalciWorks, Master Data (Vendors, Buyers, Products, Addresses), Tally Export, User Management, PWA
 
 ### ✅ Phase 2 — Pramaana Core (Complete)
-Ledger Master, Voucher Entry (simplified + advanced mode), Approval Queue, Voucher Register, Suspense Advances, Settlement Page (public), Bill Relay Capture, SMS Integration (2Factor)
+Ledger Master, Voucher Entry (simplified + advanced mode), Approval Queue, Voucher Register, Suspense Advances, Settlement Page (public), Bill Relay Capture, SMS Integration (2Factor), WhatsApp interim share (wa.me)
 
 ### 🔲 Immediate — Pramaana Dashboard (replaces placeholder)
 Four KPI cards:
@@ -751,7 +785,8 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 | Dashboard is placeholder | Both apps | Medium | No live KPI cards yet |
 | CalciWorks sync button | Suite | Low | Query proven, no plant data yet |
 | `fp_forms` table empty | ClamFlow | — | Plant not processing batches yet. Sync will work when data exists. |
-| WhatsApp API not configured | Pramaana | High | Needed for Settlement Links + Payment Confirmations. Evaluate Interakt/Wati. Implement `api/send-whatsapp.ts` once provider chosen. |
+| WhatsApp Business API onboarding (2Factor) | Both | Medium | Initiated June 12 2026 via 2Factor's official WhatsApp onboarding form. Awaiting connect/approval (~24-48h). Interim `wa.me` share is live in the meantime — see Section 8.8. |
+| VCT Traders mobile number anomaly | `registry.entities` | Low | Mobile stored as `99947151524` (11 digits) — likely data-entry error. Needs manual verification against source records before standardising to `+91` format. |
 | `/vouchers/:id/edit` route | Pramaana | Medium | **FIXED** — VoucherEdit.tsx built, route added to App.tsx (draft status only) |
 | Voucher Edit form not tested end-to-end | Pramaana | Medium | VoucherEdit.tsx built but no confirmation it saves correctly — test with a real draft voucher |
 
@@ -781,6 +816,7 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 14. OTP hash is stored via bcrypt — plain OTP is NEVER stored anywhere
 15. Settlement page `/settle/:token` is public — no auth required. Token possession is the credential.
 16. `anon` role has SELECT on `settlement_sessions` + `vouchers` (suspense only) + INSERT on `suspense_settlements` with session guard
+17. Pramaana does not send payment confirmation messages of any kind (SMS or WhatsApp). If a payee believes a payment is missing, they contact the office directly.
 
 ---
 
@@ -801,6 +837,8 @@ VITE_CLAMFLOW_SUPABASE_ANON_KEY=<clamflow anon key>
 VITE_SUPABASE_URL=https://mmkbknnzgpvsqgnynrbe.supabase.co
 VITE_SUPABASE_ANON_KEY=<same anon key as Suite>
 TWOFACTOR_API_KEY=<2Factor API key>
+TWOFACTOR_WHATSAPP_KEY=<2Factor WhatsApp key — post-approval>
+TWOFACTOR_WHATSAPP_PHONE_ID=<2Factor WhatsApp phone ID — post-approval>
 ```
 
 ---
@@ -834,10 +872,13 @@ TWOFACTOR_API_KEY=<2Factor API key>
 | 2026-06-10 | pramaana | `b888a5c` | fix: voucher_entries insert - remove company_id, rename to narration |
 | 2026-06-10 | pramaana | `bb33df7` | feat: 2Factor SMS integration - payment OTP, settlement link, payment confirmed |
 | 2026-06-10 | pramaana | `c8a0b46` | fix: SettleCapture submittedCount state + manifest update |
-| 2026-06-12 | relish-suite | — | seed: 022_seed_entities_from_approvals.sql — 109 entities (Vendors, Staff, Management, Government) for RFPL + RHHF from Approvals payee list; all Indian mobiles normalised to +91XXXXXXXXXX |
+| 2026-06-12 | relish-suite | — | seed: 022_seed_entities_from_approvals.sql — initial 109-entity seed (uncorrected version) |
 | 2026-06-12 | pramaana | — | fix: entity payee search made global — removed company_id filter from entity_roles query in SimplifiedPaymentEntry.tsx and VoucherEntry.tsx |
 | 2026-06-12 | relish-suite | — | chore: RELISH_PLATFORM_MASTER.md updated — entity/personnel/vendor distinction, Registry Migration Plan, ClamFlow three-phase integration, Phase 2.5 roadmap |
 | 2026-06-12 | pramaana | — | chore: RELISH_PLATFORM_MASTER.md synced with Suite copy |
+| 2026-06-12 | relish-suite | — | fix: 022_seed_entities_from_approvals.sql corrected — RESET block added; PERSON/ORGANISATION type corrections (~30 entities); Sherine Motty/Tarun Philip/Motty Philip → Management roles; KSEB/KSIDC → Government; Vijayan duplicate merged; Veda Associates bank fields fixed; all mobiles standardised to +91 format. 110 entities seeded, verified via Pramaana payee typeahead. |
+| 2026-06-12 | pramaana | — | feat: WhatsApp interim share via wa.me deep link — "Send via WhatsApp" button on Suspense Advances settlement screen, settlement link template ("Relish" branding, no payment-confirmed message) |
+| 2026-06-12 | pramaana | — | design: UPI Pay Now feature spec — deep link + QR code for Approval Queue / Voucher Register detail panels (not yet built — Phase 3) |
 
 ---
 
@@ -848,9 +889,10 @@ TWOFACTOR_API_KEY=<2Factor API key>
 | Supabase | Primary database | relishclam organisation |
 | Vercel | Hosting both apps | relishclam organisation |
 | GitHub | Code repos | relishclam/relish-suite + relishclam/pramaana |
-| 2Factor.in | SMS OTP | Relish Hao Hao Chi Foods |
-| Vilpower (Vi Business) | DLT SMS registration | Motty Philip — motty.philip@gmail.com |
+| 2Factor.in | SMS OTP + WhatsApp Business API (onboarding in progress, June 12 2026) | Relish Hao Hao Chi Foods |
+| Vilpower (Vi Business) | DLT SMS registration — Payment-Approval OTP only | Motty Philip — motty.philip@gmail.com |
 | AWS Rekognition | Face recognition (ClamFlow) | ap-south-1 region |
+| Meta for Developers | WhatsApp Cloud API (parallel exploration — app ID 979373741599924, "Relish Compliance" portfolio) — not the primary path; 2Factor preferred | motty.philip@gmail.com |
 
 ---
 
@@ -966,9 +1008,9 @@ Approvals is the legacy payment workflow app. It holds RHHF and RFPL payees, his
 |---|----------|--------|--------|
 | A1 | Full schema of the payees table (name, columns, types) | 🔲 | |
 | A2 | What payee categories exist? Do they map cleanly to our `role` enum? | 🔲 | |
-| A3 | Are mobile numbers stored with `+91` prefix, without prefix, or mixed? | 🔲 | |
+| A3 | Are mobile numbers stored with `+91` prefix, without prefix, or mixed? | ✅ | Mixed — confirmed during 022 seed corrections (June 12 2026). Standardised to `+91XXXXXXXXXX` on import. |
 | A4 | Is there a GSTIN / PAN field on payees? | 🔲 | |
-| A5 | Are there duplicate payees across RHHF and RFPL, or is each payee scoped to one company? | 🔲 | Partially known — Motty Philip, Anil Kumar etc. appear in both |
+| A5 | Are there duplicate payees across RHHF and RFPL, or is each payee scoped to one company? | ✅ | Confirmed — same individuals (Motty Philip, Anil Kumar, Sebin Jose, Varghese/Electrician, etc.) appear as payees under both RHHF and RFPL. Modeled as one `registry.entities` row with two `entity_roles` rows. |
 | A6 | Are payees ever shared with ClamFlow (same person as a ClamFlow supplier)? | 🔲 | |
 
 **B. Approval / Payment Workflow**
@@ -986,7 +1028,7 @@ Approvals is the legacy payment workflow app. It holds RHHF and RFPL payees, his
 |---|-------------|-------------------|--------|
 | C1 | Settlement link generation (token + expiry) | `pramaana.suspense` settlement_token + settlement_expires_at | ✅ Already built |
 | C2 | SMS notification on payment approval | `pramaana.sms_log` — Pramaana sends via 2Factor.in | ✅ Already built |
-| C3 | Payee list (all 109 entities) | `registry.entities` seed (022_seed_entities_from_approvals.sql) | ✅ Seed written, not yet run |
+| C3 | Payee list (all entities) | `registry.entities` seed (022_seed_entities_from_approvals.sql) | ✅ Done — 110 entities seeded and verified June 12 2026 |
 | C4 | Multi-level approval hierarchy (if any) | `pramaana.approvals` — design TBD | 🔲 |
 | C5 | Receipt / proof upload flow | Pramaana settlement capture page | 🔲 |
 | C6 | Historical payment records (for opening balances) | `pramaana.vouchers` opening balance import | 🔲 |
@@ -1001,8 +1043,8 @@ Pramaana is active and in use. This sub-section tracks features that exist in th
 
 | # | Feature | Source Inspiration | Priority | Status |
 |---|---------|-------------------|----------|--------|
-| P1 | WhatsApp share button for settlement links | User request (June 2026) | High | ✅ Done June 12 2026 |
-| P2 | Payment Confirmed action in Voucher Register | User request (June 2026) | High | ✅ Done June 12 2026 |
+| P1 | WhatsApp share button for settlement links (wa.me interim) | User request (June 2026) | High | ✅ Done June 12 2026 |
+| P2 | Payment Confirmed action in Voucher Register | User request (June 2026) | High | ❌ Dropped June 12 2026 — no payment-confirmed message is sent; payees contact the office if a payment is missing |
 | P3 | Trial Balance report | Accounting standard | High | 🔲 |
 | P4 | Ledger Statement (date-range, per ledger) | Accounting standard | High | 🔲 |
 | P5 | Day Book (all vouchers in date order) | Accounting standard | Medium | 🔲 |
@@ -1011,6 +1053,8 @@ Pramaana is active and in use. This sub-section tracks features that exist in th
 | P8 | Multi-level payment approval hierarchy | Approvals app | Medium | 🔲 |
 | P9 | Receipt / proof upload by payee at settlement | Approvals app | Medium | 🔲 |
 | P10 | Period lock (prevent editing posted vouchers before lock date) | Accounting standard | Low | 🔲 |
+| P11 | UPI Pay Now — deep link + QR code on voucher detail panels | User request (June 2026) | Medium | 🔲 Designed, not built |
+| P12 | WhatsApp Business API via 2Factor — replaces wa.me interim | User request (June 2026) | Medium | 🔲 Onboarding initiated, awaiting 2Factor approval |
 
 ---
 

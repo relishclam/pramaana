@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
-  AlertCircle, FileText, ExternalLink, Trash2, Edit3, Send, RotateCcw, BookOpen, MessageCircle,
+  AlertCircle, FileText, ExternalLink, Trash2, Edit3, Send, RotateCcw, BookOpen,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -28,26 +28,6 @@ import {
 } from '@/lib/attachments'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './VoucherRegister.module.css'
-
-// ── WhatsApp payment confirmation URL builder ─────────────────────────────────
-
-function buildPaymentConfirmedWhatsApp(
-  mobile: string,
-  name: string,
-  amount: number,
-  companyCode: string,
-  narration: string | null,
-): string {
-  const digits = mobile.replace(/\D/g, '')
-  const amtStr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount)
-  const narrationLine = narration ? `\nRef: ${narration}` : ''
-  const msg =
-    `\u{1F9FE} *Relish Accounts \u2014 Payment Confirmation*\n\n` +
-    `Hi ${name},\n\n` +
-    `Your payment of *${amtStr}* from ${companyCode} has been processed.${narrationLine}\n\n` +
-    `\u2014 Relish Accounts`
-  return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
-}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -568,27 +548,6 @@ function DetailPanel({
                     <RotateCcw size={13} /> Create Reversal
                     <span className={styles.comingSoon}>Phase 3</span>
                   </button>
-                  {detail?.voucher_type?.nature === 'payment' && (
-                    detail?.entity_mobile ? (
-                      <a
-                        href={buildPaymentConfirmedWhatsApp(
-                          detail.entity_mobile,
-                          detail.entity_name ?? 'there',
-                          detail.amount,
-                          companyCode,
-                          detail.narration,
-                        )}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.waBtn}
-                        title="Notify payee via WhatsApp"
-                      >
-                        <MessageCircle size={13} /> Payment Confirmed
-                      </a>
-                    ) : detail?.entity_id ? (
-                      <span className={styles.noMobile}>No mobile on file — cannot send WhatsApp</span>
-                    ) : null
-                  )}
                 </>
               )}
 

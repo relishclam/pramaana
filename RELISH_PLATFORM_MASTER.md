@@ -211,7 +211,7 @@ supabase.schema('registry').rpc('next_fy_sequence', {
 | **Entities** | `registry.entities` + `entity_roles` — ALL roles | **BUILT June 2026** — master view for all people and organisations |
 | Tally Config | `suite.tally_config` | Per-company Tally XML export settings |
 | ClamFlow Suppliers | ClamFlow `suppliers` + `person_records` (READ-ONLY) | Raw material suppliers at Panavally plant |
-| Personnel | ClamFlow `person_records` (READ-ONLY) | Plant workers at Panavally. NOT in `registry.entities`. Cannot be Pramaana payees until Phase 2.5 is built |
+| Personnel | `registry.entities` WHERE `authorized_locations` includes `panavally_plant` | Plant workers, fishers & plant-facing suppliers for RHHF Panavally. **Owned by Suite.** Onboarded via Phase 2.5 form. Not sourced from ClamFlow. |
 
 ### 7.3 Key Lib Files
 
@@ -260,6 +260,7 @@ const entity = await supabase.schema('registry').from('entities')
 | 007_calciworks_shell_stock.sql | ✅ Applied | shell_stock table + GST counter at 35 |
 | 010_entities_bank_swift.sql | ✅ Applied | ADD COLUMN bank_swift on registry.entities |
 | 011_entities_local_registration.sql | ✅ Applied | ADD COLUMN local_reg_number + local_tax_number on registry.entities |
+| 022_seed_entities_from_approvals.sql | ✅ Applied (June 12 2026, corrected version with RESET block) | 110 entities seeded — Vendors, Staff, Management, Government for RFPL + RHHF. Superseded earlier uncorrected run. |
 
 ### 7.7 Entity Model — Implementation Notes (June 2026)
 
@@ -282,6 +283,19 @@ For China and Japan the tax number is the same as the company registration numbe
 **Pramaana Ledger Name:** The `tally_ledger` column in `entity_roles` is displayed as "Pramaana Ledger Name" in the UI. It still powers Tally XML export during cut-over AND will be the Pramaana ledger reference post cut-over.
 
 **Pre-deployment reset:** `supabase/scripts/pre_deployment_data_reset.sql` — run once manually in Supabase SQL editor before functional go-live. Clears all test entities, vouchers, POs, sequences. Preserves companies, users, ledger_groups, voucher_types.
+
+**Entity seed corrections (June 12 2026):** The definitive `022_seed_entities_from_approvals.sql` includes a RESET block (deletes all `source_app IN ('approvals','manual')` rows before reinserting — does NOT touch `source_app='suite'`). Corrections baked into this version:
+
+- ~30 individual humans (electricians, plumbers, drivers, staff etc.) corrected from ORGANISATION → PERSON
+- Sherine Motty → Management (Director, RHHF + RFPL), not Vendor
+- Tarun Philip → Management (Director, RFPL)
+- Motty Philip → single PERSON entity with Management roles on both RHHF (Managing Partner) and RFPL (Executive Director)
+- KSEB and KSIDC → Government role, not Vendor
+- Vijayan / Vijayan-Newspaper duplicate merged into single entity with alias
+- Veda Associates → bank_name fixed (was incorrectly stored in bank_account_number column)
+- All Indian mobiles standardised to `+91XXXXXXXXXX` (213 of 214 entities; VCT Traders mobile flagged as likely data-entry error — `99947151524` is 11 digits, needs manual verification)
+
+**This is the canonical seed file going forward.** Any future re-seed should start from this version, not earlier uncorrected copies.
 
 ---
 
@@ -372,7 +386,7 @@ supabase.schema('registry').rpc('next_fy_sequence', {...})
 
 | Bucket | Access | Used For |
 |--------|--------|---------|
-| `voucher-attachments` | Private — signed URLs | Bills, receipts, invoices & transaction records attached to vouchers |
+| `voucher-attachments` | Private — signed URLs | Bills, receipts, invoices attached to vouchers |
 
 ### 8.8 Messaging Integration
 
@@ -382,7 +396,7 @@ supabase.schema('registry').rpc('next_fy_sequence', {...})
 |----------|:-------:|:------------:|-----------|
 | `Pramaana-Payment-Approval` | ✅ | ✅ | XXXX = OTP |
 
-> **Decision:** SMS is used exclusively for Payment Approval OTP. This is the only template that needs to remain active on 2Factor + Vilpower/DLT.
+> **Decision:** SMS is used exclusively for Payment Approval OTP — the only template that needs to remain on 2Factor + Vilpower/DLT. Settlement-Link and Payment-Confirmed SMS templates are superseded by WhatsApp (below) and do not need Vilpower resubmission.
 
 Edge Function: `api/send-sms.ts` (Vercel)  
 Env var: `TWOFACTOR_API_KEY` (set in Vercel dashboard)
@@ -538,35 +552,37 @@ ALL apps READ from here. No app owns its own person data.
 
 | Column on `registry.entities` | Purpose |
 |-------------------------------|---------|
-| `legacy_clamflow_person_id` | Links to ClamFlow `person_records.id` — prevents re-creating existing plant workers during migration |
+| `legacy_clamflow_person_id` | Cross-reference to ClamFlow `person_records.id` for Phase 3 integration. **Not a migration key — ClamFlow is not yet in production and has no real data.** |
 | `legacy_clamflow_supplier_id` | Links to ClamFlow `suppliers.id` |
 | `legacy_approvals_payee_id` | Links to Approvals payee — used in 022_seed_entities_from_approvals.sql (June 2026) |
 
-#### Three-Phase ClamFlow Migration
+#### ClamFlow Integration — Three Phases
 
-**Phase 1 — Immediate Workaround (now):**
-- Personnel tab in Suite shows ClamFlow workers (read-only view already built)
-- Add a "Register in Suite" button (first task of Phase 2.5) that pre-fills entity form from the ClamFlow record
-- Sets `legacy_clamflow_person_id` on the new `registry.entities` row
-- Worker immediately becomes a valid Pramaana payee
+> **Correction (June 12 2026):** ClamFlow is NOT yet in production. All data in `idwgenbkguejgwtzbicu` is test data. There is nothing to migrate. Suite is the source of truth from day one — workers are onboarded directly in Suite, and ClamFlow will read from Suite when it goes live.
 
-**Phase 2 — Plant Worker Onboarding in Suite (Phase 2.5):**
-- Dedicated onboarding form for Staff / Fisher / Supplier roles
+**Phase 1 — Suite Onboards Everything (now, via Phase 2.5):**
+- All plant workers, fishers, and plant-facing suppliers are created in `registry.entities` directly via the Phase 2.5 onboarding form
+- No "Register in Suite" migration button — there is no production ClamFlow data to import
+- Personnel tab in Suite shows workers from `registry.entities` WHERE `authorized_locations` includes `panavally_plant`
+- Workers onboarded in Suite become valid Pramaana payees immediately
+
+**Phase 2 — Plant Worker Onboarding form in Suite (Phase 2.5):**
+- Dedicated onboarding form for Staff / Fisher / Supplier roles (mobile-first PWA for plant floor)
 - RFID tag assignment (requires migration 023 — see Known Issues)
-- Face photo capture → AWS Rekognition enrollment → `registry.biometrics`
-- Aadhaar last-4 capture (NEVER the full 12-digit number)
+- Face photo capture → AWS Rekognition `IndexFaces` API → `rekognition_face_id` stored in `registry.biometrics`
+- AWS Rekognition collection: `relish-registry` (single collection for all Relish people, `ap-south-1`)
+- Aadhaar last-4 via QR scan — **parse on-device only, send only last-4 to server, NEVER the full 12-digit number**
 - `suspense_eligible = TRUE` toggle for daily wage advance payments
-- `authorized_locations` multi-select (e.g. panavally_plant)
-- `legacy_clamflow_person_id` auto-populated when registering existing ClamFlow workers
+- `authorized_locations` multi-select (e.g. `panavally_plant`)
 - Accessible to `hr` and `operations` roles
 - **Mobile-first PWA** — designed for use on a phone at the plant floor, not a desktop
 
-**Phase 3 — ClamFlow Reads from Registry (future):**
-- ClamFlow face scanner queries `registry.biometrics` instead of its own `person_photos` table
-- ClamFlow attendance events write to `registry.attendance` (soft ref to `shift_assignment_id`)
-- ClamFlow supplier lookup reads `registry.entities WHERE role='Supplier'`
-- ClamFlow `person_records`, `person_photos`, `attendance_logs` become read-only archives
-- ClamFlow becomes a pure UI terminal — owns zero master data
+**Phase 3 — ClamFlow Reads from Registry (before ClamFlow goes to production):**
+- ClamFlow face scanner calls AWS Rekognition `SearchFacesByImage` on collection `relish-registry` → receives `rekognition_face_id` → looks up `registry.biometrics` → gets `entity_id`
+- ClamFlow attendance events write to `registry.attendance`
+- ClamFlow supplier lookup reads `registry.entities WHERE role='Supplier' AND authorized_locations ∋ 'panavally_plant'`
+- ClamFlow `person_records` used only for ClamFlow app system accounts (staff who log into the ClamFlow UI) — not for people master data
+- **The OpenCV / Haar cascade implementation in `face_recognition_unified.py` must be replaced with AWS Rekognition before ClamFlow goes to production.** The current code generates a 256-bin greyscale histogram — it is not face recognition and cannot identify individuals.
 
 ---
 
@@ -730,36 +746,30 @@ Pramaana payee typeahead will now return results once entities are seeded here.
 | SWIFT / BIC Code | IFSC Code |
 | Account / IBAN | Account Number |
 
-**Fields per entity type:**
-
-| Field | Vendor | Staff | Customer | Management |
-|-------|:------:|:-----:|:--------:|:----------:|
-| Display Name | ✅ Required | ✅ Required | ✅ Required | ✅ Required |
-| Mobile | ✅ | ✅ | ✅ | ✅ |
-| GSTIN | ✅ Required | | ✅ | |
-| PAN | ✅ | ✅ | ✅ | ✅ |
-| Bank Details | ✅ Required | ✅ Required | ✅ Optional | ✅ Required |
-| UPI ID | ✅ | ✅ | ✅ | ✅ |
-| Tally Ledger Name | ✅ Required | | ✅ Required | |
-| Designation | | ✅ | | ✅ Required |
-
 ### 🔲 Phase 2.5 — Plant Worker Onboarding (Suite)
 
-Dedicated onboarding flow inside Suite for plant employees, daily wage workers, fishers and raw material suppliers. This is the entry point for all RHHF Panavally personnel into the Suite Registry.
+Dedicated onboarding flow inside Suite for plant employees, daily wage workers, fishers and raw material suppliers. Suite is the source of truth — ClamFlow is not yet in production, so all workers are created fresh here. No data migration from ClamFlow.
 
-- "Register in Suite" button on Personnel tab — pre-fills form from ClamFlow `person_records`
-- RFID tag assignment field
-- Face photo capture → AWS Rekognition enrollment → `registry.biometrics`
-- Aadhaar last-4 capture
-- `suspense_eligible = TRUE` toggle for advance-eligible workers
-- `authorized_locations` multi-select per worker
-- `legacy_clamflow_person_id` set automatically when registering existing ClamFlow workers
+- New worker form: Display Name, Mobile, Designation, Role (dropdown of plant roles), Firm Name (suppliers), Boat Reg. No. (fishers)
+- Aadhaar last-4 via QR scan — **parse on-device only**, send only last-4 to server
+- Face photo capture → AWS Rekognition `IndexFaces` on collection `relish-registry` → store `rekognition_face_id` in `registry.biometrics`
+- RFID tag assignment field → `registry.biometrics.rfid_tag`
+- `suspense_eligible = TRUE` toggle for workers eligible for advance payments
+- `authorized_locations` multi-select (e.g. `panavally_plant`)
 - Accessible to `hr` and `operations` roles
+- **Mobile-first PWA** — designed for use on a phone at the plant floor, not a desktop
 
-**Prerequisite:** Migration 023 — `ALTER TABLE registry.biometrics ADD COLUMN rfid_tag TEXT UNIQUE; ADD COLUMN rfid_issued_at TIMESTAMPTZ; ADD COLUMN rfid_issued_by UUID REFERENCES auth.users(id);`
+**Prerequisites:**
+- Migration 023 — `ALTER TABLE registry.biometrics ADD COLUMN rfid_tag TEXT UNIQUE; ADD COLUMN rfid_issued_at TIMESTAMPTZ; ADD COLUMN rfid_issued_by UUID REFERENCES auth.users(id);`
+- Migration 024 — `ALTER TABLE registry.entities ADD COLUMN aadhaar_last4 CHAR(4); ADD COLUMN boat_reg_number TEXT;`
+- AWS Rekognition collection `relish-registry` created in `ap-south-1`
+- Supabase Storage bucket `worker-photos` created (private, signed URLs)
 
 ### 🔲 Phase 3 — Pramaana Financial Reports
 Trial Balance, Ledger Statement, Day Book, P&L, Balance Sheet
+
+### 🔲 Phase 3 — UPI Pay Now (Pramaana)
+"Pay Now" button on Approval Queue + Voucher Register detail panels, shown when status=posted, payee has upi_id, amount>0. Mobile → UPI deep link (`upi://pay?...`) opens GPay/PhonePe chooser. Desktop → QR code via `qrcode` npm package. "Mark Paid" button records payment_mode + utr_number after manual payment.
 
 ### 🔲 Phase 3 — Tally Import Tool
 CSV import for Ledger Groups, Ledgers, and historical Vouchers
@@ -778,17 +788,17 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 ## 16. Known Issues & Technical Debt
 
 | Issue | Location | Priority | Notes |
-|-------|----------|----------|-------|
+|-------|----------|----------|-----------| 
 | Entity payee search is intentionally GLOBAL | `VoucherEntry.tsx`, `SimplifiedPaymentEntry.tsx` | Resolved June 12 2026 | Removed company_id filter — entities from either company visible as payees in any voucher. Voucher itself remains company-scoped. |
 | `rfid_tag` column missing from `registry.biometrics` | DB Schema | Medium | Required before Phase 2.5. Pending migration 023: ADD COLUMN rfid_tag TEXT UNIQUE + rfid_issued_at + rfid_issued_by |
-| Plant workers (ClamFlow) not in `registry.entities` | ClamFlow migration | High | Cannot be Pramaana payees until Phase 2.5 built. Workaround: manually add via Entities tab with `legacy_clamflow_person_id` set |
+| Plant workers not yet in `registry.entities` | Phase 2.5 | High | ClamFlow is not in production — no data to migrate. All plant workers will be onboarded fresh via the Phase 2.5 form. Blocks Pramaana payee access for plant staff until Phase 2.5 is built. |
 | Dashboard is placeholder | Both apps | Medium | No live KPI cards yet |
 | CalciWorks sync button | Suite | Low | Query proven, no plant data yet |
 | `fp_forms` table empty | ClamFlow | — | Plant not processing batches yet. Sync will work when data exists. |
 | WhatsApp Business API onboarding (2Factor) | Both | Medium | Initiated June 12 2026 via 2Factor's official WhatsApp onboarding form. Awaiting connect/approval (~24-48h). Interim `wa.me` share is live in the meantime — see Section 8.8. |
-| VCT Traders mobile number anomaly | `registry.entities` | Low | Mobile stored as `99947151524` (11 digits) — likely data-entry error. Needs manual verification against source records before standardising to `+91` format. |
 | `/vouchers/:id/edit` route | Pramaana | Medium | **FIXED** — VoucherEdit.tsx built, route added to App.tsx (draft status only) |
 | Voucher Edit form not tested end-to-end | Pramaana | Medium | VoucherEdit.tsx built but no confirmation it saves correctly — test with a real draft voucher |
+| VCT Traders mobile number anomaly | `registry.entities` | Low | Mobile stored as `99947151524` (11 digits) — likely data-entry error. Needs manual verification against source records before standardising to `+91` format. |
 
 ---
 
@@ -801,6 +811,7 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 4. CalciWorks is NOT a company — never show it in company selectors
 5. Cross-schema FK joins do not work in Supabase JS — always fetch separately and merge in JS
 6. **Every app in the Relish ecosystem is a PWA — there are no native apps, no separate tablet apps, no Electron apps.** Mobile-first always. Some features are desktop-optimised (reports, tally export, admin) but the app itself must be installable and usable on a phone.
+7. **AWS Rekognition is the ONLY face recognition system for the entire Relish platform.** No OpenCV embeddings, no histograms, no local ML models. Face matching always goes through Rekognition API calls. Region: `ap-south-1`.
 
 ### Suite Only
 6. `supabaseApprovalsReadOnly` is the only client for the Approvals database — renamed to make this explicit
@@ -830,7 +841,14 @@ VITE_APPROVALS_SUPABASE_URL=https://ewbguvwrejdvlhzcqlbp.supabase.co
 VITE_APPROVALS_SUPABASE_ANON_KEY=<approvals anon key>
 VITE_CLAMFLOW_SUPABASE_URL=https://idwgenbkguejgwtzbicu.supabase.co
 VITE_CLAMFLOW_SUPABASE_ANON_KEY=<clamflow anon key>
+# AWS Rekognition (for Phase 2.5 worker onboarding face enrollment in Suite)
+VITE_AWS_REGION=ap-south-1
+VITE_AWS_ACCESS_KEY_ID=<AWS access key with Rekognition permissions>
+VITE_AWS_SECRET_ACCESS_KEY=<AWS secret key>
+VITE_AWS_REKOGNITION_COLLECTION=relish-registry
 ```
+
+> **Note for Suite:** Face enrollment in the Phase 2.5 onboarding form must be proxied through a server-side Vercel Edge Function — AWS credentials must never be exposed to the browser. Create `api/enroll-face.ts` on Vercel that accepts `{ face_image_b64, entity_id }`, calls Rekognition `IndexFaces` server-side, returns `{ rekognition_face_id }`.
 
 ### Pramaana (Vercel)
 ```
@@ -839,6 +857,91 @@ VITE_SUPABASE_ANON_KEY=<same anon key as Suite>
 TWOFACTOR_API_KEY=<2Factor API key>
 TWOFACTOR_WHATSAPP_KEY=<2Factor WhatsApp key — post-approval>
 TWOFACTOR_WHATSAPP_PHONE_ID=<2Factor WhatsApp phone ID — post-approval>
+```
+
+### ClamFlow Backend (Railway)
+```
+# Database
+DATABASE_URL=<PostgreSQL connection string>
+SECRET_KEY=<JWT signing key>
+
+# AWS Rekognition
+AWS_ACCESS_KEY_ID=<IAM user access key>
+AWS_SECRET_ACCESS_KEY=<IAM user secret key>
+AWS_REGION=ap-south-1
+
+# Rekognition collection names (defaults shown)
+AWS_REKOGNITION_STAFF_COLLECTION=clamflow-staff
+AWS_REKOGNITION_VISITOR_COLLECTION=clamflow-visitors
+```
+
+> **AWS IAM Policy** — The IAM user/role needs only these Rekognition permissions:
+> `rekognition:IndexFaces`, `rekognition:SearchFacesByImage`, `rekognition:DetectFaces`, `rekognition:DeleteFaces`, `rekognition:CreateCollection`, `rekognition:ListCollections`
+>
+> **One-time setup** — Before first use, create both collections in `ap-south-1`:
+> ```python
+> import boto3
+> client = boto3.client('rekognition', region_name='ap-south-1')
+> client.create_collection(CollectionId='clamflow-staff')
+> client.create_collection(CollectionId='clamflow-visitors')
+> # For Suite Phase 2.5 (single unified collection):
+> client.create_collection(CollectionId='relish-registry')
+> ```
+
+### How Face Recognition Works End-to-End
+
+#### ClamFlow Staff Enrollment
+```
+Browser camera → JPEG blob → POST /biometric/register-face (multipart UploadFile)
+  → detect_faces(bytes) — must be exactly 1
+  → index_face(bytes, str(user_profile.id), 'clamflow-staff')
+  → Rekognition stores face + sets ExternalImageId = user_profile.id
+  → Returns FaceId → saved to user_profiles.rekognition_face_id
+```
+
+#### ClamFlow Onboarding (auto-enroll on approval)
+```
+Onboarding form sends face_image_b64 (base64 JPEG) in data JSONB blob
+  → On Admin approval: base64 decode → detect_faces → index_face
+  → FaceId saved to user_profiles.rekognition_face_id
+```
+
+#### ClamFlow Attendance (face at gate)
+```
+Hikvision camera / tablet → JPEG → POST /api/attendance/log (UploadFile image)
+  → search_face(bytes, 'clamflow-staff', threshold=80.0)
+  → Returns external_id = str(UserProfile.id)
+  → Load UserProfile by id → PersonRecord by system_account_id
+  → INSERT attendance_logs
+```
+
+#### ClamFlow Face Login
+```
+Browser camera → JPEG → POST /biometric/face-login (UploadFile)
+  → search_face(bytes, 'clamflow-staff', threshold=80.0)
+  → Returns external_id → load UserProfile → issue JWT
+```
+
+#### ClamFlow Visitor Registration
+```
+Gate tablet → JPEG → POST /api/visitors/register (JSON body with face_image_b64)
+  → index_face(bytes, str(visitor.id), 'clamflow-visitors')
+  → FaceId saved to visitors.rekognition_face_id
+```
+
+#### ClamFlow Visitor Verification
+```
+Gate tablet camera → JPEG → POST /api/visitors/verify (JSON body with face_image_b64)
+  → search_face(bytes, 'clamflow-visitors', threshold=80.0)
+  → Returns external_id = str(Visitor.id) + confidence
+  → Load Visitor, validate pass_valid, INSERT visitor_events
+```
+
+#### Suite Phase 2.5 Worker Enrollment
+```
+Suite onboarding form camera → JPEG → POST /api/enroll-face (Vercel Edge Function)
+  → AWS SDK server-side: index_faces(bytes, str(entity_id), 'relish-registry')
+  → Returns rekognition_face_id → saved to registry.biometrics
 ```
 
 ---
@@ -879,6 +982,8 @@ TWOFACTOR_WHATSAPP_PHONE_ID=<2Factor WhatsApp phone ID — post-approval>
 | 2026-06-12 | relish-suite | — | fix: 022_seed_entities_from_approvals.sql corrected — RESET block added; PERSON/ORGANISATION type corrections (~30 entities); Sherine Motty/Tarun Philip/Motty Philip → Management roles; KSEB/KSIDC → Government; Vijayan duplicate merged; Veda Associates bank fields fixed; all mobiles standardised to +91 format. 110 entities seeded, verified via Pramaana payee typeahead. |
 | 2026-06-12 | pramaana | — | feat: WhatsApp interim share via wa.me deep link — "Send via WhatsApp" button on Suspense Advances settlement screen, settlement link template ("Relish" branding, no payment-confirmed message) |
 | 2026-06-12 | pramaana | — | design: UPI Pay Now feature spec — deep link + QR code for Approval Queue / Voucher Register detail panels (not yet built — Phase 3) |
+| 2026-06-12 | both | — | arch: ClamFlow backend code reviewed — Section 21.1 A-H fully answered. Key decisions: Suite is source of truth from day one (ClamFlow pre-production, all data is test data); OpenCV face recognition is replaced by AWS Rekognition (`relish-registry` collection, ap-south-1); RFID in ClamFlow is product-box only; no migration needed; Phase 2.5 plan corrected to fresh onboarding not migration. Visitor Pass + Gate Vehicle Log modules added to roadmap. RELISH_PLATFORM_MASTER.md updated. |
+| 2026-06-12 | clamflow_backend | `41805f6` | fix: replace OpenCV histogram face recognition with AWS Rekognition across all call sites. Rewrote `face_recognition_unified.py` as thin wrapper around `utils/aws_rekognition.py`. Fixed `api/attendance/routes.py` (SearchFacesByImage via STAFF collection). Fixed `api/visitors/routes.py` register (IndexFaces via VISITOR collection) and verify (SearchFacesByImage). Fixed `api/onboarding/routes.py` approve (auto-enroll face on Admin approval). Updated `api/visitors/schemas.py`: `face_embedding` List[float] → `face_image_b64` str. Updated RELISH_PLATFORM_MASTER.md with full Rekognition configuration, IAM policy, collection setup, and end-to-end flow. |
 
 ---
 
@@ -908,90 +1013,101 @@ Status key: 🔲 Not started · 🔍 Folder open / in progress · ✅ Done · �
 
 ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker registration, face recognition, RFID attendance, shift assignments, raw material (clam/shell) receipts from fishers, and daily production records.
 
-**Folder status:** 🔲 Not yet opened
+**Folder status:** ✅ Backend code reviewed — June 12 2026
 
-#### What We Need to Understand
+**Key Architecture Decisions (June 12 2026):**
+- **ClamFlow is NOT yet in production.** All data in `idwgenbkguejgwtzbicu` is test data. There is nothing to migrate.
+- **Suite is the source of truth from day one.** All workers, fishers, and suppliers are onboarded in `registry.entities`. ClamFlow will read from Suite when it goes live — ClamFlow never owns people data.
+- **OpenCV face recognition (`face_recognition_unified.py`) is a mistake.** It generates a 256-bin greyscale histogram, not a face embedding. It cannot identify individuals. Must be replaced with AWS Rekognition before ClamFlow goes to production.
+- **AWS Rekognition is the face recognition system for the entire Relish platform.** `rekognition_face_id` already exists on ClamFlow's `user_profiles`. Suite will store it in `registry.biometrics`. Single collection: `relish-registry` (`ap-south-1`).
+- **RFID in ClamFlow is for product boxes, not workers.** `rfid_tags` links RFID tags to `lots` (clam product boxes). Worker RFID will be built cleanly in Suite (`registry.biometrics.rfid_tag` — migration 023).
+- **No shifts table in ClamFlow.** Shifts will be designed fresh in Suite.
+- **Aadhaar:** ClamFlow stores the full number in `person_records.aadhar_number`. Suite stores last-4 only. Never import or display the full number.
+- **Fishers are in `person_records`** (`person_type='supplier'`, `boat_registration_number` populated) — not a separate table.
+- **ClamFlow has a full Visitor Pass system** (`visitors` + `visitor_events`) and a **Gate Vehicle Log** (`gate_vehicle_logs` with driver OTP). Both will be built as new modules in Suite.
+
+#### What We Know (Reviewed June 12 2026)
 
 **A. Person / Worker Onboarding Flow**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| A1 | What is the full schema of `person_records`? (all columns, types, nullability) | 🔲 | |
-| A2 | What is the onboarding UI flow — which form fields does the supervisor fill in for a new worker? | 🔲 | |
-| A3 | How is the face photo captured — webcam component, mobile upload, or dedicated scanner? | 🔲 | |
-| A4 | How is the face photo sent to AWS Rekognition — direct from browser, or via a Supabase Edge Function? | 🔲 | |
-| A5 | What does ClamFlow store back from Rekognition — just `rekognition_face_id`? Full response? | 🔲 | |
-| A6 | Where is the face photo stored — Supabase Storage bucket name and path pattern? | 🔲 | |
-| A7 | Is there an Aadhaar field? What is stored — last-4 only, or more? | 🔲 | |
-| A8 | Is there a mobile number field on `person_records`? | 🔲 | |
-| A9 | What worker categories / roles exist in ClamFlow (equivalent of our entity `role` enum)? | 🔲 | |
-| A10 | What is `person_records.department` — is it a free-text field or a fixed enum? | 🔲 | |
+| A1 | Full schema of `person_records` | ✅ | `id, first_name, last_name, full_name, address, contact_number (NOT NULL), aadhar_number, person_type (staff/vendor/supplier), designation, firm_name, supplier_type, category, gst_number, boat_registration_number, linked_data (JSONB), status, start_date, end_date, system_account_id → user_profiles, created_by, approved_by, created_at, updated_at` |
+| A2 | Onboarding UI flow | ✅ | Two-step: supervisor submits `OnboardingPending` (JSONB blob) → Admin approves → creates `PersonRecord` + `UserProfile` (system account, username like `SG_Rajan`) |
+| A3 | How face photo is captured | ✅ | 512-float embedding sent from frontend webcam. Photo URL stored in `user_profiles.face_image` (String 500) |
+| A4 | How face is sent to Rekognition | ✅ | **Not properly wired.** Primary path is OpenCV Haar cascade (not real face recognition). Rekognition field exists but is not the active code path. Must be fixed before production. |
+| A5 | What is stored from Rekognition | ✅ | `user_profiles.rekognition_face_id` (String 255) |
+| A6 | Face photo storage | ✅ | `user_profiles.face_image` (URL string). Specific Storage bucket not confirmed from backend code alone. |
+| A7 | Aadhaar field | ✅ | **Full Aadhaar number** stored in `person_records.aadhar_number`. Suite stores last-4 only — never import. |
+| A8 | Mobile number field | ✅ | `person_records.contact_number` (String 20, NOT NULL) |
+| A9 | Worker categories / roles | ✅ | `person_type`: staff / vendor / supplier. App roles: Super Admin, Admin, Staff Lead, Production Lead, QC Lead, QC Staff, IT Staff, Production Staff, Maintenance Staff, Security Guard, Gate Staff |
+| A10 | `person_records.department` | ✅ | **No department field.** Uses `designation` (role title) and `person_type` instead. |
 
 **B. RFID / Attendance Flow**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| B1 | What is the schema of the RFID / attendance events table (name, all columns)? | 🔲 | |
-| B2 | How is an RFID tag assigned to a worker — admin screen, or during onboarding? | 🔲 | |
-| B3 | What does an RFID scan event look like — is it clock-in only, or clock-in + clock-out? | 🔲 | |
-| B4 | How are shifts defined — is there a `shifts` table? What is its schema? | 🔲 | |
-| B5 | How is daily attendance calculated from scan events (late, present, absent logic)? | 🔲 | |
-| B6 | Does the RFID reader talk directly to Supabase or through a middleware service? | 🔲 | |
+| B1 | Attendance events table schema | ✅ | `attendance_logs`: `id, person_id → person_records, method (rfid/face/camera_detection/override), timestamp, verified_by → user_profiles, override_reason, location, created_at` |
+| B2 | RFID tag assignment to worker | ✅ | **No proper worker RFID assignment UI.** `rfid_tags.assigned_to` is borrowed informally. `rfid_tags` is a product-box tracking table. Worker RFID will be a clean new feature in Suite. |
+| B3 | RFID scan event model | ✅ | Single-event — each scan = one `attendance_logs` row. No clock-in / clock-out pairing. |
+| B4 | Shifts table | ✅ | **None.** No shifts table in ClamFlow. Will be designed fresh in Suite. |
+| B5 | Daily attendance calculation | ✅ | Not implemented — raw scan logs only. Calculation logic will be built in Suite. |
+| B6 | RFID reader ↔ Supabase | 🔲 | Hardware integration not visible from backend code. |
 
 **C. Face Recognition Attendance Flow**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| C1 | How does the face scanner identify a worker — which Rekognition API call? | 🔲 | |
-| C2 | What happens after a face match — which table is written, what columns? | 🔲 | |
-| C3 | Is face attendance separate from RFID attendance, or do both write the same table? | 🔲 | |
-| C4 | Is there a confidence threshold below which a scan is rejected or flagged? | 🔲 | |
+| C1 | Face scanner Rekognition API call | ✅ | Should be `SearchFacesByImage`. Currently using OpenCV Haar cascade instead — not real face recognition. Must be replaced. |
+| C2 | After face match — what is written | ✅ | `attendance_logs` row with `method='face'` |
+| C3 | Face vs RFID — same table? | ✅ | Yes — both write `attendance_logs`, distinguished by `method` column |
+| C4 | Confidence threshold | ✅ | Cosine similarity ≥ 0.72 (from visitor system — same threshold applies to worker matching) |
 
 **D. Suppliers / Raw Material Flow**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| D1 | Full schema of `suppliers` table | 🔲 | |
-| D2 | Are fishers in `person_records` or `suppliers`, or both? | 🔲 | |
-| D3 | What is the raw material receipt flow — form fields, table written, approval step? | 🔲 | |
-| D4 | How is a supplier payment triggered from ClamFlow — does it create anything in Approvals? | 🔲 | |
+| D1 | `suppliers` table schema | ✅ | No separate `suppliers` table — fishers/suppliers are `person_records` with `person_type='supplier'` |
+| D2 | Are fishers in `person_records` or `suppliers`? | ✅ | `person_records` — `person_type='supplier'`, `boat_registration_number` populated |
+| D3 | Raw material receipt flow | ✅ | `lots` (supplier_id, weight, species) + `weight_notes` (per-box: gross/tare/net weight, temperature, visual quality, QC approval) |
+| D4 | Supplier payment trigger | 🔲 | No direct link to Approvals visible from code reviewed. Likely manual process. |
 
-**E. What We Must Copy Into Suite Registry**
-| # | What to copy | Target in Suite | Status |
+**E. What Suite Must Build**
+| # | What to build | Target in Suite | Status |
 |---|-------------|-----------------|--------|
-| E1 | Face photo capture + Rekognition enrollment | `registry.biometrics` + Storage bucket | 🔲 |
-| E2 | RFID tag assignment UI | `registry.biometrics.rfid_tag` (migration 023) | 🔲 |
-| E3 | Worker onboarding form (name, DOB, Aadhaar-4, mobile, department, role) | `registry.entities` + `entity_roles` | 🔲 |
-| E4 | Shift definition schema | `registry.shifts` (new table — design after reading ClamFlow) | 🔲 |
-| E5 | Attendance event schema | `registry.attendance` (DDL needs to match ClamFlow's structure) | 🔲 |
-| E6 | Supplier onboarding form | `registry.entities` WHERE role=Supplier | 🔲 |
+| E1 | Face photo capture + Rekognition `IndexFaces` enrollment | `registry.biometrics` + `worker-photos` Storage bucket | 🔲 Phase 2.5 |
+| E2 | RFID tag assignment (worker) | `registry.biometrics.rfid_tag` (migration 023) | 🔲 Phase 2.5 |
+| E3 | Worker onboarding form (name, Aadhaar-4, mobile, designation, role) | `registry.entities` + `entity_roles` | 🔲 Phase 2.5 |
+| E4 | Shift definition schema | `registry.shifts` (new table — design in Phase 2.5) | 🔲 Phase 2.5 |
+| E5 | Attendance event schema | `registry.attendance` (model after `attendance_logs`) | 🔲 Phase 3 |
+| E6 | Supplier / Fisher onboarding form | `registry.entities` WHERE role=Supplier + `boat_reg_number` | 🔲 Phase 2.5 |
 
-**F. Security / Visitor Detection Flow**
+**F. Security / Visitor System**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| F1 | Is there a visitors / gate log table? What is its full schema? | 🔲 | |
-| F2 | How does visitor check-in work — face scan, manual entry, or QR/badge? | 🔲 | |
-| F3 | What happens when an unknown face is detected — alert, photo stored, manual override? | 🔲 | |
-| F4 | Is visitor identity linked to `person_records` (pre-registered) or a separate visitors table? | 🔲 | |
-| F5 | Are gate access logs separate from plant-floor attendance logs? | 🔲 | |
-| F6 | Is there a blacklist / watchlist mechanism? | 🔲 | |
-| F7 | What does the security guard UI look like — live camera feed, notification popup, or manual log? | 🔲 | |
+| F1 | Visitors / gate log tables | ✅ | `visitors` (name, phone, purpose, host_staff_id, face_embedding Vector(512), photo_url, rekognition_face_id, pass_token, valid_from, valid_until, status) + `visitor_events` (immutable audit: pass_issued/entry/exit/revoked) |
+| F2 | Visitor check-in | ✅ | Face embedding match (cosine sim ≥ 0.72) OR QR `pass_token` scan |
+| F3 | Unknown face | ✅ | Returns 401 if confidence < 0.72 — supervisor override required |
+| F4 | Visitor identity linked to person_records? | ✅ | `visitors.host_staff_id` optionally links to `person_records` (who they're visiting). The visitor themselves is a separate record. |
+| F5 | Gate logs vs attendance logs | ✅ | Separate. `gate_vehicle_logs` = vehicles in/out with driver OTP. `attendance_logs` = person face/RFID scans. |
+| F6 | Blacklist / watchlist | 🔲 | Not visible in code reviewed |
+| F7 | Security guard UI | 🔲 | Frontend not reviewed |
 
-**G. `ClamFlow_Onboard/` — Dedicated Onboarding Module**
+**G. Onboarding Module**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| G1 | Is `ClamFlow_Onboard/` a separate standalone PWA or a route/module within `clamflow_frontend/`? | 🔲 | |
-| G2 | What tech stack is it built on (React, Vue, plain HTML)? | 🔲 | |
-| G3 | Is it optimised for phone use at the plant gate or desktop use in an HR office? | 🔲 | |
-| G4 | Does it handle both new worker registration AND visitor pre-registration? | 🔲 | |
-| G5 | What Supabase tables does it write to? | 🔲 | |
-| G6 | Is there a multi-step wizard (personal details → face photo → RFID → confirm)? | 🔲 | |
-| G7 | How does it handle duplicate detection before creating a new record? | 🔲 | |
+| G1 | Separate app or route? | ✅ | Route within the main ClamFlow backend (`api/onboarding/routes.py`) — not a separate app |
+| G2 | Tech stack | ✅ | FastAPI backend (Python). Frontend not reviewed. |
+| G3 | Phone or desktop optimised? | 🔲 | Frontend not reviewed |
+| G4 | Handles new worker + visitor? | ✅ | Onboarding handles staff/vendor/supplier. Visitors are a separate module (`api/visitors/`). |
+| G5 | Supabase tables written | ✅ | `OnboardingPending` → on approval: `PersonRecord` + `UserProfile` |
+| G6 | Multi-step wizard? | 🔲 | Frontend not reviewed |
+| G7 | Duplicate detection | ✅ | **None implemented** in backend onboarding code. Suite builds this via GSTIN → mobile → display_name check (already done in `entities.js`). |
 
-**H. Production / Costing (`ClamFlow_Costing/`)**
+**H. Production / Costing**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| H1 | What production data is recorded — batch weight, shell yield, waste, processing time? | 🔲 | |
-| H2 | Is production linked to supplier receipts (raw material in → processed batch out)? | 🔲 | |
-| H3 | Are production batches linked to specific workers (who processed which batch)? | 🔲 | |
-| H4 | Does costing data flow into Pramaana as accounting entries, or is it standalone? | 🔲 | |
-| H5 | Is `ClamFlow_Costing/` a separate app, or a module in the main ClamFlow frontend? | 🔲 | |
+| H1 | Production data recorded | ✅ | `lots` (species, weight, arrival), `weight_notes` (per-box: gross/tare/net, temperature, visual quality), `ppc_forms`/`ppc_boxes` (product type, grade, weight), `fp_forms`/`fp_boxes` (final product with RFID tag) |
+| H2 | Linked to supplier receipts? | ✅ | Yes — `lots.supplier_id → person_records.id` |
+| H3 | Linked to specific workers? | ✅ | Yes — `ppc_forms.station_staff_id` and `fp_forms.station_staff_id → user_profiles.id` |
+| H4 | Flows into Pramaana? | ✅ | Not automatic. Accountant creates Purchase voucher manually when goods are received and payment is due. |
+| H5 | ClamFlow_Costing — separate app? | ✅ | Module within the main ClamFlow app — `ppc_forms`, `fp_forms`, `depuration_forms` tables in the same DB. |
 
 ---
 

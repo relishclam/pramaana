@@ -553,7 +553,7 @@ ALL apps READ from here. No app owns its own person data.
 | Column on `registry.entities` | Purpose |
 |-------------------------------|---------|
 | `legacy_clamflow_person_id` | Cross-reference to ClamFlow `person_records.id` for Phase 3 integration. **Not a migration key — ClamFlow is not yet in production and has no real data.** |
-| `legacy_clamflow_supplier_id` | Links to ClamFlow `suppliers.id` |
+| `legacy_clamflow_supplier_id` | Links to ClamFlow `person_records.id` WHERE `person_type='supplier'` — **there is no separate `suppliers` table in ClamFlow** |
 | `legacy_approvals_payee_id` | Links to Approvals payee — used in 022_seed_entities_from_approvals.sql (June 2026) |
 
 #### ClamFlow Integration — Three Phases
@@ -582,7 +582,7 @@ ALL apps READ from here. No app owns its own person data.
 - ClamFlow attendance events write to `registry.attendance`
 - ClamFlow supplier lookup reads `registry.entities WHERE role='Supplier' AND authorized_locations ∋ 'panavally_plant'`
 - ClamFlow `person_records` used only for ClamFlow app system accounts (staff who log into the ClamFlow UI) — not for people master data
-- **The OpenCV / Haar cascade implementation in `face_recognition_unified.py` must be replaced with AWS Rekognition before ClamFlow goes to production.** The current code generates a 256-bin greyscale histogram — it is not face recognition and cannot identify individuals.
+- **ClamFlow Rekognition collections (`clamflow-staff`, `clamflow-visitors`) must be merged into `relish-registry` before Phase 3** so all Relish people share one collection. New enrollments via Suite Phase 2.5 go to `relish-registry` from the start.
 
 ---
 
@@ -762,8 +762,9 @@ Dedicated onboarding flow inside Suite for plant employees, daily wage workers, 
 **Prerequisites:**
 - Migration 023 — `ALTER TABLE registry.biometrics ADD COLUMN rfid_tag TEXT UNIQUE; ADD COLUMN rfid_issued_at TIMESTAMPTZ; ADD COLUMN rfid_issued_by UUID REFERENCES auth.users(id);`
 - Migration 024 — `ALTER TABLE registry.entities ADD COLUMN aadhaar_last4 CHAR(4); ADD COLUMN boat_reg_number TEXT;`
-- AWS Rekognition collection `relish-registry` created in `ap-south-1`
+- AWS Rekognition collection `relish-registry` created in `ap-south-1` (**note:** ClamFlow currently uses `clamflow-staff` + `clamflow-visitors`; all new Suite enrolments go to `relish-registry` from Phase 2.5 onwards)
 - Supabase Storage bucket `worker-photos` created (private, signed URLs)
+- **Shift schema reference:** ClamFlow's `shift_definitions` + `shift_assignments` tables (reviewed June 12 2026) serve as the design reference for `registry.shifts`. Same structure: definition rows (name/times/type) + assignment rows (staff_id, date, status).
 
 ### 🔲 Phase 3 — Pramaana Financial Reports
 Trial Balance, Ledger Statement, Day Book, P&L, Balance Sheet
@@ -799,6 +800,13 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 | `/vouchers/:id/edit` route | Pramaana | Medium | **FIXED** — VoucherEdit.tsx built, route added to App.tsx (draft status only) |
 | Voucher Edit form not tested end-to-end | Pramaana | Medium | VoucherEdit.tsx built but no confirmation it saves correctly — test with a real draft voucher |
 | VCT Traders mobile number anomaly | `registry.entities` | Low | Mobile stored as `99947151524` (11 digits) — likely data-entry error. Needs manual verification against source records before standardising to `+91` format. |
+| ClamFlow Rekognition collection mismatch | ClamFlow backend + Suite Phase 2.5 | Medium | ClamFlow uses `clamflow-staff` and `clamflow-visitors`. Suite Phase 2.5 will use `relish-registry`. Before Phase 3 (ClamFlow reads from Suite), all existing ClamFlow face enrolments must be deleted from `clamflow-staff` and re-indexed into `relish-registry` from `registry.biometrics`. No action needed until Phase 3. |
+| Camera facing mode is wrong | ClamFlow frontend — face capture screens | High | All face capture screens (onboarding, attendance, visitor registration) currently open the **front (selfie) camera**. Must be changed to `facingMode: 'environment'` (rear camera). Workers do NOT self-onboard — a supervisor holds the phone/tablet and points it at the person being registered. Fix pending frontend folder review (June 12 2026). |
+| `api/hardware_endpoints.py` `authenticate-face` was broken | ClamFlow backend | **FIXED June 12 2026** | Was calling `get_embedding()` (non-existent method) + `find_matching_staff()` (cosine similarity on dead column). Replaced with direct `search_face(STAFF_COLLECTION, threshold=80.0)` via Rekognition. |
+| `find_matching_staff()` used cosine on dead column | `hardware_endpoints/face_recognition.py` | **FIXED June 12 2026** | Function now deprecated — stub returns `None`. All call sites updated. |
+| `api/onboarding/routes.py` wrote `face_embedding` from JSON input | ClamFlow backend | **FIXED June 12 2026** | Removed `face_embedding` write. Rekognition enrollment via `face_image_b64` is the only path. |
+| `ROLE_GENERAL` duplicate constant | `app/constants.py` | **FIXED June 12 2026** | Removed. Use `ROLE_SECURITY_GUARD` everywhere. |
+| `hardware_endpoints_core.py` dead file | ClamFlow backend | Low — never loaded | Not registered in any router. Contains broken cv2 + undefined `face_recognition` import. Do not extend or call. |
 
 ---
 
@@ -811,13 +819,21 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 4. CalciWorks is NOT a company — never show it in company selectors
 5. Cross-schema FK joins do not work in Supabase JS — always fetch separately and merge in JS
 6. **Every app in the Relish ecosystem is a PWA — there are no native apps, no separate tablet apps, no Electron apps.** Mobile-first always. Some features are desktop-optimised (reports, tally export, admin) but the app itself must be installable and usable on a phone.
-7. **AWS Rekognition is the ONLY face recognition system for the entire Relish platform.** No OpenCV embeddings, no histograms, no local ML models. Face matching always goes through Rekognition API calls. Region: `ap-south-1`.
+7. **AWS Rekognition is the ONLY face recognition system for the entire Relish platform.** No OpenCV embeddings, no histograms, no local ML models. Face matching always goes through Rekognition API calls. Region: `ap-south-1`. ClamFlow collections: `clamflow-staff`, `clamflow-visitors`. Suite collection: `relish-registry`. These will be merged before Phase 3.
+8. **All face capture screens must use the rear camera.** `getUserMedia({ video: { facingMode: 'environment' } })`. Workers, visitors and fishers do NOT self-onboard — a supervisor or gate guard holds the device and points it at the subject. Never default to `facingMode: 'user'` (front/selfie camera) in any face capture component across ClamFlow, Suite, or Pramaana.
 
 ### Suite Only
 6. `supabaseApprovalsReadOnly` is the only client for the Approvals database — renamed to make this explicit
 7. Vendor/buyer entity_id on POs and Invoices → `vendor_entity_id` / `buyer_entity_id` referencing `registry.entities`
 8. Products use `default_unit` (not `unit`)
 9. Delivery addresses use `pincode` (not `postal_code`)
+
+### ClamFlow Backend Only
+- `ROLE_GENERAL` constant does not exist — use `ROLE_SECURITY_GUARD` everywhere
+- `face_embedding` column on `user_profiles` and `visitors` is a dead legacy column — never write to it; face matching is via `rekognition_face_id` only
+- `find_matching_staff()` in `hardware_endpoints/face_recognition.py` is deprecated — always stub-returns `None`; all matching goes through `utils/aws_rekognition.py`
+- `hardware_endpoints_core.py` is a dead file, not registered in any router — do not call or extend it
+- Onboarding face capture: accept `face_image_b64` (base64 JPEG/PNG) — never accept raw `face_embedding` float arrays from the frontend
 
 ### Pramaana Only
 10. Posted vouchers (`status = 'posted'` or `'cancelled'`) are IMMUTABLE — no edit, no delete. Show "Create Reversal" (Phase 3)
@@ -842,13 +858,18 @@ VITE_APPROVALS_SUPABASE_ANON_KEY=<approvals anon key>
 VITE_CLAMFLOW_SUPABASE_URL=https://idwgenbkguejgwtzbicu.supabase.co
 VITE_CLAMFLOW_SUPABASE_ANON_KEY=<clamflow anon key>
 # AWS Rekognition (for Phase 2.5 worker onboarding face enrollment in Suite)
+# Safe to expose to the browser (non-sensitive config):
 VITE_AWS_REGION=ap-south-1
-VITE_AWS_ACCESS_KEY_ID=<AWS access key with Rekognition permissions>
-VITE_AWS_SECRET_ACCESS_KEY=<AWS secret key>
 VITE_AWS_REKOGNITION_COLLECTION=relish-registry
+# SERVER-SIDE ONLY — set in Vercel project settings, NOT prefixed with VITE_.
+# These are consumed exclusively by api/enroll-face.ts (Vercel Edge Function).
+# VITE_ prefix would bundle them into client JS and expose them to anyone
+# with browser devtools. DO NOT add VITE_ prefix.
+AWS_ACCESS_KEY_ID=<AWS access key with Rekognition permissions>
+AWS_SECRET_ACCESS_KEY=<AWS secret key>
 ```
 
-> **Note for Suite:** Face enrollment in the Phase 2.5 onboarding form must be proxied through a server-side Vercel Edge Function — AWS credentials must never be exposed to the browser. Create `api/enroll-face.ts` on Vercel that accepts `{ face_image_b64, entity_id }`, calls Rekognition `IndexFaces` server-side, returns `{ rekognition_face_id }`.
+> **Note for Suite:** Face enrollment in the Phase 2.5 onboarding form must be proxied through a server-side Vercel Edge Function — AWS credentials must never be exposed to the browser. Create `api/enroll-face.ts` on Vercel that accepts `{ face_image_b64, entity_id }`, calls Rekognition `IndexFaces` server-side, returns `{ rekognition_face_id }`. The Edge Function reads `process.env.AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (no `VITE_` prefix). `VITE_AWS_REGION` and `VITE_AWS_REKOGNITION_COLLECTION` are safe to expose.
 
 ### Pramaana (Vercel)
 ```
@@ -1018,13 +1039,14 @@ ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker 
 **Key Architecture Decisions (June 12 2026):**
 - **ClamFlow is NOT yet in production.** All data in `idwgenbkguejgwtzbicu` is test data. There is nothing to migrate.
 - **Suite is the source of truth from day one.** All workers, fishers, and suppliers are onboarded in `registry.entities`. ClamFlow will read from Suite when it goes live — ClamFlow never owns people data.
-- **OpenCV face recognition (`face_recognition_unified.py`) is a mistake.** It generates a 256-bin greyscale histogram, not a face embedding. It cannot identify individuals. Must be replaced with AWS Rekognition before ClamFlow goes to production.
-- **AWS Rekognition is the face recognition system for the entire Relish platform.** `rekognition_face_id` already exists on ClamFlow's `user_profiles`. Suite will store it in `registry.biometrics`. Single collection: `relish-registry` (`ap-south-1`).
+- **`face_recognition_unified.py` already uses AWS Rekognition** — confirmed June 12 2026. Imports from `utils/aws_rekognition.py` (boto3, region `ap-south-1`). No OpenCV anywhere. `face_embedding Vector(512)` on `user_profiles` is a legacy remnant — not populated by the current code path.
+- **ClamFlow uses TWO Rekognition collections: `clamflow-staff` and `clamflow-visitors`.** Suite will use `relish-registry` (single collection). These must be reconciled before Phase 3 — enrolments from Suite Phase 2.5 go to `relish-registry` only.
 - **RFID in ClamFlow is for product boxes, not workers.** `rfid_tags` links RFID tags to `lots` (clam product boxes). Worker RFID will be built cleanly in Suite (`registry.biometrics.rfid_tag` — migration 023).
-- **No shifts table in ClamFlow.** Shifts will be designed fresh in Suite.
+- **ClamFlow HAS shift tables** (`app/models/shifts.py`): `shift_definitions` (name, start/end HH:MM, color, Day/Swing/Night/Overtime), `shift_assignments` (staff_id, date, station, status), `staff_availability`, `shift_change_requests`. Model Suite's shift schema after this.
 - **Aadhaar:** ClamFlow stores the full number in `person_records.aadhar_number`. Suite stores last-4 only. Never import or display the full number.
 - **Fishers are in `person_records`** (`person_type='supplier'`, `boat_registration_number` populated) — not a separate table.
 - **ClamFlow has a full Visitor Pass system** (`visitors` + `visitor_events`) and a **Gate Vehicle Log** (`gate_vehicle_logs` with driver OTP). Both will be built as new modules in Suite.
+- **All visitors are people with a relationship to the plant, not just one-time guests.** Suppliers, vendors, government officers, and contractors are stored as **permanent visitor records** (`is_permanent=True`, no expiry). Individual or delivery visitors get a timed pass (default 8h, max 7 days). The Security Guard screen shows a card for ANY face match — both staff and visitors — and a "new visitor" registration card for unknowns.
 
 #### What We Know (Reviewed June 12 2026)
 
@@ -1033,8 +1055,8 @@ ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker 
 |---|----------|--------|--------|
 | A1 | Full schema of `person_records` | ✅ | `id, first_name, last_name, full_name, address, contact_number (NOT NULL), aadhar_number, person_type (staff/vendor/supplier), designation, firm_name, supplier_type, category, gst_number, boat_registration_number, linked_data (JSONB), status, start_date, end_date, system_account_id → user_profiles, created_by, approved_by, created_at, updated_at` |
 | A2 | Onboarding UI flow | ✅ | Two-step: supervisor submits `OnboardingPending` (JSONB blob) → Admin approves → creates `PersonRecord` + `UserProfile` (system account, username like `SG_Rajan`) |
-| A3 | How face photo is captured | ✅ | 512-float embedding sent from frontend webcam. Photo URL stored in `user_profiles.face_image` (String 500) |
-| A4 | How face is sent to Rekognition | ✅ | **Not properly wired.** Primary path is OpenCV Haar cascade (not real face recognition). Rekognition field exists but is not the active code path. Must be fixed before production. |
+| A3 | How face photo is captured | ✅ | JPEG/PNG image bytes sent directly to AWS Rekognition — no local embedding computed. `user_profiles.face_image` (String 500) stores a display photo URL. `face_embedding Vector(512)` is a legacy column, not written by the current code. |
+| A4 | How face is sent to Rekognition | ✅ | Image bytes POSTed to `/biometric/register-face` → `face_recognition_unified.py` → `utils/aws_rekognition.py` → `rekognition.index_faces(Image={"Bytes": image_bytes}, ExternalImageId=str(UserProfile.id), CollectionId="clamflow-staff", MaxFaces=1, QualityFilter="AUTO")`. No S3 — bytes sent inline. A pre-check with `detect_faces()` ensures exactly one face before indexing. |
 | A5 | What is stored from Rekognition | ✅ | `user_profiles.rekognition_face_id` (String 255) |
 | A6 | Face photo storage | ✅ | `user_profiles.face_image` (URL string). Specific Storage bucket not confirmed from backend code alone. |
 | A7 | Aadhaar field | ✅ | **Full Aadhaar number** stored in `person_records.aadhar_number`. Suite stores last-4 only — never import. |
@@ -1048,17 +1070,17 @@ ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker 
 | B1 | Attendance events table schema | ✅ | `attendance_logs`: `id, person_id → person_records, method (rfid/face/camera_detection/override), timestamp, verified_by → user_profiles, override_reason, location, created_at` |
 | B2 | RFID tag assignment to worker | ✅ | **No proper worker RFID assignment UI.** `rfid_tags.assigned_to` is borrowed informally. `rfid_tags` is a product-box tracking table. Worker RFID will be a clean new feature in Suite. |
 | B3 | RFID scan event model | ✅ | Single-event — each scan = one `attendance_logs` row. No clock-in / clock-out pairing. |
-| B4 | Shifts table | ✅ | **None.** No shifts table in ClamFlow. Will be designed fresh in Suite. |
+| B4 | Shifts table | ✅ | **ClamFlow HAS shift tables** (`app/models/shifts.py`): `shift_definitions` (name, start_time HH:MM, end_time HH:MM, color hex, shift_type Day/Swing/Night/Overtime, is_active), `shift_assignments` (shift_definition_id, staff_id → user_profiles, assigned_date, station, department, status Scheduled/Approved/Pending/Change Requested — UNIQUE per staff+shift+date), `staff_availability` (staff_id, date, is_available, reason), `shift_change_requests` (STATION_CHANGE/STAFF_CHANGE/TIME_CHANGE, request_details JSONB, status Pending/Approved/Rejected). |
 | B5 | Daily attendance calculation | ✅ | Not implemented — raw scan logs only. Calculation logic will be built in Suite. |
-| B6 | RFID reader ↔ Supabase | 🔲 | Hardware integration not visible from backend code. |
+| B6 | RFID reader ↔ Supabase | ✅ | RFID reader POSTs **directly to FastAPI** — no Supabase bridge, no middleware: `POST /api/attendance/log?rfid_tag=<tag_id>`. RFID is the fallback when Rekognition returns no match. Both paths write the same `attendance_logs` row, distinguished by `method` column ('face' vs 'rfid'). |
 
 **C. Face Recognition Attendance Flow**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| C1 | Face scanner Rekognition API call | ✅ | Should be `SearchFacesByImage`. Currently using OpenCV Haar cascade instead — not real face recognition. Must be replaced. |
+| C1 | Face scanner Rekognition API call | ✅ | `rekognition.search_faces_by_image(CollectionId="clamflow-staff", Image={"Bytes": image_bytes}, FaceMatchThreshold=80.0, MaxFaces=1)` — confirmed in `utils/aws_rekognition.py`. Staff collection checked first; falls back to `clamflow-visitors` if no staff match (`identify_person()` helper). Threshold configurable in `search_face()` signature. |
 | C2 | After face match — what is written | ✅ | `attendance_logs` row with `method='face'` |
 | C3 | Face vs RFID — same table? | ✅ | Yes — both write `attendance_logs`, distinguished by `method` column |
-| C4 | Confidence threshold | ✅ | Cosine similarity ≥ 0.72 (from visitor system — same threshold applies to worker matching) |
+| C4 | Confidence threshold | ✅ | `FaceMatchThreshold=80.0` (80% Rekognition similarity score, not cosine). Stored as `confidence` float in `visitor_events`. Same default for worker attendance (`search_face()` default). |
 
 **D. Suppliers / Raw Material Flow**
 | # | Question | Status | Answer |
@@ -1081,9 +1103,10 @@ ClamFlow is the plant-floor operations app at RHHF Panavally. It manages worker 
 **F. Security / Visitor System**
 | # | Question | Status | Answer |
 |---|----------|--------|--------|
-| F1 | Visitors / gate log tables | ✅ | `visitors` (name, phone, purpose, host_staff_id, face_embedding Vector(512), photo_url, rekognition_face_id, pass_token, valid_from, valid_until, status) + `visitor_events` (immutable audit: pass_issued/entry/exit/revoked) |
-| F2 | Visitor check-in | ✅ | Face embedding match (cosine sim ≥ 0.72) OR QR `pass_token` scan |
-| F3 | Unknown face | ✅ | Returns 401 if confidence < 0.72 — supervisor override required |
+| F1 | Visitors / gate log tables | ✅ | **`visitors`**: name, phone, purpose, **organisation** (String 255), **visitor_category** (individual/supplier/vendor/government/contractor/delivery), **is_permanent** (Bool — no expiry for known repeat visitors), host_staff_id → person_records (optional), face_embedding Vector(512) legacy, photo_url, rekognition_face_id, pass_token (unique, QR payload), valid_from, valid_until (**nullable** — NULL for permanent visitors), status (active/expired/revoked), registered_by → user_profiles. **`visitor_events`** (immutable audit trail): event_type (entry/exit/verification_failed/revoked/pass_scanned), gate, captured_photo_url, matched (bool), confidence (float 0–100). **`gate_vehicle_logs`**: vehicle_registration, driver_mobile, driver_name, entry_time, exit_time, purpose (material_delivery/product_transfer/visitor/staff/service), otp_verified, status (inside/exited/rejected), logged_by, exit_approved_by. |
+| F2 | Visitor check-in | ✅ | `POST /api/visitors/identify` → `identify_person()` (searches `clamflow-staff` then `clamflow-visitors`, threshold 80%). Returns `subject_type`: **staff** (staff card, no pass needed) / **known_visitor** (permanent or active pass — show full card) / **expired_visitor** (known, pass lapsed — guard renews) / **new_visitor** (blank form) / **no_face** |
+| F3 | Unknown face | ✅ | Returns `subject_type='new_visitor'` — guard fills in name/phone/category form and registers. One-time visitors get an 8h pass (max 7 days). Suppliers/vendors/government/contractors default to `is_permanent=True` — permanent record, face stays in Rekognition. |
+| F4 | Repeat visitors — how handled? | ✅ **Architecture decision June 12 2026** | **Permanent records.** When guard registers a supplier/vendor/government/contractor, `is_permanent=True` is set automatically (guard can override). `valid_until=NULL`. On every future visit, camera matches face → `known_visitor` card appears on guard screen instantly — no re-registration. Organisation name and visitor_category shown on card. visit_count included. Only one-time visitors (individual/delivery) have an expiry. |
 | F4 | Visitor identity linked to person_records? | ✅ | `visitors.host_staff_id` optionally links to `person_records` (who they're visiting). The visitor themselves is a separate record. |
 | F5 | Gate logs vs attendance logs | ✅ | Separate. `gate_vehicle_logs` = vehicles in/out with driver OTP. `attendance_logs` = person face/RFID scans. |
 | F6 | Blacklist / watchlist | 🔲 | Not visible in code reviewed |

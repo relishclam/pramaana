@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { initiatePaymentOtp, type OtpInitResult } from '@/lib/otp'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -248,25 +249,42 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   }
 }
 
+// ── Approve voucher result type ───────────────────────────────────────────────
+
+export interface ApproveVoucherResult {
+  approved:     boolean
+  otp_sent:     boolean
+  mobile_masked: string | null
+  otp_reason?:  string
+}
+
 // ── Approve voucher ───────────────────────────────────────────────────────────
+// Transitions: pending_approval → approved
+// Then initiates OTP send to the payee's registered mobile.
+// The voucher stays in 'approved' until the OTP is verified, at which
+// point verifyPaymentOtp() advances it to 'completed'.
+// (Previously this set status='posted' directly — moved to a two-step flow.)
 
 export async function approveVoucher(
   voucherId: string,
   companyId: string,
   userId: string,
   comments: string | null,
-): Promise<void> {
+  entityId: string | null,
+): Promise<ApproveVoucherResult> {
   const now = new Date().toISOString()
 
+  // Step 1 — Advance to 'approved' (was: 'posted')
   const { error: vErr } = await supabase
     .schema('pramaana')
     .from('vouchers')
-    .update({ status: 'posted', posted_at: now, posted_by: userId })
+    .update({ status: 'approved', posted_at: now, posted_by: userId })
     .eq('id', voucherId)
     .eq('status', 'pending_approval')
 
   if (vErr) throw new Error('Failed to approve voucher: ' + vErr.message)
 
+  // Step 2 — Record approval action
   const { error: aErr } = await supabase
     .schema('pramaana')
     .from('approval_actions')
@@ -280,6 +298,18 @@ export async function approveVoucher(
     })
 
   if (aErr) throw new Error('Failed to record approval: ' + aErr.message)
+
+  // Step 3 — Initiate OTP for payee
+  const otpResult: OtpInitResult = await initiatePaymentOtp(
+    voucherId, companyId, userId, entityId
+  )
+
+  return {
+    approved:      true,
+    otp_sent:      otpResult.sent,
+    mobile_masked: otpResult.sent ? otpResult.mobile_masked : null,
+    otp_reason:    otpResult.sent ? undefined : ('reason' in otpResult ? otpResult.reason : undefined),
+  }
 }
 
 // ── Reject voucher ────────────────────────────────────────────────────────────

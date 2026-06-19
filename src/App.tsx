@@ -14,6 +14,11 @@ import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
 import RelayCapture from '@/pages/RelayCapture'
 import SettleCapture from '@/pages/SettleCapture'
 import VoucherEdit from '@/pages/VoucherEdit'
+import DayBook from '@/pages/DayBook'
+import LedgerStatement from '@/pages/LedgerStatement'
+import TrialBalance from '@/pages/TrialBalance'
+import PLStatement from '@/pages/PLStatement'
+import BalanceSheet from '@/pages/BalanceSheet'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -26,12 +31,25 @@ function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { setNavOpen(false) }, [children])
 
   const NAV_ITEMS = [
-    { to: '/',             label: 'Dashboard', end: true,  badge: 0            },
-    { to: '/ledgers',      label: 'Ledgers',   end: false, badge: 0            },
+    { to: '/',           label: 'Dashboard', end: true,  badge: 0            },
+    { to: '/ledgers',    label: 'Ledgers',   end: false, badge: 0            },
     { to: '/vouchers',   label: 'Vouchers',  end: false, badge: 0            },
     { to: '/suspense',   label: 'Suspense',  end: false, badge: 0            },
     { to: '/approvals',  label: 'Approvals', end: false, badge: pendingCount },
   ]
+
+  const REPORT_ITEMS = [
+    { to: '/reports/day-book',      label: 'Day Book'         },
+    { to: '/reports/ledger',        label: 'Ledger Statement' },
+    { to: '/reports/trial-balance', label: 'Trial Balance'    },
+    { to: '/reports/pl',            label: 'P&L Statement'    },
+    { to: '/reports/balance-sheet', label: 'Balance Sheet'    },
+  ]
+
+  const canViewReports =
+    user?.profile.is_super_admin ||
+    (user?.activeRole !== null &&
+     ['admin', 'accounts', 'auditor'].includes(user?.activeRole ?? ''))
 
   const sidebarContent = (
     <>
@@ -80,6 +98,39 @@ function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </NavLink>
       ))}
+
+      {/* Reports section */}
+      {canViewReports && (
+        <>
+          <div style={{
+            padding: '0.75rem 1.5rem 0.25rem',
+            fontSize: '0.6875rem', fontWeight: 700,
+            color: 'var(--text-dim)', letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}>
+            Reports
+          </div>
+          {REPORT_ITEMS.map(({ to, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={false}
+              onClick={() => setNavOpen(false)}
+              style={({ isActive }) => ({
+                display: 'block',
+                padding: '0.375rem 1rem 0.375rem 1.5rem',
+                color: isActive ? 'var(--teal)' : 'var(--text-muted)',
+                background: isActive ? 'var(--teal-light)' : 'none',
+                borderRadius: '6px', margin: '0 0.5rem',
+                fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
+                textDecoration: 'none',
+              })}
+            >
+              {label}
+            </NavLink>
+          ))}
+        </>
+      )}
       <div style={{ marginTop: 'auto', padding: '0 0.5rem' }}>
         <button
           onClick={signOut}
@@ -259,6 +310,18 @@ function ApprovalQueueGuard() {
   return <AppShell><ApprovalQueue /></AppShell>
 }
 
+const REPORT_ROLES = new Set(['admin', 'accounts', 'auditor'])
+
+function ReportGuard({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && REPORT_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell>{children}</AppShell>
+}
+
 function AppRoutes() {
   const { user, loading } = useAuth()
 
@@ -318,6 +381,11 @@ function AppRoutes() {
         <Route path="/suspense"       element={<SuspenseRegisterGuard />} />
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
+        <Route path="/reports/day-book"      element={<ReportGuard><DayBook /></ReportGuard>} />
+        <Route path="/reports/ledger"        element={<ReportGuard><LedgerStatement /></ReportGuard>} />
+        <Route path="/reports/trial-balance" element={<ReportGuard><TrialBalance /></ReportGuard>} />
+        <Route path="/reports/pl"            element={<ReportGuard><PLStatement /></ReportGuard>} />
+        <Route path="/reports/balance-sheet" element={<ReportGuard><BalanceSheet /></ReportGuard>} />
         <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/select-company" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

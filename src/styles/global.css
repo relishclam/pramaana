@@ -67,6 +67,13 @@ button, input, select, textarea {
 ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
+/* Print: hide sidebar and topbar, allow report content to fill page */
+@media print {
+  .app-nav, .app-topbar, .app-backdrop { display: none !important; }
+  .app-shell { display: block !important; }
+  body { background: #fff; color: #000; }
+}
+
 /* Sonner toast overrides */
 [data-sonner-toaster] {
   --normal-bg: var(--surface) !important;

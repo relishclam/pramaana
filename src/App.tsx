@@ -8,6 +8,7 @@ import Ledgers from '@/pages/Ledgers'
 import VoucherEntry from '@/pages/VoucherEntry'
 import ApprovalQueue from '@/pages/ApprovalQueue'
 import VoucherRegister from '@/pages/VoucherRegister'
+import VoucherSearch from '@/pages/VoucherSearch'
 import SuspenseRegister from '@/pages/SuspenseRegister'
 import SuspenseEntry from '@/pages/SuspenseEntry'
 import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
@@ -19,6 +20,12 @@ import LedgerStatement from '@/pages/LedgerStatement'
 import TrialBalance from '@/pages/TrialBalance'
 import PLStatement from '@/pages/PLStatement'
 import BalanceSheet from '@/pages/BalanceSheet'
+import ReceivablesPayables from '@/pages/ReceivablesPayables'
+import GSTReports from '@/pages/GSTReports'
+import CashFlow from '@/pages/CashFlow'
+import RatioAnalysis from '@/pages/RatioAnalysis'
+import ExceptionReports from '@/pages/ExceptionReports'
+import Inventory from '@/pages/Inventory'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -36,14 +43,25 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/vouchers',   label: 'Vouchers',  end: false, badge: 0            },
     { to: '/suspense',   label: 'Suspense',  end: false, badge: 0            },
     { to: '/approvals',  label: 'Approvals', end: false, badge: pendingCount },
+    { to: '/inventory',  label: 'Inventory',  end: false, badge: 0            },
   ]
 
   const REPORT_ITEMS = [
-    { to: '/reports/day-book',      label: 'Day Book'         },
-    { to: '/reports/ledger',        label: 'Ledger Statement' },
-    { to: '/reports/trial-balance', label: 'Trial Balance'    },
-    { to: '/reports/pl',            label: 'P&L Statement'    },
-    { to: '/reports/balance-sheet', label: 'Balance Sheet'    },
+    { to: '/reports/day-book',             label: 'Day Book'              },
+    { to: '/reports/ledger',               label: 'Ledger Statement'      },
+    { to: '/reports/trial-balance',        label: 'Trial Balance'         },
+    { to: '/reports/pl',                   label: 'P&L Statement'         },
+    { to: '/reports/balance-sheet',        label: 'Balance Sheet'         },
+    { to: '/reports/receivables-payables', label: 'Receivables/Payables'  },
+    { to: '/reports/cash-flow',            label: 'Cash Flow'             },
+    { to: '/reports/gst',                  label: 'GST Reports'           },
+    { to: '/reports/ratios',               label: 'Ratio Analysis'        },
+    { to: '/reports/exceptions',           label: 'Exception Reports'     },
+  ]
+
+  const VOUCHER_SUB_ITEMS = [
+    { to: '/vouchers',        label: 'Register', end: true  },
+    { to: '/vouchers/search', label: 'Search',   end: false },
   ]
 
   const canViewReports =
@@ -69,35 +87,80 @@ function AppShell({ children }: { children: React.ReactNode }) {
           ✕
         </button>
       </div>
-      {NAV_ITEMS.map(({ to, label, end, badge }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          onClick={() => setNavOpen(false)}
-          style={({ isActive }) => ({
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '0.5rem 1rem',
-            color: isActive ? 'var(--teal)' : 'var(--text-muted)',
-            background: isActive ? 'var(--teal-light)' : 'none',
-            borderRadius: '6px', margin: '0 0.5rem',
-            fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
-            textDecoration: 'none',
-          })}
-        >
-          <span>{label}</span>
-          {badge > 0 && (
-            <span style={{
-              background: 'var(--error)', color: '#fff',
-              borderRadius: '10px', padding: '1px 6px',
-              fontSize: '0.6875rem', fontWeight: 700, lineHeight: '1.4',
-              minWidth: '18px', textAlign: 'center',
-            }}>
-              {badge}
-            </span>
-          )}
-        </NavLink>
-      ))}
+      {NAV_ITEMS.map(({ to, label, end, badge }) => {
+        // Vouchers gets a sub-menu for Register and Search
+        if (to === '/vouchers') {
+          return (
+            <div key={to}>
+              <NavLink
+                to={to}
+                end={false}
+                onClick={() => setNavOpen(false)}
+                style={({ isActive }) => ({
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '0.5rem 1rem',
+                  color: isActive ? 'var(--teal)' : 'var(--text-muted)',
+                  background: isActive ? 'var(--teal-light)' : 'none',
+                  borderRadius: '6px', margin: '0 0.5rem',
+                  fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
+                  textDecoration: 'none',
+                })}
+              >
+                <span>{label}</span>
+              </NavLink>
+              {VOUCHER_SUB_ITEMS.map(({ to: subTo, label: subLabel, end: subEnd }) => (
+                <NavLink
+                  key={subTo}
+                  to={subTo}
+                  end={subEnd}
+                  onClick={() => setNavOpen(false)}
+                  style={({ isActive }) => ({
+                    display: 'block',
+                    padding: '0.3125rem 1rem 0.3125rem 2rem',
+                    color: isActive ? 'var(--teal)' : 'var(--text-muted)',
+                    background: isActive ? 'var(--teal-light)' : 'none',
+                    borderRadius: '6px', margin: '0 0.5rem',
+                    fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
+                    textDecoration: 'none',
+                  })}
+                >
+                  {subLabel}
+                </NavLink>
+              ))}
+            </div>
+          )
+        }
+
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            onClick={() => setNavOpen(false)}
+            style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0.5rem 1rem',
+              color: isActive ? 'var(--teal)' : 'var(--text-muted)',
+              background: isActive ? 'var(--teal-light)' : 'none',
+              borderRadius: '6px', margin: '0 0.5rem',
+              fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
+              textDecoration: 'none',
+            })}
+          >
+            <span>{label}</span>
+            {badge > 0 && (
+              <span style={{
+                background: 'var(--error)', color: '#fff',
+                borderRadius: '10px', padding: '1px 6px',
+                fontSize: '0.6875rem', fontWeight: 700, lineHeight: '1.4',
+                minWidth: '18px', textAlign: 'center',
+              }}>
+                {badge}
+              </span>
+            )}
+          </NavLink>
+        )
+      })}
 
       {/* Reports section */}
       {canViewReports && (
@@ -274,6 +337,12 @@ function VoucherRegisterGuard() {
   return <AppShell><VoucherRegister /></AppShell>
 }
 
+function VoucherSearchGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  return <AppShell><VoucherSearch /></AppShell>
+}
+
 function SuspenseRegisterGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -308,6 +377,18 @@ function ApprovalQueueGuard() {
     (user.activeRole !== null && APPROVAL_ROLES.has(user.activeRole))
   if (!allowed) return <Navigate to="/" replace />
   return <AppShell><ApprovalQueue /></AppShell>
+}
+
+const INVENTORY_ROLES = new Set(['admin', 'accounts', 'auditor'])
+
+function InventoryGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && INVENTORY_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><Inventory /></AppShell>
 }
 
 const REPORT_ROLES = new Set(['admin', 'accounts', 'auditor'])
@@ -376,16 +457,23 @@ function AppRoutes() {
         <Route path="/settle/:token" element={<SettleCapture />} />
         <Route path="/ledgers"     element={<LedgersGuard />} />
         <Route path="/vouchers"            element={<VoucherRegisterGuard />} />
+        <Route path="/vouchers/search"      element={<VoucherSearchGuard />} />
         <Route path="/vouchers/new"         element={<VoucherEntryGuard />} />
         <Route path="/vouchers/:id/edit"    element={<VoucherEditGuard />} />
         <Route path="/suspense"       element={<SuspenseRegisterGuard />} />
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
-        <Route path="/reports/day-book"      element={<ReportGuard><DayBook /></ReportGuard>} />
-        <Route path="/reports/ledger"        element={<ReportGuard><LedgerStatement /></ReportGuard>} />
-        <Route path="/reports/trial-balance" element={<ReportGuard><TrialBalance /></ReportGuard>} />
-        <Route path="/reports/pl"            element={<ReportGuard><PLStatement /></ReportGuard>} />
-        <Route path="/reports/balance-sheet" element={<ReportGuard><BalanceSheet /></ReportGuard>} />
+        <Route path="/inventory"      element={<InventoryGuard />} />
+        <Route path="/reports/day-book"             element={<ReportGuard><DayBook /></ReportGuard>} />
+        <Route path="/reports/ledger"               element={<ReportGuard><LedgerStatement /></ReportGuard>} />
+        <Route path="/reports/trial-balance"        element={<ReportGuard><TrialBalance /></ReportGuard>} />
+        <Route path="/reports/pl"                   element={<ReportGuard><PLStatement /></ReportGuard>} />
+        <Route path="/reports/balance-sheet"        element={<ReportGuard><BalanceSheet /></ReportGuard>} />
+        <Route path="/reports/receivables-payables" element={<ReportGuard><ReceivablesPayables /></ReportGuard>} />
+        <Route path="/reports/cash-flow"            element={<ReportGuard><CashFlow /></ReportGuard>} />
+        <Route path="/reports/gst"                  element={<ReportGuard><GSTReports /></ReportGuard>} />
+        <Route path="/reports/ratios"               element={<ReportGuard><RatioAnalysis /></ReportGuard>} />
+        <Route path="/reports/exceptions"           element={<ReportGuard><ExceptionReports /></ReportGuard>} />
         <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/select-company" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

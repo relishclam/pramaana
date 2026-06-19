@@ -518,3 +518,262 @@
     border-top: 1px solid var(--border);
   }
 }
+
+/* ── Search within filter bar ───────────────────────────────────────────── */
+
+.filterSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.filterSearchIcon {
+  position: absolute;
+  left: 0.625rem;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.filterSearch {
+  padding: 0.4375rem 0.75rem 0.4375rem 2rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  outline: none;
+  min-width: 200px;
+  transition: border-color 0.15s;
+}
+
+.filterSearch:focus { border-color: var(--teal); }
+.filterSearch::placeholder { color: var(--text-dim); }
+
+/* ── Tab navigation ─────────────────────────────────────────────────────── */
+
+.tabNav {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+  padding: 0 1.5rem;
+}
+
+.tabBtn {
+  padding: 0.625rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.tabBtn:hover:not(.tabBtnActive) { color: var(--text); }
+
+.tabBtnActive {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+  font-weight: 600;
+}
+
+/* ── Ratio analysis cards ────────────────────────────────────────────────── */
+
+.ratioGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.ratioCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.ratioLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.ratioValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--teal);
+  line-height: 1;
+}
+
+.ratioValueNull {
+  font-size: 1.125rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.ratioDesc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.375rem;
+}
+
+/* ── Cash flow statement ─────────────────────────────────────────────────── */
+
+.cfSection {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.cfSectionTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.375rem 0 0.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+}
+
+.cfRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3125rem 0;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.cfRowLabel { flex: 1; color: var(--text); padding-left: 0.5rem; }
+.cfRowAmt   { font-family: var(--font-mono); font-size: 0.8125rem; min-width: 140px; text-align: right; }
+
+.cfTotal {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.cfTotalAmt { font-family: var(--font-mono); font-size: 0.875rem; min-width: 140px; text-align: right; }
+
+.cfSummary {
+  padding: 0.875rem 1.5rem;
+  background: var(--surface-2);
+  border-top: 2px solid var(--border-2);
+}
+
+.cfSummaryRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3125rem 0;
+  font-size: 0.875rem;
+}
+
+.cfSummaryNet {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--text);
+  border-top: 1px solid var(--border-2);
+  margin-top: 0.375rem;
+  padding-top: 0.5rem;
+}
+
+/* ── Exception report badges ─────────────────────────────────────────────── */
+
+.exBadgeWarn {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.exBadgeErr {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 20px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* ── Section count badge ─────────────────────────────────────────────────── */
+
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--error);
+  color: #fff;
+  border-radius: 9px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  margin-left: 0.375rem;
+  line-height: 1;
+}
+
+/* ── GST table special column ────────────────────────────────────────────── */
+
+.gstNote {
+  padding: 0.75rem 1.5rem;
+  background: rgba(201, 168, 76, 0.08);
+  border: 1px solid rgba(201, 168, 76, 0.2);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  color: var(--gold);
+  margin-bottom: 1.25rem;
+}
+
+.gstSummaryBox {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.gstSummaryCard {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+
+.gstSummaryLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.375rem;
+}
+
+.gstSummaryValue {
+  font-size: 1.375rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text);
+}

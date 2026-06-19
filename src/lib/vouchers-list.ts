@@ -189,3 +189,114 @@ export async function submitDraftVoucher(
     .eq('status', 'draft')
   if (error) throw new Error('Failed to submit voucher: ' + error.message)
 }
+
+// ── Advanced Voucher Search ───────────────────────────────────────────────────
+
+export interface AdvancedFilters {
+  payee:       string   // entity display_name search
+  ledgerId:    string   // head of account (ledger) id
+  dateFrom:    string
+  dateTo:      string
+  amountType:  'exact' | 'gte' | 'lte' | ''
+  amountValue: string
+  nature:      string   // voucher type nature filter
+}
+
+export interface AdvancedVoucherResult {
+  id:             string
+  voucher_number: string
+  voucher_date:   string
+  amount:         number
+  status:         string
+  narration:      string | null
+  party_name:     string | null
+  voucher_type:   string
+  nature:         string
+}
+
+export async function fetchAdvancedVoucherSearch(
+  companyId: string,
+  filters:   AdvancedFilters,
+): Promise<AdvancedVoucherResult[]> {
+  // 1. Resolve payee → entity_ids
+  let entityIds: string[] | null = null
+  if (filters.payee.trim()) {
+    const { data: ents } = await supabase
+      .schema('registry').from('entities')
+      .select('id').ilike('display_name', `%${filters.payee.trim()}%`).limit(100)
+    entityIds = ((ents ?? []) as { id: string }[]).map(e => e.id)
+    if (entityIds.length === 0) return []
+  }
+
+  // 2. Resolve head of account ledger → voucher_ids that touch it
+  let ledgerVoucherIds: string[] | null = null
+  if (filters.ledgerId) {
+    const { data: ev, error: evErr } = await supabase
+      .schema('pramaana').from('voucher_entries')
+      .select('voucher_id').eq('ledger_id', filters.ledgerId)
+    if (evErr) throw new Error(evErr.message)
+    ledgerVoucherIds = [...new Set(((ev ?? []) as { voucher_id: string }[]).map(r => r.voucher_id))]
+    if (ledgerVoucherIds.length === 0) return []
+  }
+
+  // 3. Resolve nature → type_ids
+  let typeIds: string[] | null = null
+  if (filters.nature) {
+    const { data: vt } = await supabase
+      .schema('pramaana').from('voucher_types').select('id').eq('nature', filters.nature)
+    typeIds = ((vt ?? []) as { id: string }[]).map(t => t.id)
+    if (typeIds.length === 0) return []
+  }
+
+  // 4. Build main query
+  let q = supabase
+    .schema('pramaana').from('vouchers')
+    .select('id, voucher_number, voucher_date, amount, status, narration, entity_id, voucher_types(name, nature)')
+    .eq('company_id', companyId)
+    .gte('voucher_date', filters.dateFrom)
+    .lte('voucher_date', filters.dateTo)
+    .order('voucher_date', { ascending: false })
+    .order('created_at',   { ascending: false })
+    .limit(500)
+
+  if (entityIds        !== null) q = q.in('entity_id',       entityIds)
+  if (ledgerVoucherIds !== null) q = q.in('id',              ledgerVoucherIds)
+  if (typeIds          !== null) q = q.in('voucher_type_id', typeIds)
+
+  const amtVal = parseFloat(filters.amountValue)
+  if (filters.amountType && !isNaN(amtVal)) {
+    if      (filters.amountType === 'exact') q = q.eq ('amount', amtVal)
+    else if (filters.amountType === 'gte')   q = q.gte('amount', amtVal)
+    else if (filters.amountType === 'lte')   q = q.lte('amount', amtVal)
+  }
+
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  const rows = (data ?? []) as unknown as {
+    id: string; voucher_number: string; voucher_date: string
+    amount: number; status: string; narration: string | null
+    entity_id: string | null
+    voucher_types: { name: string; nature: string } | null
+  }[]
+
+  // 5. Batch-fetch entity display names
+  const allEids = [...new Set(rows.map(r => r.entity_id).filter(Boolean) as string[])]
+  const nameMap = new Map<string, string>()
+  if (allEids.length > 0) {
+    const { data: ents } = await supabase
+      .schema('registry').from('entities').select('id, display_name').in('id', allEids)
+    ;(ents ?? []).forEach((e: { id: string; display_name: string }) => nameMap.set(e.id, e.display_name))
+  }
+
+  return rows.map(r => ({
+    id:             r.id,
+    voucher_number: r.voucher_number,
+    voucher_date:   r.voucher_date,
+    amount:         r.amount,
+    status:         r.status,
+    narration:      r.narration,
+    party_name:     r.entity_id ? (nameMap.get(r.entity_id) ?? null) : null,
+    voucher_type:   r.voucher_types?.name ?? '—',
+    nature:         r.voucher_types?.nature ?? '',
+  }))
+}

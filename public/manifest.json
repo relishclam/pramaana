@@ -1,7 +1,7 @@
 {
   "name": "Pramaana — Relish Accounts",
   "short_name": "Pramaana",
-  "description": "Accounting and voucher management for Relish",
+  "description": "Traceability & Transparency for Food Supply Chains",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

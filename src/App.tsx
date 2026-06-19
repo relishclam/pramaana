@@ -1,6 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { ChevronDown, BarChart2, X, Menu } from 'lucide-react'
 import { Toaster } from 'sonner'
+import css from './App.module.css'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import Login from '@/pages/Login'
 import CompanySelector from '@/pages/CompanySelector'
@@ -27,37 +29,34 @@ import RatioAnalysis from '@/pages/RatioAnalysis'
 import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
 import AdminPanel from '@/pages/AdminPanel'
+import DashboardPage from '@/pages/Dashboard'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
 function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, signOut }    = useAuth()
-  const { pendingCount }     = useApprovalCount()
+  const { user, signOut }     = useAuth()
+  const { pendingCount }      = useApprovalCount()
+  const location              = useLocation()
   const [navOpen, setNavOpen] = useState(false)
 
-  // Close sidebar on route change (mobile)
-  useEffect(() => { setNavOpen(false) }, [children])
+  const onReport = location.pathname.startsWith('/reports/')
+  const [reportsOpen, setReportsOpen] = useState(onReport)
+
+  // Auto-expand reports when navigating to a report page
+  useEffect(() => {
+    if (location.pathname.startsWith('/reports/')) setReportsOpen(true)
+  }, [location.pathname])
+
+  // Close sidebar on navigation (mobile)
+  useEffect(() => { setNavOpen(false) }, [location.pathname])
 
   const NAV_ITEMS = [
-    { to: '/',           label: 'Dashboard', end: true,  badge: 0            },
-    { to: '/ledgers',    label: 'Ledgers',   end: false, badge: 0            },
-    { to: '/vouchers',   label: 'Vouchers',  end: false, badge: 0            },
-    { to: '/suspense',   label: 'Suspense',  end: false, badge: 0            },
-    { to: '/approvals',  label: 'Approvals', end: false, badge: pendingCount },
-    { to: '/inventory',  label: 'Inventory',  end: false, badge: 0            },
-  ]
-
-  const REPORT_ITEMS = [
-    { to: '/reports/day-book',             label: 'Day Book'              },
-    { to: '/reports/ledger',               label: 'Ledger Statement'      },
-    { to: '/reports/trial-balance',        label: 'Trial Balance'         },
-    { to: '/reports/pl',                   label: 'P&L Statement'         },
-    { to: '/reports/balance-sheet',        label: 'Balance Sheet'         },
-    { to: '/reports/receivables-payables', label: 'Receivables/Payables'  },
-    { to: '/reports/cash-flow',            label: 'Cash Flow'             },
-    { to: '/reports/gst',                  label: 'GST Reports'           },
-    { to: '/reports/ratios',               label: 'Ratio Analysis'        },
-    { to: '/reports/exceptions',           label: 'Exception Reports'     },
+    { to: '/',          label: 'Dashboard', end: true,  badge: 0            },
+    { to: '/ledgers',   label: 'Ledgers',   end: false, badge: 0            },
+    { to: '/vouchers',  label: 'Vouchers',  end: false, badge: 0            },
+    { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
+    { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount },
+    { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
   ]
 
   const VOUCHER_SUB_ITEMS = [
@@ -65,263 +64,157 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/vouchers/search', label: 'Search',   end: false },
   ]
 
+  const REPORT_ITEMS = [
+    { to: '/reports/day-book',             label: 'Day Book'             },
+    { to: '/reports/ledger',               label: 'Ledger Statement'     },
+    { to: '/reports/trial-balance',        label: 'Trial Balance'        },
+    { to: '/reports/pl',                   label: 'P&L Statement'        },
+    { to: '/reports/balance-sheet',        label: 'Balance Sheet'        },
+    { to: '/reports/receivables-payables', label: 'Receivables/Payables' },
+    { to: '/reports/cash-flow',            label: 'Cash Flow'            },
+    { to: '/reports/gst',                  label: 'GST Reports'          },
+    { to: '/reports/ratios',               label: 'Ratio Analysis'       },
+    { to: '/reports/exceptions',           label: 'Exception Reports'    },
+  ]
+
   const canViewReports =
     user?.profile.is_super_admin ||
     (user?.activeRole !== null &&
      ['admin', 'accounts', 'auditor'].includes(user?.activeRole ?? ''))
 
-  const sidebarContent = (
-    <>
-      <div style={{ padding: '0 1rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '36px', width: 'auto' }} />
-        {/* Close button — mobile only */}
-        <button
-          onClick={() => setNavOpen(false)}
-          aria-label="Close menu"
-          style={{
-            display: 'none', background: 'none', border: 'none',
-            color: 'var(--text-muted)', cursor: 'pointer', padding: '4px',
-            fontSize: '1.25rem', lineHeight: 1,
-          }}
-          className="nav-close-btn"
-        >
-          ✕
-        </button>
-      </div>
-      {NAV_ITEMS.map(({ to, label, end, badge }) => {
-        // Vouchers gets a sub-menu for Register and Search
-        if (to === '/vouchers') {
-          return (
-            <div key={to}>
-              <NavLink
-                to={to}
-                end={false}
-                onClick={() => setNavOpen(false)}
-                style={({ isActive }) => ({
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '0.5rem 1rem',
-                  color: isActive ? 'var(--teal)' : 'var(--text-muted)',
-                  background: isActive ? 'var(--teal-light)' : 'none',
-                  borderRadius: '6px', margin: '0 0.5rem',
-                  fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
-                  textDecoration: 'none',
-                })}
-              >
-                <span>{label}</span>
-              </NavLink>
-              {VOUCHER_SUB_ITEMS.map(({ to: subTo, label: subLabel, end: subEnd }) => (
+  return (
+    <div className={css.shell}>
+      {/* Mobile backdrop */}
+      {navOpen && <div className={css.backdrop} onClick={() => setNavOpen(false)} />}
+
+      {/* Sidebar */}
+      <nav className={`${css.nav}${navOpen ? ` ${css.navOpen}` : ''}`}>
+        {/* Logo + close */}
+        <div className={css.navHead}>
+          <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '34px', width: 'auto' }} />
+          <button className={css.closeBtn} onClick={() => setNavOpen(false)} aria-label="Close menu">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Main nav items */}
+        {NAV_ITEMS.map(({ to, label, end, badge }) => {
+          if (to === '/vouchers') {
+            return (
+              <div key={to}>
                 <NavLink
-                  key={subTo}
-                  to={subTo}
-                  end={subEnd}
-                  onClick={() => setNavOpen(false)}
-                  style={({ isActive }) => ({
-                    display: 'block',
-                    padding: '0.3125rem 1rem 0.3125rem 2rem',
-                    color: isActive ? 'var(--teal)' : 'var(--text-muted)',
-                    background: isActive ? 'var(--teal-light)' : 'none',
-                    borderRadius: '6px', margin: '0 0.5rem',
-                    fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
-                    textDecoration: 'none',
-                  })}
+                  to={to}
+                  end={false}
+                  className={({ isActive }) =>
+                    `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
+                  }
                 >
-                  {subLabel}
+                  <span>{label}</span>
                 </NavLink>
-              ))}
-            </div>
-          )
-        }
-
-        return (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            onClick={() => setNavOpen(false)}
-            style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '0.5rem 1rem',
-              color: isActive ? 'var(--teal)' : 'var(--text-muted)',
-              background: isActive ? 'var(--teal-light)' : 'none',
-              borderRadius: '6px', margin: '0 0.5rem',
-              fontSize: '0.875rem', fontWeight: isActive ? 600 : 400,
-              textDecoration: 'none',
-            })}
-          >
-            <span>{label}</span>
-            {badge > 0 && (
-              <span style={{
-                background: 'var(--error)', color: '#fff',
-                borderRadius: '10px', padding: '1px 6px',
-                fontSize: '0.6875rem', fontWeight: 700, lineHeight: '1.4',
-                minWidth: '18px', textAlign: 'center',
-              }}>
-                {badge}
-              </span>
-            )}
-          </NavLink>
-        )
-      })}
-
-      {/* Reports section */}
-      {canViewReports && (
-        <>
-          <div style={{
-            padding: '0.75rem 1.5rem 0.25rem',
-            fontSize: '0.6875rem', fontWeight: 700,
-            color: 'var(--text-dim)', letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-          }}>
-            Reports
-          </div>
-          {REPORT_ITEMS.map(({ to, label }) => (
+                {VOUCHER_SUB_ITEMS.map(({ to: s, label: sl, end: se }) => (
+                  <NavLink
+                    key={s}
+                    to={s}
+                    end={se}
+                    className={({ isActive }) =>
+                      `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`
+                    }
+                  >
+                    {sl}
+                  </NavLink>
+                ))}
+              </div>
+            )
+          }
+          return (
             <NavLink
               key={to}
               to={to}
-              end={false}
-              onClick={() => setNavOpen(false)}
-              style={({ isActive }) => ({
-                display: 'block',
-                padding: '0.375rem 1rem 0.375rem 1.5rem',
-                color: isActive ? 'var(--teal)' : 'var(--text-muted)',
-                background: isActive ? 'var(--teal-light)' : 'none',
-                borderRadius: '6px', margin: '0 0.5rem',
-                fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
-                textDecoration: 'none',
-              })}
+              end={end}
+              className={({ isActive }) =>
+                `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
+              }
             >
-              {label}
+              <span>{label}</span>
+              {badge > 0 && <span className={css.badge}>{badge}</span>}
             </NavLink>
-          ))}
-        </>
-      )}
-      <div style={{ marginTop: 'auto', padding: '0 0.5rem' }}>
-        {/* Admin panel — super_admin only */}
-        {user?.profile.is_super_admin && (
-          <NavLink
-            to="/admin"
-            end={false}
-            onClick={() => setNavOpen(false)}
-            style={({ isActive }) => ({
-              display: 'block',
-              padding: '0.375rem 1rem',
-              color: isActive ? '#ef4444' : 'var(--text-dim)',
-              background: isActive ? 'rgba(239,68,68,0.08)' : 'none',
-              borderRadius: '6px', margin: '0 0 0.25rem',
-              fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
-              textDecoration: 'none',
-            })}
-          >
-            ⚙ Admin Panel
-          </NavLink>
-        )}
-        <button
-          onClick={signOut}
-          style={{
-            width: '100%', padding: '0.5rem 1rem', background: 'none',
-            border: '1px solid var(--border)', borderRadius: '6px',
-            color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8125rem',
-            textAlign: 'left',
-          }}
-        >
-          Sign out
-        </button>
-      </div>
-    </>
-  )
+          )
+        })}
 
-  return (
-    <>
-      {/* Scoped CSS for responsive sidebar */}
-      <style>{`
-        .app-shell { display: flex; min-height: 100vh; background: var(--bg); }
-        .app-nav {
-          width: 200px; background: var(--surface);
-          border-right: 1px solid var(--border);
-          padding: 1.5rem 0; display: flex; flex-direction: column;
-          gap: 0.25rem; flex-shrink: 0;
-        }
-        .app-topbar { display: none; }
-        @media (max-width: 680px) {
-          .app-nav {
-            position: fixed; top: 0; left: 0; bottom: 0; z-index: 200;
-            transform: translateX(-100%);
-            transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
-            box-shadow: 4px 0 24px rgba(0,0,0,0.4);
-          }
-          .app-nav.open { transform: translateX(0); }
-          .app-topbar {
-            display: flex; align-items: center; gap: 0.75rem;
-            padding: 0.75rem 1rem;
-            background: var(--surface); border-bottom: 1px solid var(--border);
-            position: sticky; top: 0; z-index: 100;
-          }
-          .nav-close-btn { display: block !important; }
-          .app-backdrop {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
-            z-index: 199;
-          }
-        }
-      `}</style>
-
-      <div className="app-shell">
-        {/* Mobile backdrop */}
-        {navOpen && <div className="app-backdrop" onClick={() => setNavOpen(false)} />}
-
-        {/* Sidebar */}
-        <nav className={`app-nav${navOpen ? ' open' : ''}`}>
-          {sidebarContent}
-        </nav>
-
-        {/* Main content */}
-        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {/* Mobile top bar */}
-          <div className="app-topbar">
+        {/* Reports — collapsible */}
+        {canViewReports && (
+          <>
             <button
-              onClick={() => setNavOpen(true)}
-              aria-label="Open menu"
-              style={{
-                background: 'none', border: '1px solid var(--border)',
-                borderRadius: '6px', padding: '6px 10px',
-                color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1rem',
-                lineHeight: 1, flexShrink: 0,
-              }}
+              className={css.sectionToggle}
+              onClick={() => setReportsOpen(o => !o)}
+              aria-expanded={reportsOpen}
             >
-              ☰
+              <span className={css.sectionLabel}>
+                <BarChart2 size={12} />
+                Reports
+              </span>
+              <ChevronDown
+                size={14}
+                className={`${css.chevron}${reportsOpen ? ` ${css.chevronOpen}` : ''}`}
+              />
             </button>
-            <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '28px', width: 'auto' }} />
-            <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-              {user?.activeCompany?.code}
-            </span>
-          </div>
-          <main style={{ flex: 1 }}>{children}</main>
+            <div className={`${css.sectionBody}${reportsOpen ? ` ${css.sectionBodyOpen}` : ''}`}>
+              {REPORT_ITEMS.map(({ to, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={false}
+                  className={({ isActive }) =>
+                    `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`
+                  }
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Footer: Admin + Sign out */}
+        <div className={css.navFooter}>
+          {user?.profile.is_super_admin && (
+            <NavLink
+              to="/admin"
+              end={false}
+              className={({ isActive }) =>
+                `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`
+              }
+            >
+              ⚙ Admin Panel
+            </NavLink>
+          )}
+          <button className={css.signOut} onClick={signOut}>Sign out</button>
         </div>
+      </nav>
+
+      {/* Page content */}
+      <div className={css.mainWrap}>
+        {/* Mobile topbar */}
+        <div className={css.topbar}>
+          <button
+            className={css.menuBtn}
+            onClick={() => setNavOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu size={18} />
+          </button>
+          <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '28px', width: 'auto' }} />
+          <span className={css.topbarCompany}>{user?.activeCompany?.name}</span>
+        </div>
+        <main className={css.main}>{children}</main>
       </div>
-    </>
+    </div>
   )
 }
 
-// Placeholder for dashboard — replaced when Screen 3+ are built
+// Dashboard — wraps in AppShell since AppShell is defined here
 function Dashboard() {
-  const { user } = useAuth()
-  return (
-    <AppShell>
-      <div style={{ padding: '2rem', color: 'var(--text)' }}>
-        <p>
-          Welcome, {user?.profile.full_name ?? user?.email} ·{' '}
-          <strong style={{ color: 'var(--gold)' }}>{user?.activeCompany?.name}</strong>
-          {user?.profile.is_super_admin && (
-            <span style={{ marginLeft: '0.5rem', color: 'var(--teal)', fontSize: '0.75rem' }}>
-              super_admin
-            </span>
-          )}
-        </p>
-        <p style={{ marginTop: '0.5rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-          Role: {user?.activeRole ?? '—'} · Screen 2 (Ledgers) → use the sidebar.
-        </p>
-      </div>
-    </AppShell>
-  )
+  return <AppShell><DashboardPage /></AppShell>
 }
 
 // ── Route guard ───────────────────────────────────────────────────────────────

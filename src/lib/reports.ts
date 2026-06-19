@@ -74,7 +74,7 @@ export async function fetchDayBook(
     voucher_date:      r.voucher_date,
     narration:         r.narration,
     amount:            r.amount,
-    voucher_type_name: (r.voucher_types as { name: string } | null)?.name ?? '—',
+    voucher_type_name: (r.voucher_types as unknown as { name: string } | null)?.name ?? '—',
     party_name:        r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
   }))
 }
@@ -98,7 +98,7 @@ export async function fetchLedgerOptions(companyId: string): Promise<LedgerOptio
   return (data ?? []).map(l => ({
     id:         l.id,
     name:       l.name,
-    group_name: (l.ledger_groups as { name: string } | null)?.name ?? '—',
+    group_name: (l.ledger_groups as unknown as { name: string } | null)?.name ?? '—',
   }))
 }
 
@@ -158,7 +158,7 @@ export async function fetchLedgerStatement(
   if (!vouchers?.length) {
     return {
       ledger_name:     ledger.name as string,
-      group_name:      (ledger.ledger_groups as { name: string } | null)?.name ?? '—',
+      group_name:      (ledger.ledger_groups as unknown as { name: string } | null)?.name ?? '—',
       opening_balance: ledger.opening_balance as number,
       opening_dr_cr:   ledger.opening_dr_cr as 'Dr' | 'Cr',
       opening_net:     openingNet,
@@ -207,7 +207,7 @@ export async function fetchLedgerStatement(
       id:                e.id,
       voucher_date:      v.voucher_date,
       voucher_number:    v.voucher_number,
-      voucher_type_name: (v.voucher_types as { name: string } | null)?.name ?? '—',
+      voucher_type_name: (v.voucher_types as unknown as { name: string } | null)?.name ?? '—',
       party_name:        v.entity_id ? (entityMap.get(v.entity_id) ?? null) : null,
       entry_type:        e.entry_type as 'Dr' | 'Cr',
       amount:            e.amount as number,
@@ -218,7 +218,7 @@ export async function fetchLedgerStatement(
 
   return {
     ledger_name:     ledger.name as string,
-    group_name:      (ledger.ledger_groups as { name: string } | null)?.name ?? '—',
+    group_name:      (ledger.ledger_groups as unknown as { name: string } | null)?.name ?? '—',
     opening_balance: ledger.opening_balance as number,
     opening_dr_cr:   ledger.opening_dr_cr as 'Dr' | 'Cr',
     opening_net:     openingNet,
@@ -299,7 +299,7 @@ export async function fetchTrialBalance(
   }
 
   const rows: TrialBalanceLedgerRow[] = ledgers.map(l => {
-    const grp    = l.ledger_groups as { id: string; name: string; nature: string } | null
+    const grp    = l.ledger_groups as unknown as { id: string; name: string; nature: string } | null
     const openNet = (l.opening_dr_cr as string) === 'Dr'
       ? (l.opening_balance as number)
       : -(l.opening_balance as number)

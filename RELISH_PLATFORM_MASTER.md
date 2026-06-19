@@ -1,5 +1,5 @@
 # Relish Platform — Master Reference Document
-**Last Updated:** June 12, 2026  
+**Last Updated:** June 19, 2026  
 **Maintained by:** Motty Philip · motty.philip@gmail.com  
 **Update this file** after every significant build session in Suite or Pramaana.
 
@@ -82,7 +82,7 @@ Three read-only external Supabase projects:
 - **Repo:** `relishclam/pramaana`
 - **URL:** `https://pramaana-tau.vercel.app`
 - **Tech:** React 18 + Vite + TypeScript + CSS modules
-- **Purpose:** Accounting — Ledgers, Vouchers, Approvals, Suspense, Financial Reports
+- **Purpose:** Accounting — Ledgers, Vouchers, Approvals, Suspense, Financial Reports, Inventory Valuation (reads ClamFlow)
 
 Both apps share the same Supabase project (`mmkbknnzgpvsqgnynrbe`) and the same auth (`registry.profiles` + `registry.company_users`). A user logs in once — the JWT is valid across both apps.
 
@@ -309,39 +309,50 @@ For China and Japan the tax number is the same as the company registration numbe
 | Dashboard | `/` | All roles |
 | Ledger Master | `/ledgers` | admin, accounts, auditor, super_admin |
 | Voucher Entry | `/vouchers/new` | admin, accounts, super_admin |
-| Voucher Register | `/vouchers` | admin, accounts, auditor, super_admin |
+| Voucher Register | `/vouchers` | All authenticated roles |
+| Voucher Search | `/vouchers/search` | All authenticated roles |
+| Voucher Edit | `/vouchers/:id/edit` | admin, accounts, super_admin |
 | Approval Queue | `/approvals` | admin, accounts, auditor, super_admin |
-| Suspense Register | `/suspense` | admin, accounts, auditor, super_admin |
+| Suspense Register | `/suspense` | All authenticated roles |
 | New Suspense | `/suspense/new` | admin, accounts, super_admin |
 | Settlement Page | `/settle/:token` | **Public — no login** |
 | Bill Relay Capture | `/relay` | **Public — no login** |
+| Day Book | `/reports/day-book` | admin, accounts, auditor, super_admin |
+| Ledger Statement | `/reports/ledger` | admin, accounts, auditor, super_admin |
+| Trial Balance | `/reports/trial-balance` | admin, accounts, auditor, super_admin |
+| P&L Statement | `/reports/pl` | admin, accounts, auditor, super_admin |
+| Balance Sheet | `/reports/balance-sheet` | admin, accounts, auditor, super_admin |
+| Receivables / Payables | `/reports/receivables-payables` | admin, accounts, auditor, super_admin |
+| Cash Flow Statement | `/reports/cash-flow` | admin, accounts, auditor, super_admin |
+| GST Reports (GSTR-1 + GSTR-3B) | `/reports/gst` | admin, accounts, auditor, super_admin |
+| Ratio Analysis | `/reports/ratios` | admin, accounts, auditor, super_admin |
+| Exception Reports | `/reports/exceptions` | admin, accounts, auditor, super_admin |
+| Inventory (ClamFlow) | `/inventory` | admin, accounts, auditor, super_admin |
 
-### 8.2 Modules Pending — Phase 3
+### 8.2 Modules Pending — Phase 4+
 
 | Module | Route | Notes |
 |--------|-------|-------|
-| Trial Balance | `/reports/trial-balance` | Query voucher_entries by ledger, date range |
-| Ledger Statement | `/reports/ledger` | Single ledger transaction history |
-| Day Book | `/reports/day-book` | All vouchers by date range |
-| P&L Statement | `/reports/pl` | INCOME minus EXPENSE nature groups |
-| Balance Sheet | `/reports/balance-sheet` | ASSET vs LIABILITY + CAPITAL |
-| Tally XML Export | `/reports/tally-export` | Phase 3 |
-| GST Reports | `/reports/gst` | Phase 4 |
+| Tally XML Export | `/reports/tally-export` | Phase 4 |
 | TDS Reports | `/reports/tds` | Phase 5 |
+| Schedule III Financials | `/reports/schedule-iii` | Phase 6 — ROC filing format for RFPL |
+| Pramaana Dashboard KPIs | `/` | Replace placeholder with live cards: Today's Payments, Pending Approvals, Bank Balance, Open Suspense |
+| UPI Pay Now | Approval Queue + Voucher Register | Phase 3.1 |
 
 ### 8.3 Pramaana Key Lib Files
 
 | File | Purpose |
 |------|---------|
-| `src/lib/supabase.ts` | Supabase client (same project as Suite) |
+| `src/lib/supabase.ts` | Supabase client (primary — mmkbknnzgpvsqgnynrbe) |
+| `src/lib/supabaseClamFlow.ts` | **READ ONLY** — ClamFlow client (idwgenbkguejgwtzbicu) |
 | `src/lib/vouchers.ts` | VoucherType, fetchVoucherTypes, fetchBankLedgers, searchLedgers, getNextSequence, saveDraftVoucher, submitVoucher, formatIndianCurrency, PaymentAccount, fetchPaymentAccounts |
-| `src/lib/vouchers-list.ts` | fetchVouchers (paginated+filtered), recallVoucher, deleteVoucher, submitDraftVoucher |
+| `src/lib/vouchers-list.ts` | fetchVouchers (paginated+filtered), recallVoucher, deleteVoucher, submitDraftVoucher, fetchLedgerOptions, fetchAdvancedVoucherSearch |
 | `src/lib/approvals.ts` | fetchPendingVouchers, fetchVoucherFull, approveVoucher, rejectVoucher, fetchPendingCount |
+| `src/lib/reports.ts` | fetchDayBook, fetchLedgerStatement, fetchTrialBalance, fetchPLStatement, fetchBalanceSheet, fetchOutstandingLedgers (FIFO aging), fetchGSTVouchers, fetchCashFlow (indirect method), fetchRatioAnalysis (8 ratios), fetchExceptionReport (5 categories) |
+| `src/lib/inventory.ts` | fetchClamLots, fetchClamFPForms (READ ONLY from ClamFlow), fetchInventoryValuations, upsertInventoryValuation |
 | `src/lib/suspense.ts` | Full suspense workflow — see Section 8.5 |
 | `src/lib/attachments.ts` | fetchVoucherAttachments, signed URLs |
 | `src/lib/sms.ts` | sendSettlementLinkSms, sendPaymentApprovalOtpSms |
-| `src/lib/whatsapp.ts` | buildWhatsAppLink, settlement link share — see Section 8.8 |
-| `src/lib/permissions.ts` | getPermissions(role) → Permissions object |
 | `src/contexts/AuthContext.tsx` | user, profile, activeCompany, activeRole, signOut |
 | `src/contexts/ApprovalContext.tsx` | pendingCount, refreshCount |
 

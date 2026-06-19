@@ -1,5 +1,6 @@
 # Pramaana — System Definition
 **Generated:** 2026-06-19  
+**Last Updated:** 2026-06-19 (commit `698407a` — Phase 3 reports, Voucher Search, Inventory)  
 **Scope:** `pramaana/` repo only — `src/`, `api/`, `supabase/migrations/`  
 **Method:** Direct code inspection of all lib files, page components, migrations, App.tsx, AuthContext.tsx, and config files  
 **Not covered:** Relish Suite (`relish-business-suite/` parent repo), ClamFlow backend/frontend (separate repos)
@@ -13,8 +14,9 @@
 | Client variable | Project ID | Access mode |
 |---|---|---|
 | `supabase` (primary) | `mmkbknnzgpvsqgnynrbe` | READ + WRITE |
+| `supabaseClamFlow` | `idwgenbkguejgwtzbicu` | **READ ONLY** — never INSERT/UPDATE/DELETE |
 
-Single client. No secondary Supabase connections. All queries use `.schema('pramaana')` for pramaana tables and `.schema('registry')` for entity/company/sequence lookups. Never `.from(...)` without a schema prefix.
+All queries on `supabase` use `.schema('pramaana')` or `.schema('registry')` — never bare `.from(...)`. `supabaseClamFlow` reads ClamFlow's public-schema tables directly (no schema prefix needed).
 
 ---
 
@@ -747,6 +749,7 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 | 010_seed_test_ledgers.sql | ✅ Applied | Test ledgers for RHHF (SBI, Cash, Creditors, Expenses) |
 | 020_voucher_attachments.sql | ✅ Applied | Recreates `pramaana.voucher_attachments` with correct schema (`storage_path`, `file_size`, `mime_type`, `is_deleted`), Storage bucket, storage RLS |
 | 021_suspense_schema_extension.sql | ✅ Applied | Adds `is_suspense`, `suspense_purpose`, `suspense_balance` to vouchers; adds `token`, `expires_at`, `advance_voucher_id` to settlement_sessions; adds `entry_type`, `description`, `head_of_account`, `reference_number`, `invoice_available` to suspense_settlements; `anon` grants + RLS policies |
+| 030_inventory_valuations.sql | ✅ Applied | New table `pramaana.inventory_valuations` — Admin/Super-Admin-set `rate_per_kg` for ClamFlow lots. RLS: any company member can SELECT; only `role='admin'` in `registry.company_users` can INSERT/UPDATE/DELETE. `lot_id` stored as `TEXT` (cross-DB ref, no FK to ClamFlow). `updated_at` trigger. |
 
 ---
 
@@ -757,6 +760,35 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 - No DB queries — client initialisation only
 - Reads: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 - Throws `Error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env')` if either is absent
+
+---
+
+### `src/lib/supabaseClamFlow.ts`
+- Exports: `supabaseClamFlow` (ClamFlow Supabase JS client — **READ ONLY**)
+- Reads: `VITE_CLAMFLOW_SUPABASE_URL`, `VITE_CLAMFLOW_SUPABASE_ANON_KEY`
+- Throws if either env var is absent
+- **Never call INSERT, UPDATE, or DELETE on this client. ClamFlow data is owned by the ClamFlow application.**
+
+---
+
+### `src/lib/inventory.ts`
+
+| Function | Signature | Source | Operation |
+|---|---|---|---|
+| `fetchClamLots` | `() → ClamLot[]` | ClamFlow `lots` | SELECT all known columns, order `arrival_date DESC`, limit 500. **READ ONLY.** |
+| `fetchClamFPForms` | `() → ClamFPForm[]` | ClamFlow `fp_forms` | SELECT all known columns, order `created_at DESC`, limit 500. **READ ONLY.** |
+| `fetchInventoryValuations` | `(companyId) → InventoryValuation[]` | `pramaana.inventory_valuations` | SELECT `*` WHERE `company_id=` |
+| `upsertInventoryValuation` | `(companyId, lotId, ratePerKg, notes, userId) → void` | `pramaana.inventory_valuations` | UPSERT on `(company_id, lot_id)`. **Admin/Super-Admin only — enforced by RLS.** |
+
+**ClamFlow tables confirmed accessible (all empty — ClamFlow not yet in production as of 2026-06-19):**
+
+| Table | Confirmed columns |
+|---|---|
+| `lots` | id, lot_number, species, weight_kg, arrival_date, status, supplier_id, notes, created_at, updated_at |
+| `fp_forms` | id, lot_id, status, created_at, updated_at |
+| `suppliers` | id, address, created_at |
+| `person_records` | id, full_name, status, address, designation, created_at, updated_at |
+| `shift_definitions` | id, name, start_time, end_time, color, shift_type, is_active, created_by, created_at, updated_at |
 
 ---
 
@@ -792,6 +824,10 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 | `recallVoucher` | `(voucherId) → void` | pramaana.vouchers | UPDATE `status='draft'` WHERE `status='pending_approval'` |
 | `deleteVoucher` | `(voucherId) → void` | pramaana.vouchers | DELETE WHERE `status='draft'` only |
 | `submitDraftVoucher` | `(voucherId, companyId, companyCode, prefix) → void` | registry.sequence_counters (RPC), pramaana.vouchers | RPC + UPDATE `{voucher_number, status:'pending_approval'}` WHERE `status='draft'` |
+| `fetchLedgerOptions` | `(companyId) → {id, name}[]` | pramaana.ledgers | SELECT `id, name` WHERE `company_id=`, `is_active=true`. Used by VoucherSearch ledger typeahead. |
+| `fetchAdvancedVoucherSearch` | `(companyId, filters) → AdvancedVoucherResult[]` | pramaana.vouchers, pramaana.voucher_types, pramaana.voucher_entries, pramaana.ledgers, registry.entities | Multi-step resolve: payee text → entity_ids; ledgerId → voucher_ids touching that ledger via voucher_entries; nature → type_ids. Query vouchers with combined filters. Amount exact/gte/lte. Limit 500. |
+
+**`AdvancedFilters`:** `{ payee: string; ledgerId: string; dateFrom: string; dateTo: string; amountType: 'exact'|'gte'|'lte'|''; amountValue: string; nature: string }`
 
 **`fetchVouchers` filter logic:**
 - `role === 'accounts'` → adds `.eq('created_by', userId)` (accounts users see only their own vouchers)
@@ -936,17 +972,29 @@ These appear in all three routing branches (unauthenticated, authenticated-no-co
 
 ### 3.2 Authenticated Routes (require valid session)
 
-| Route | Component | Role Guard | Guard logic (exact code) |
-|---|---|---|---|
-| `/select-company` | `CompanySelector` | None (any authenticated) | In authenticated-no-company branch |
-| `/` | `Dashboard` (placeholder) | None (any authenticated + active company) | — |
-| `/ledgers` | `Ledgers` via `LedgersGuard` | admin, accounts, auditor, super_admin | `user.profile.is_super_admin \|\| LEDGER_ROLES.has(user.activeRole)` where `LEDGER_ROLES = new Set(['admin','accounts','auditor'])` |
-| `/vouchers` | `VoucherRegister` via `VoucherRegisterGuard` | Any authenticated | Only checks `if (!user) return <Navigate to="/login" />` — no role filter |
-| `/vouchers/new` | `VoucherEntry` via `VoucherEntryGuard` | admin, accounts, super_admin | `user.profile.is_super_admin \|\| VOUCHER_ROLES.has(user.activeRole)` where `VOUCHER_ROLES = new Set(['admin','accounts'])` |
-| `/vouchers/:id/edit` | `VoucherEdit` via `VoucherEditGuard` | admin, accounts, super_admin | Same as `VOUCHER_ROLES` check |
-| `/suspense` | `SuspenseRegister` via `SuspenseRegisterGuard` | Any authenticated | Only checks `if (!user) return <Navigate to="/login" />` — no role filter |
-| `/suspense/new` | `SuspenseEntry` via `SuspenseEntryGuard` | admin, accounts, super_admin | Same as `VOUCHER_ROLES` check; on fail redirects to `/suspense` |
-| `/approvals` | `ApprovalQueue` via `ApprovalQueueGuard` | admin, accounts, auditor, super_admin | `user.profile.is_super_admin \|\| APPROVAL_ROLES.has(user.activeRole)` where `APPROVAL_ROLES = new Set(['admin','accounts','auditor'])` |
+| Route | Component | Role Guard |
+|---|---|---|
+| `/select-company` | `CompanySelector` | None (any authenticated) |
+| `/` | `Dashboard` (placeholder) | None (any authenticated + active company) |
+| `/ledgers` | `Ledgers` via `LedgersGuard` | admin, accounts, auditor, super_admin |
+| `/vouchers` | `VoucherRegister` via `VoucherRegisterGuard` | Any authenticated (no role filter) |
+| `/vouchers/search` | `VoucherSearch` via `VoucherSearchGuard` | Any authenticated (no role filter) |
+| `/vouchers/new` | `VoucherEntry` via `VoucherEntryGuard` | admin, accounts, super_admin |
+| `/vouchers/:id/edit` | `VoucherEdit` via `VoucherEditGuard` | admin, accounts, super_admin |
+| `/suspense` | `SuspenseRegister` via `SuspenseRegisterGuard` | Any authenticated (no role filter) |
+| `/suspense/new` | `SuspenseEntry` via `SuspenseEntryGuard` | admin, accounts, super_admin |
+| `/approvals` | `ApprovalQueue` via `ApprovalQueueGuard` | admin, accounts, auditor, super_admin |
+| `/inventory` | `Inventory` via `InventoryGuard` | admin, accounts, auditor, super_admin |
+| `/reports/day-book` | `DayBook` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/ledger` | `LedgerStatement` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/trial-balance` | `TrialBalance` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/pl` | `PLStatement` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/balance-sheet` | `BalanceSheet` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/receivables-payables` | `ReceivablesPayables` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/cash-flow` | `CashFlow` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/gst` | `GSTReports` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/ratios` | `RatioAnalysis` via `ReportGuard` | admin, accounts, auditor, super_admin |
+| `/reports/exceptions` | `ExceptionReports` via `ReportGuard` | admin, accounts, auditor, super_admin |
 
 ### 3.3 Missing Routes
 
@@ -977,18 +1025,19 @@ registry.company_users.role  →  per-company role
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | /ledgers | ✅ | ✅ | ✅ | ✅ | | | |
 | /vouchers (register) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| /vouchers/search | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | /vouchers/new | ✅ | ✅ | ✅ | | | | |
 | /vouchers/:id/edit | ✅ | ✅ | ✅ | | | | |
 | /suspense (register) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | /suspense/new | ✅ | ✅ | ✅ | | | | |
 | /approvals | ✅ | ✅ | ✅ | ✅ | | | |
+| /inventory (view) | ✅ | ✅ | ✅ | ✅ | | | |
+| /inventory (set rate) | ✅ | ✅ | | | | | |
+| /reports/* | ✅ | ✅ | ✅ | ✅ | | | |
 | /relay | Public | Public | Public | Public | Public | Public | Public |
 | /settle/:token | Public | Public | Public | Public | Public | Public | Public |
 
-**Note:** `VoucherRegisterGuard` and `SuspenseRegisterGuard` only check `if (!user) return <Navigate to="/login" />`. All roles including `hr`, `operations`, and `viewer` reach those pages.
-
-**Additional data-layer restriction (`fetchVouchers`, `fetchSuspenseVouchers`):**  
-`role === 'accounts'` → query adds `.eq('created_by', userId)` — accounts users see only their own vouchers in the register.
+**Inventory write note:** The "Set Rate" button is hidden for non-admin roles in the UI, and `pramaana.inventory_valuations` RLS blocks non-admin writes at the DB level.
 
 ### 4.4 `approveVoucher` Access
 No role check in the function itself. Gate is the route guard on `/approvals`: admin, accounts, auditor (or super_admin). However, `approveVoucher` sets `status = 'posted'` — the DB trigger `fn_validate_voucher_balance` enforces Dr=Cr at the DB level regardless of who calls it.
@@ -1003,6 +1052,8 @@ No role check in the function itself. Gate is the route guard on `/approvals`: a
 |---|---|---|---|
 | `VITE_SUPABASE_URL` | Client (browser) | Vercel project settings | `src/lib/supabase.ts` |
 | `VITE_SUPABASE_ANON_KEY` | Client (browser) | Vercel project settings | `src/lib/supabase.ts` |
+| `VITE_CLAMFLOW_SUPABASE_URL` | Client (browser) | Vercel project settings | `src/lib/supabaseClamFlow.ts` |
+| `VITE_CLAMFLOW_SUPABASE_ANON_KEY` | Client (browser) | Vercel project settings | `src/lib/supabaseClamFlow.ts` |
 | `TWOFACTOR_API_KEY` | Server-side only | Vercel project settings | `api/send-sms.ts` via `process.env` |
 | `TWOFACTOR_WHATSAPP_KEY` | Server-side only | Not yet set (awaiting 2Factor approval) | Future `api/send-whatsapp.ts` |
 | `TWOFACTOR_WHATSAPP_PHONE_ID` | Server-side only | Not yet set (awaiting 2Factor approval) | Future `api/send-whatsapp.ts` |
@@ -1045,7 +1096,9 @@ Full WhatsApp Business API via 2Factor: onboarding initiated 2026-06-12, credent
 | `approved` status unused | `pramaana.vouchers` | Low | The CHECK constraint includes `'approved'` but no code path in approvals.ts transitions to it — `approveVoucher` jumps directly `'pending_approval'` → `'posted'`. The intermediate `'approved'` state is schema-only. |
 | Dashboard is a placeholder | `src/App.tsx` `Dashboard()` | Medium | No KPI cards. Returns a simple welcome message with company name and role. |
 | `VoucherEdit.tsx` not end-to-end tested | `src/pages/VoucherEdit.tsx` | Medium | Built, route added, but no confirmed test of save path with a real draft voucher. |
-| Financial reports not built | Phase 3 | — | Trial Balance, Ledger Statement, Day Book, P&L, Balance Sheet routes not defined. |
+| Financial reports not built | Phase 3 | ✅ BUILT 2026-06-19 | All core + extended reports now built — see Section 3.2 routes. |
+| Voucher Search not built | Phase 3 | ✅ BUILT 2026-06-19 | `/vouchers/search` with payee, ledger, type, date range, amount filters. |
+| Inventory (ClamFlow) not built | Phase 3 | ✅ BUILT 2026-06-19 | `/inventory` — reads ClamFlow lots + fp_forms (READ ONLY). Admin sets rate_per_kg. |
 | `capture_sessions`, `notifications`, `push_subscriptions`, `otp_sessions`, `gst_details`, `period_locks`, `voucher_line_items` unused | Multiple tables | — | Defined in schema, no lib functions or page components query them. |
 | WhatsApp Business API pending | External | Medium | 2Factor onboarding submitted 2026-06-12. `TWOFACTOR_WHATSAPP_KEY`, `TWOFACTOR_WHATSAPP_PHONE_ID` not yet set. |
 | `supabase/functions/send-sms/index.ts` is a duplicate | Supabase Edge Function | Low | The same SMS logic exists as both a Vercel edge function (`api/send-sms.ts`) and a Supabase function. Only the Vercel version is deployed and called. |

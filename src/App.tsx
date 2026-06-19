@@ -26,6 +26,7 @@ import CashFlow from '@/pages/CashFlow'
 import RatioAnalysis from '@/pages/RatioAnalysis'
 import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
+import AdminPanel from '@/pages/AdminPanel'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -195,6 +196,25 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </>
       )}
       <div style={{ marginTop: 'auto', padding: '0 0.5rem' }}>
+        {/* Admin panel — super_admin only */}
+        {user?.profile.is_super_admin && (
+          <NavLink
+            to="/admin"
+            end={false}
+            onClick={() => setNavOpen(false)}
+            style={({ isActive }) => ({
+              display: 'block',
+              padding: '0.375rem 1rem',
+              color: isActive ? '#ef4444' : 'var(--text-dim)',
+              background: isActive ? 'rgba(239,68,68,0.08)' : 'none',
+              borderRadius: '6px', margin: '0 0 0.25rem',
+              fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
+              textDecoration: 'none',
+            })}
+          >
+            ⚙ Admin Panel
+          </NavLink>
+        )}
         <button
           onClick={signOut}
           style={{
@@ -391,6 +411,13 @@ function InventoryGuard() {
   return <AppShell><Inventory /></AppShell>
 }
 
+function AdminGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  if (!user.profile.is_super_admin) return <Navigate to="/" replace />
+  return <AppShell><AdminPanel /></AppShell>
+}
+
 const REPORT_ROLES = new Set(['admin', 'accounts', 'auditor'])
 
 function ReportGuard({ children }: { children: React.ReactNode }) {
@@ -464,6 +491,7 @@ function AppRoutes() {
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
         <Route path="/inventory"      element={<InventoryGuard />} />
+        <Route path="/admin"          element={<AdminGuard />} />
         <Route path="/reports/day-book"             element={<ReportGuard><DayBook /></ReportGuard>} />
         <Route path="/reports/ledger"               element={<ReportGuard><LedgerStatement /></ReportGuard>} />
         <Route path="/reports/trial-balance"        element={<ReportGuard><TrialBalance /></ReportGuard>} />

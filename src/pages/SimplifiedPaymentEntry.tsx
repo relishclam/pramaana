@@ -67,6 +67,9 @@ export default function SimplifiedPaymentEntry({
 
   // ── Step 2: Total amount ──────────────────────────────────────────────────
   const [totalAmount, setTotalAmount] = useState('')
+  // step2Committed prevents Step 3 from appearing (and stealing focus) while
+  // the user is still typing in the amount field.
+  const [step2Committed, setStep2Committed] = useState(false)
 
   // ── Step 3: Expense lines ─────────────────────────────────────────────────
   const [lines, setLines] = useState<ExpenseLine[]>([
@@ -110,7 +113,6 @@ export default function SimplifiedPaymentEntry({
   const step1Done = entityId !== null || entitySkipped
   const totalNum  = parseFloat(totalAmount) || 0
   const step2Done = totalNum > 0
-
   const linesSum     = lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
   const linesOk      = lines.every(l => l.ledger_id && parseFloat(l.amount) > 0)
   const step3Done    = step2Done && linesOk &&
@@ -123,7 +125,7 @@ export default function SimplifiedPaymentEntry({
 
   // ── Step visibility ───────────────────────────────────────────────────────
   const show2     = step1Done
-  const show3     = show2 && step2Done
+  const show3     = show2 && step2Done && step2Committed
   const show4     = show3 && step3Done
   const show5     = show4 && step4Done && isBankAccount
   const show6     = show4 && step4Done && (!isBankAccount || step5Done)
@@ -211,10 +213,15 @@ export default function SimplifiedPaymentEntry({
   // Auto-fill single line amount when total is entered
   const handleTotalChange = (val: string) => {
     setTotalAmount(val)
+    setStep2Committed(false)   // reset commitment so Step 3 doesn't re-appear mid-edit
     const num = parseFloat(val) || 0
     if (lines.length === 1 && !lines[0].amount && num > 0) {
       setLines(prev => prev.map((l, i) => i === 0 ? { ...l, amount: val } : l))
     }
+  }
+
+  const commitStep2 = () => {
+    if (totalNum > 0) setStep2Committed(true)
   }
 
   // ── Balance hint message ──────────────────────────────────────────────────
@@ -375,6 +382,8 @@ export default function SimplifiedPaymentEntry({
                 placeholder="0.00"
                 value={totalAmount}
                 onChange={e => handleTotalChange(e.target.value)}
+                onBlur={commitStep2}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Tab') commitStep2() }}
                 autoFocus
               />
             </div>
@@ -397,6 +406,7 @@ export default function SimplifiedPaymentEntry({
                   line={line}
                   companyId={companyId}
                   autoFocus={!line.ledger_id}
+                  showAmount={lines.length > 1}
                   onChange={(f, v) => updateLine(line.key, f, v)}
                   onRemove={() => removeLine(line.key)}
                   canRemove={lines.length > 1}
@@ -680,12 +690,13 @@ interface ExpenseLineRowProps {
   line:       ExpenseLine
   companyId:  string
   autoFocus:  boolean
+  showAmount: boolean
   onChange:   (field: keyof Omit<ExpenseLine, 'key'>, val: string) => void
   onRemove:   () => void
   canRemove:  boolean
 }
 
-function ExpenseLineRow({ line, companyId, autoFocus, onChange, onRemove, canRemove }: ExpenseLineRowProps) {
+function ExpenseLineRow({ line, companyId, autoFocus, showAmount, onChange, onRemove, canRemove }: ExpenseLineRowProps) {
   const [query,   setQuery]   = useState('')
   const [options, setOptions] = useState<{ id: string; name: string }[]>([])
   const [loading, setLoading] = useState(false)
@@ -743,7 +754,8 @@ function ExpenseLineRow({ line, companyId, autoFocus, onChange, onRemove, canRem
         )}
       </div>
 
-      {/* Amount */}
+      {/* Amount — only shown when multiple lines; single-line amount is the total */}
+      {showAmount && (
       <div className={styles.lineAmountWrap}>
         <span className={styles.lineRupee}>₹</span>
         <input
@@ -756,6 +768,7 @@ function ExpenseLineRow({ line, companyId, autoFocus, onChange, onRemove, canRem
           onChange={e => onChange('amount', e.target.value)}
         />
       </div>
+      )}
 
       {/* Remove */}
       {canRemove && (

@@ -118,11 +118,22 @@ async function buildAuthUser(supabaseUser: User): Promise<AuthUser | null> {
   let activeCompany: Company | null = null
   let activeRole: CompanyUserRole | null = null
 
-  if (resolvedCompanyUsers.length === 1 && resolvedCompanyUsers[0].company) {
+  // Restore the previously selected company from localStorage (survives tab switches / token refreshes)
+  const storedCompanyId = localStorage.getItem('pramaana_active_company_id')
+  if (storedCompanyId) {
+    const cu = resolvedCompanyUsers.find(c => c.company_id === storedCompanyId)
+    if (cu?.company) {
+      activeCompany = cu.company
+      activeRole = profile.is_super_admin ? 'admin' : cu.role
+    }
+  }
+
+  // Fall back to auto-select when user has exactly one company
+  if (!activeCompany && resolvedCompanyUsers.length === 1 && resolvedCompanyUsers[0].company) {
     activeCompany = resolvedCompanyUsers[0].company
     activeRole = profile.is_super_admin ? 'admin' : resolvedCompanyUsers[0].role
   }
-  // Multiple companies: no auto-select — CompanySelector will handle it
+  // Multiple companies with no stored preference: CompanySelector will handle it
 
   return {
     id: supabaseUser.id,
@@ -173,6 +184,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [loadUser])
 
   const setActiveCompany = useCallback((company: Company) => {
+    localStorage.setItem('pramaana_active_company_id', company.id)
     setUser(prev => {
       if (!prev) return null
       const cu = prev.companyUsers.find(c => c.company_id === company.id)
@@ -185,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signOut = useCallback(async () => {
+    localStorage.removeItem('pramaana_active_company_id')
     await supabase.auth.signOut()
     setUser(null)
   }, [])

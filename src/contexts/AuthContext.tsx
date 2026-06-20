@@ -159,7 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    // Check existing session on mount
+    // Initial session check — show loading spinner only on first mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         loadUser(session.user)
@@ -168,11 +168,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    // Subscribe to auth state changes
+    // Subscribe to auth state changes — refresh silently so the current page
+    // is never unmounted. TOKEN_REFRESHED fires every time the tab regains
+    // focus; calling loadUser (which sets loading=true) would destroy all
+    // in-progress form state.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (session?.user) {
-          loadUser(session.user)
+          buildAuthUser(session.user).then(authUser => {
+            if (authUser) setUser(authUser)
+          })
         } else {
           setUser(null)
           setLoading(false)

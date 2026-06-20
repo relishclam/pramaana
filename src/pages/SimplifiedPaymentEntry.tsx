@@ -81,6 +81,12 @@ export default function SimplifiedPaymentEntry({
   const [accountsLoading,   setAccountsLoading]   = useState(false)
   const [selectedAccountId, setSelectedAccountId] = useState('')
 
+  // ── Auto-scroll refs for each step ───────────────────────────────────────
+  const step3Ref = useRef<HTMLDivElement>(null)
+  const step4Ref = useRef<HTMLDivElement>(null)
+  const step5Ref = useRef<HTMLDivElement>(null)
+  const step6Ref = useRef<HTMLDivElement>(null)
+
   // ── Step 5: Payment mode ──────────────────────────────────────────────────
   const [paymentMode,  setPaymentMode]  = useState('')
   const [utrNumber,    setUtrNumber]    = useState('')
@@ -137,6 +143,12 @@ export default function SimplifiedPaymentEntry({
     if (selectedAccount?.type === 'cash') setPaymentMode('cash')
     else setPaymentMode('')
   }, [selectedAccountId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-scroll to newly revealed steps ───────────────────────────────────
+  useEffect(() => { if (show3) step3Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show3])
+  useEffect(() => { if (show4) step4Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show4])
+  useEffect(() => { if (show5) step5Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show5])
+  useEffect(() => { if (show6) step6Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show6])
 
   // ── Entity search ─────────────────────────────────────────────────────────
   const searchEntities = useCallback(async (q: string) => {
@@ -210,12 +222,12 @@ export default function SimplifiedPaymentEntry({
     setLines(prev => prev.filter(l => l.key !== key))
   }
 
-  // Auto-fill single line amount when total is entered
+  // Keep single line amount always in sync with total amount.
+  // (The per-line amount input is hidden when there's only one line.)
   const handleTotalChange = (val: string) => {
     setTotalAmount(val)
     setStep2Committed(false)   // reset commitment so Step 3 doesn't re-appear mid-edit
-    const num = parseFloat(val) || 0
-    if (lines.length === 1 && !lines[0].amount && num > 0) {
+    if (lines.length === 1) {
       setLines(prev => prev.map((l, i) => i === 0 ? { ...l, amount: val } : l))
     }
   }
@@ -396,7 +408,7 @@ export default function SimplifiedPaymentEntry({
 
       {/* ════ Step 3 — What for ═══════════════════════════════════════════ */}
       {show3 && (
-        <div className={styles.step}>
+        <div ref={step3Ref} className={styles.step}>
           <StepHead num={3} done={step3Done} label="What is this for?" />
           <div className={styles.body}>
             <div className={styles.expenseLines}>
@@ -433,7 +445,7 @@ export default function SimplifiedPaymentEntry({
 
       {/* ════ Step 4 — From which account ════════════════════════════════ */}
       {show4 && (
-        <div className={styles.step}>
+        <div ref={step4Ref} className={styles.step}>
           <StepHead num={4} done={step4Done} label="Paying from which account?" />
           <div className={styles.body}>
             {accountsLoading ? (
@@ -466,7 +478,7 @@ export default function SimplifiedPaymentEntry({
 
       {/* ════ Step 5 — How paying (bank only) ════════════════════════════ */}
       {show5 && (
-        <div className={styles.step}>
+        <div ref={step5Ref} className={styles.step}>
           <StepHead num={5} done={step5Done} label="How are you paying?" />
           <div className={styles.body}>
             <div className={styles.modeGrid}>
@@ -515,7 +527,7 @@ export default function SimplifiedPaymentEntry({
 
       {/* ════ Step 6 — Reference / note ══════════════════════════════════ */}
       {show6 && (
-        <div className={styles.step}>
+        <div ref={step6Ref} className={styles.step}>
           <StepHead num={6} done optional label="Any reference or note?" />
           <div className={styles.body}>
             <input
@@ -741,6 +753,12 @@ function ExpenseLineRow({ line, companyId, autoFocus, showAmount, onChange, onRe
               onChange={e => handleSearch(e.target.value)}
               placeholder="Ledger / expense type…"
               autoFocus={autoFocus}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (options.length > 0) select(options[0])
+                }
+              }}
             />
             {loading && <Loader2 size={12} className={styles.spin} />}
             {options.length > 0 && (

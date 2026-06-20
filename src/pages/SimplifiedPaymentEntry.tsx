@@ -236,12 +236,17 @@ export default function SimplifiedPaymentEntry({
     if (totalNum > 0) setStep2Committed(true)
   }
 
-  // ── Balance hint message ──────────────────────────────────────────────────
+  // ── Balance / ledger hint message ──────────────────────────────────────
+  const anyLineMissingLedger = lines.some(l => !l.ledger_id)
   const remaining   = totalNum - linesSum
-  const balanceHint = step2Done && !step3Done && linesSum > 0
-    ? remaining > 0
-      ? `Add ${formatIndianCurrency(remaining)} more to the expense items to balance`
-      : `Remove ${formatIndianCurrency(Math.abs(remaining))} — items exceed the total`
+  const balanceHint: string | null = step2Done && !step3Done
+    ? anyLineMissingLedger
+      ? 'Type an expense name above and select it from the dropdown to continue'
+      : remaining > 0
+        ? `Add ${formatIndianCurrency(remaining)} more to the expense items to balance`
+        : remaining < 0
+          ? `Remove ${formatIndianCurrency(Math.abs(remaining))} — items exceed the total`
+          : null
     : null
 
   // ── Build Dr/Cr entries ───────────────────────────────────────────────────
@@ -756,7 +761,11 @@ function ExpenseLineRow({ line, companyId, autoFocus, showAmount, onChange, onRe
               onKeyDown={e => {
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  if (options.length > 0) select(options[0])
+                  if (options.length > 0) {
+                    select(options[0])
+                  } else if (query.trim()) {
+                    toast.error(`No ledger found for "${query}" — create it in Ledgers first`)
+                  }
                 }
               }}
             />

@@ -107,6 +107,7 @@ export interface SubmitExpensePayload {
   head_of_account:    string | null
   reference_number:   string | null
   invoice_available:  boolean
+  attachment_path:    string | null
 }
 
 const PAGE_SIZE = 50
@@ -554,7 +555,6 @@ export async function getSessionByToken(token: string): Promise<PublicSession | 
     .maybeSingle()
 
   if (sErr || !session) return null
-  if (session.expires_at && new Date(session.expires_at) < new Date()) return null
   if (!session.advance_voucher_id) return null
 
   const { data: voucher, error: vErr } = await supabase
@@ -601,6 +601,7 @@ export async function submitExpenseEntry(payload: SubmitExpensePayload): Promise
       head_of_account:       payload.head_of_account,
       reference_number:      payload.reference_number,
       invoice_available:     payload.invoice_available,
+      attachment_path:       payload.attachment_path,
       status:                'pending',
     })
     .select('id')

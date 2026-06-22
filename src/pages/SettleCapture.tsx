@@ -5,13 +5,14 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { PlusCircle, Trash2, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { PlusCircle, Trash2, CheckCircle, AlertCircle, Loader2, Paperclip } from 'lucide-react'
 import {
   getSessionByToken,
   submitExpenseEntry,
   type PublicSession,
   type SubmitExpensePayload,
 } from '@/lib/suspense'
+import { supabase } from '@/lib/supabase'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './SettleCapture.module.css'
 
@@ -25,23 +26,29 @@ interface Row {
   head_of_account:  string
   reference_number: string
   invoice_available: boolean
+  attachment:        File | null
+  attachmentPath:    string | null
+  attachmentUploading: boolean
 }
 
 function blankRow(id: number): Row {
   return {
     id,
-    entry_type:       'expense',
-    description:      '',
-    amount:           '',
-    head_of_account:  '',
-    reference_number: '',
-    invoice_available: false,
+    entry_type:          'expense',
+    description:         '',
+    amount:              '',
+    head_of_account:     '',
+    reference_number:    '',
+    invoice_available:   false,
+    attachment:          null,
+    attachmentPath:      null,
+    attachmentUploading: false,
   }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-type PageState = 'loading' | 'invalid' | 'expired' | 'closed' | 'form' | 'submitting' | 'done'
+type PageState = 'loading' | 'invalid' | 'closed' | 'form' | 'submitting' | 'done'
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -64,7 +71,6 @@ export default function SettleCapture() {
       .then(s => {
         if (!s) { setPageState('invalid'); return }
         if (s.voucher_status === 'rejected') { setPageState('closed'); return }
-        if (s.session_status === 'expired')  { setPageState('expired'); return }
         if (s.voucher_status === 'closed')   { setPageState('closed'); return }
         setSession(s)
         setPageState('form')
@@ -88,6 +94,28 @@ export default function SettleCapture() {
 
   const updateRow = (id: number, patch: Partial<Row>) => {
     setRows(r => r.map(x => x.id === id ? { ...x, ...patch } : x))
+  }
+
+  // ── File upload (per row) ────────────────────────────────────────────────────
+
+  const handleFileSelect = async (rowId: number, file: File | null) => {
+    if (!file || !token) return
+    updateRow(rowId, { attachment: file, attachmentUploading: true, attachmentPath: null })
+    try {
+      const ext      = file.name.split('.').pop()?.toLowerCase() ?? 'bin'
+      const safeName = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
+      const path     = `settle/${token}/${rowId}/${safeName}`
+      const { error } = await supabase.storage
+        .from('voucher-attachments')
+        .upload(path, file, { contentType: file.type, upsert: false })
+      if (error) {
+        updateRow(rowId, { attachmentUploading: false })
+      } else {
+        updateRow(rowId, { attachmentPath: path, attachmentUploading: false })
+      }
+    } catch {
+      updateRow(rowId, { attachmentUploading: false })
+    }
   }
 
   // ── Validation ──────────────────────────────────────────────────────────────
@@ -124,6 +152,7 @@ export default function SettleCapture() {
           head_of_account:    row.head_of_account.trim() || null,
           reference_number:   row.reference_number.trim() || null,
           invoice_available:  row.invoice_available,
+          attachment_path:    row.attachmentPath ?? null,
         }
         await submitExpenseEntry(payload)
       }
@@ -178,20 +207,6 @@ export default function SettleCapture() {
       </div>
     )
   }
-
-  if (pageState === 'expired') {
-    return (
-      <div className={styles.page}>
-        <div className={styles.card}>
-          <div className={styles.logo}>PRAMAANA</div>
-          <AlertCircle size={36} className={styles.warnIcon} />
-          <h2 className={styles.title}>Link has expired</h2>
-          <p className={styles.sub}>This settlement link has expired. Ask your accounts team to send a new link.</p>
-        </div>
-      </div>
-    )
-  }
-
   if (pageState === 'closed') {
     return (
       <div className={styles.page}>
@@ -346,15 +361,58 @@ export default function SettleCapture() {
               />
             </div>
 
-            {/* Invoice available toggle */}
-            <button
-              className={`${styles.invoiceToggle} ${row.invoice_available ? styles.invoiceOn : ''}`}
-              onClick={() => updateRow(row.id, { invoice_available: !row.invoice_available })}
-              type="button"
-            >
-              <span className={styles.toggleDot} />
-              <span>Invoice / receipt available</span>
-            </button>
+            {/* Invoice / receipt */}
+            <div className={styles.attachRow}>
+              <button
+                className={`${styles.invoiceToggle} ${row.invoice_available ? styles.invoiceOn : ''}`}
+                onClick={() => {
+                  if (row.invoice_available) {
+                    updateRow(row.id, { invoice_available: false, attachment: null, attachmentPath: null })
+                  } else {
+                    updateRow(row.id, { invoice_available: true })
+                    document.getElementById(`file-${row.id}`)?.click()
+                  }
+                }}
+                type="button"
+              >
+                <span className={styles.toggleDot} />
+                <span>Invoice / receipt available</span>
+              </button>
+
+              {/* Hidden file input — triggered by button above or "Attach" link */}
+              <input
+                id={`file-${row.id}`}
+                type="file"
+                accept="image/*,application/pdf"
+                className={styles.hiddenFile}
+                onChange={e => handleFileSelect(row.id, e.target.files?.[0] ?? null)}
+              />
+
+              {/* Upload status / filename */}
+              {row.invoice_available && (
+                <div className={styles.attachStatus}>
+                  {row.attachmentUploading && (
+                    <span className={styles.attachUploading}>
+                      <Loader2 size={13} className={styles.spin} /> Uploading…
+                    </span>
+                  )}
+                  {row.attachmentPath && !row.attachmentUploading && (
+                    <span className={styles.attachDone}>
+                      ✓ {row.attachment?.name ?? 'File attached'}
+                    </span>
+                  )}
+                  {!row.attachmentPath && !row.attachmentUploading && (
+                    <button
+                      type="button"
+                      className={styles.attachPickBtn}
+                      onClick={() => document.getElementById(`file-${row.id}`)?.click()}
+                    >
+                      <Paperclip size={13} /> Attach file
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ))}
 

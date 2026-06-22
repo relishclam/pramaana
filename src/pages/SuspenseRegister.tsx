@@ -53,7 +53,6 @@ function buildWhatsAppUrl(
     `You have a pending advance of *${amtStr}* from ${companyCode} for ${purposeStr}.\n\n` +
     `Please submit your expenses using the link below:\n\n` +
     `\uD83D\uDC49 ${settlementUrl}\n\n` +
-    `_This link is valid for 7 days. Tap "Add to Home Screen" to save it for quick access._\n\n` +
     `\u2014 Relish Accounts`
   return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
 }

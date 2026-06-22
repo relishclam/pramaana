@@ -370,7 +370,6 @@ export default function SettleCapture() {
                     updateRow(row.id, { invoice_available: false, attachment: null, attachmentPath: null })
                   } else {
                     updateRow(row.id, { invoice_available: true })
-                    document.getElementById(`file-${row.id}`)?.click()
                   }
                 }}
                 type="button"
@@ -379,18 +378,16 @@ export default function SettleCapture() {
                 <span>Invoice / receipt available</span>
               </button>
 
-              {/* Hidden file input — triggered by button above or "Attach" link */}
-              <input
-                id={`file-${row.id}`}
-                type="file"
-                accept="image/*,application/pdf"
-                className={styles.hiddenFile}
-                onChange={e => handleFileSelect(row.id, e.target.files?.[0] ?? null)}
-              />
-
-              {/* Upload status / filename */}
               {row.invoice_available && (
                 <div className={styles.attachStatus}>
+                  {/* File input — label triggers it natively (reliable on mobile) */}
+                  <input
+                    id={`file-${row.id}`}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    className={styles.hiddenFile}
+                    onChange={e => handleFileSelect(row.id, e.target.files?.[0] ?? null)}
+                  />
                   {row.attachmentUploading && (
                     <span className={styles.attachUploading}>
                       <Loader2 size={13} className={styles.spin} /> Uploading…
@@ -402,13 +399,9 @@ export default function SettleCapture() {
                     </span>
                   )}
                   {!row.attachmentPath && !row.attachmentUploading && (
-                    <button
-                      type="button"
-                      className={styles.attachPickBtn}
-                      onClick={() => document.getElementById(`file-${row.id}`)?.click()}
-                    >
-                      <Paperclip size={13} /> Attach file
-                    </button>
+                    <label htmlFor={`file-${row.id}`} className={styles.attachPickBtn}>
+                      <Paperclip size={13} /> Tap to attach invoice / receipt
+                    </label>
                   )}
                 </div>
               )}

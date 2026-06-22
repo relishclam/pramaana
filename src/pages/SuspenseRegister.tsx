@@ -352,6 +352,7 @@ function DetailPanel({
         head_of_account:    entryHoA.trim() || null,
         reference_number:   entryRef.trim() || null,
         invoice_available:  entryInvoice,
+        attachment_path:    null,
       })
       toast.success('Settlement entry added')
       setShowAddEntry(false)

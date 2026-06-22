@@ -12,7 +12,6 @@ import {
   type PublicSession,
   type SubmitExpensePayload,
 } from '@/lib/suspense'
-import { supabase } from '@/lib/supabase'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './SettleCapture.module.css'
 
@@ -102,22 +101,35 @@ export default function SettleCapture() {
     try {
       const ext      = file.name.split('.').pop()?.toLowerCase() ?? 'bin'
       const safeName = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
-      const path     = `settle/${token}/${rowId}/${safeName}`
-      // file.type can be empty on some mobile browsers — fall back by extension
       const mimeMap: Record<string, string> = {
         jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
         webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', pdf: 'application/pdf',
       }
-      const contentType = file.type || mimeMap[ext] || 'application/octet-stream'
-      const { error } = await supabase.storage
-        .from('voucher-attachments')
-        .upload(path, file, { contentType, upsert: false })
-      if (error) {
-        console.error('[attach] upload failed:', error.message)
+      const fileType = file.type || mimeMap[ext] || 'application/octet-stream'
+
+      // Read file as base64
+      const fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload  = () => resolve((reader.result as string).split(',')[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+
+      // Upload via server-side API — direct Supabase Storage anon uploads are
+      // blocked by Supabase's REST layer regardless of RLS policies.
+      const res    = await fetch('/api/settle-upload', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ token, fileName: safeName, fileType, fileBase64 }),
+      })
+      const result = await res.json() as { path?: string; error?: string }
+
+      if (!res.ok || result.error) {
+        console.error('[attach] upload failed:', result.error)
         updateRow(rowId, { attachmentUploading: false })
-        setErrMsg(`Attachment upload failed: ${error.message}`)
+        setErrMsg(`Attachment upload failed: ${result.error}`)
       } else {
-        updateRow(rowId, { attachmentPath: path, attachmentUploading: false })
+        updateRow(rowId, { attachmentPath: result.path ?? null, attachmentUploading: false })
         setErrMsg('')
       }
     } catch (e) {

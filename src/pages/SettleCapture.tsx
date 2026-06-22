@@ -23,7 +23,6 @@ interface Row {
   entry_type:       'expense' | 'refund'
   description:      string
   amount:           string
-  head_of_account:  string
   reference_number: string
   invoice_available: boolean
   attachment:        File | null
@@ -37,7 +36,6 @@ function blankRow(id: number): Row {
     entry_type:          'expense',
     description:         '',
     amount:              '',
-    head_of_account:     '',
     reference_number:    '',
     invoice_available:   false,
     attachment:          null,
@@ -105,15 +103,25 @@ export default function SettleCapture() {
       const ext      = file.name.split('.').pop()?.toLowerCase() ?? 'bin'
       const safeName = `${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`
       const path     = `settle/${token}/${rowId}/${safeName}`
+      // file.type can be empty on some mobile browsers — fall back by extension
+      const mimeMap: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+        webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', pdf: 'application/pdf',
+      }
+      const contentType = file.type || mimeMap[ext] || 'application/octet-stream'
       const { error } = await supabase.storage
         .from('voucher-attachments')
-        .upload(path, file, { contentType: file.type, upsert: false })
+        .upload(path, file, { contentType, upsert: false })
       if (error) {
+        console.error('[attach] upload failed:', error.message)
         updateRow(rowId, { attachmentUploading: false })
+        setErrMsg(`Attachment upload failed: ${error.message}`)
       } else {
         updateRow(rowId, { attachmentPath: path, attachmentUploading: false })
+        setErrMsg('')
       }
-    } catch {
+    } catch (e) {
+      console.error('[attach] unexpected error:', e)
       updateRow(rowId, { attachmentUploading: false })
     }
   }
@@ -149,7 +157,7 @@ export default function SettleCapture() {
           amount:             parseFloat(row.amount),
           entry_type:         row.entry_type,
           description:        row.description.trim(),
-          head_of_account:    row.head_of_account.trim() || null,
+          head_of_account:    null,
           reference_number:   row.reference_number.trim() || null,
           invoice_available:  row.invoice_available,
           attachment_path:    row.attachmentPath ?? null,
@@ -337,17 +345,6 @@ export default function SettleCapture() {
                   onChange={e => updateRow(row.id, { amount: e.target.value })}
                 />
               </div>
-            </div>
-
-            {/* Head of account */}
-            <div className={styles.field}>
-              <label className={styles.label}>Head of Account</label>
-              <input
-                className={styles.input}
-                placeholder="e.g. Travel, Stationery"
-                value={row.head_of_account}
-                onChange={e => updateRow(row.id, { head_of_account: e.target.value })}
-              />
             </div>
 
             {/* Reference */}

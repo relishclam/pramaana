@@ -36,10 +36,18 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // ── Env vars ────────────────────────────────────────────────────────────────
-  const supabaseUrl = process.env.VITE_SUPABASE_URL
-  const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !serviceKey) {
-    return json({ error: 'Server not configured' }, 500)
+  // Use globalThis pattern for reliable access in Vercel Edge Runtime (V8 isolate)
+  const env         = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env ?? {}
+  const supabaseUrl = env.VITE_SUPABASE_URL
+  const serviceKey  = env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl && !serviceKey) {
+    return json({ error: 'Server not configured: missing VITE_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY' }, 500)
+  }
+  if (!supabaseUrl) {
+    return json({ error: 'Server not configured: missing VITE_SUPABASE_URL' }, 500)
+  }
+  if (!serviceKey) {
+    return json({ error: 'Server not configured: missing SUPABASE_SERVICE_ROLE_KEY' }, 500)
   }
 
   // ── Validate token — confirm it maps to an active settlement session ────────

@@ -61,7 +61,10 @@ export default async function handler(req: Request): Promise<Response> {
       },
     },
   )
-  if (!validateRes.ok) return json({ error: 'Token validation failed' }, 403)
+  if (!validateRes.ok) {
+    const errBody = await validateRes.json().catch(() => ({})) as { message?: string; code?: string }
+    return json({ error: `Token validation failed (${validateRes.status}): ${errBody.message ?? errBody.code ?? 'unknown'}` }, 403)
+  }
 
   const sessions = await validateRes.json() as { id: string; status: string }[]
   if (!sessions?.length) return json({ error: 'Invalid or expired token' }, 403)

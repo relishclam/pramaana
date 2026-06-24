@@ -1,90 +1,51 @@
 /**
- * Vercel Edge Function — Invoice OCR via AWS Textract AnalyzeExpense
+ * Vercel Edge Function — Invoice OCR via Google Gemini Flash
  * POST /api/ocr-edge
  *
- * Edge runtime: 25 s duration (Hobby + Pro), Web Crypto SigV4, native fetch.
- * No @aws-sdk — pure Web APIs only.
+ * Edge runtime: 25 s duration (Hobby + Pro).
+ * Uses Gemini 1.5 Flash (vision) — plain JSON API, no AWS SigV4 or X-Amz-Target needed.
+ * Free tier: 1,500 requests/day.
  *
+ * Required Vercel env var: GEMINI_API_KEY
  * Body (JSON): { fileBase64: string, fileType: string }
  * Returns: OcrResult JSON
  */
 
 export const config = { runtime: 'edge' }
 
-// ── SigV4 (Web Crypto — works in Edge runtime) ────────────────────────────────
+// ── Extraction prompt ─────────────────────────────────────────────────────────
 
-const enc = new TextEncoder()
+const EXTRACTION_PROMPT = `Analyse this Indian tax invoice image and extract data.
+Return ONLY a single valid JSON object — no markdown fences, no explanation.
 
-async function sha256hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', enc.encode(s))
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+{
+  "invoiceNo":       "invoice / receipt number (string, empty if absent)",
+  "invoiceDate":     "date as printed on the invoice e.g. 31-05-2026 (string)",
+  "supplierName":    "seller / vendor company name (string)",
+  "supplierGstin":   "seller GSTIN — 15-char alphanumeric (string, empty if absent)",
+  "recipientName":   "buyer / bill-to company name (string)",
+  "recipientGstin":  "buyer GSTIN — 15-char alphanumeric (string, empty if absent)",
+  "taxableValue":    taxable / subtotal before GST as a plain number,
+  "cgst":            CGST amount as a plain number (0 if absent),
+  "sgst":            SGST amount as a plain number (0 if absent),
+  "igst":            IGST amount as a plain number (0 if absent),
+  "totalAmount":     grand total including GST as a plain number,
+  "lineItems": [
+    {
+      "description": "item or service description",
+      "qty":         "quantity as string",
+      "rate":        "unit price as string",
+      "amount":      "line total as string",
+      "hsn":         "HSN / SAC code (string, empty if absent)"
+    }
+  ]
 }
 
-async function hmac(key: Uint8Array, msg: string): Promise<Uint8Array> {
-  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  return new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(msg)))
-}
-
-async function hmacHex(key: Uint8Array, msg: string): Promise<string> {
-  const b = await hmac(key, msg)
-  return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('')
-}
-
-async function textractPost(opts: {
-  accessKeyId: string
-  secretAccessKey: string
-  region: string
-  target: string
-  payload: Uint8Array
-}): Promise<Response> {
-  const { accessKeyId, secretAccessKey, region, target, payload } = opts
-  const host     = `textract.${region}.amazonaws.com`
-  const now      = new Date()
-  const amzDate  = now.toISOString().replace(/[:\-]|\.\d{3}/g, '').slice(0, 15) + 'Z'
-  const dateStamp = amzDate.slice(0, 8)
-
-  // Hash the payload bytes (not the string) for accuracy
-  const payloadHashBuf = await crypto.subtle.digest('SHA-256', payload)
-  const payloadHash = Array.from(new Uint8Array(payloadHashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
-
-  const ch: [string, string][] = [
-    ['content-type', 'application/x-amz-json-1.1'],
-    ['host',         host],
-    ['x-amz-date',  amzDate],
-    ['x-amz-target', target],
-  ].sort(([a], [b]) => a.localeCompare(b))
-
-  const canonicalHeaders = ch.map(([k, v]) => `${k}:${v}\n`).join('')
-  const signedHeaders    = ch.map(([k]) => k).join(';')
-
-  const canonicalReq = `POST\n/\n\n${canonicalHeaders}${signedHeaders}\n${payloadHash}`
-
-  const credentialScope = `${dateStamp}/${region}/textract/aws4_request`
-  const stringToSign = [
-    'AWS4-HMAC-SHA256', amzDate, credentialScope, await sha256hex(canonicalReq),
-  ].join('\n')
-
-  const kDate    = await hmac(enc.encode(`AWS4${secretAccessKey}`), dateStamp)
-  const kRegion  = await hmac(kDate, region)
-  const kService = await hmac(kRegion, 'textract')
-  const kSigning = await hmac(kService, 'aws4_request')
-  const signature = await hmacHex(kSigning, stringToSign)
-
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`
-
-  return fetch(`https://${host}/`, {
-    method: 'POST',
-    headers: {
-      'Authorization':  authorization,
-      'Content-Type':   'application/x-amz-json-1.1',
-      'X-Amz-Date':     amzDate,
-      'X-Amz-Target':   target,
-    },
-    body: payload,
-  })
-}
+Rules:
+- All monetary values must be plain numbers (no ₹ symbols, no commas).
+- If a field is not visible, use "" for strings and 0 for numbers.
+- Do NOT add extra fields.
+- Return ONLY the JSON object.`
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -106,9 +67,9 @@ interface OcrResult {
 
 // ── GST routing ───────────────────────────────────────────────────────────────
 
-function routeGst(supplierGstin: string | undefined, recipientGstin: string | undefined, totalGst: number) {
-  const ss = (supplierGstin  ?? '').substring(0, 2).trim()
-  const rs = (recipientGstin ?? '').substring(0, 2).trim()
+function routeGst(supplierGstin: string, recipientGstin: string, totalGst: number) {
+  const ss = supplierGstin.substring(0, 2).trim()
+  const rs = recipientGstin.substring(0, 2).trim()
   if (!ss || !rs || !/^\d{2}$/.test(ss) || !/^\d{2}$/.test(rs)) {
     return { cgst: 0, sgst: 0, igst: totalGst, type: 'unknown' as const, supplierState: ss, recipientState: rs }
   }
@@ -117,76 +78,6 @@ function routeGst(supplierGstin: string | undefined, recipientGstin: string | un
     return { cgst: half, sgst: half, igst: 0, type: 'intra' as const, supplierState: ss, recipientState: rs }
   }
   return { cgst: 0, sgst: 0, igst: totalGst, type: 'inter' as const, supplierState: ss, recipientState: rs }
-}
-
-// ── Parse Textract response ───────────────────────────────────────────────────
-
-function parseAmount(str: string | undefined): number {
-  if (!str) return 0
-  return parseFloat(str.replace(/[₹$£€,\s]/g, '')) || 0
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseSummary(raw: Record<string, any>): OcrResult {
-  const doc            = (raw?.ExpenseDocuments ?? [])[0]
-  const summaryFields  = doc?.SummaryFields  ?? []
-  const lineItemGroups = doc?.LineItemGroups  ?? []
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const fieldMap = new Map<string, { value: string; confidence: number }>()
-  for (const f of summaryFields) {
-    const key  = f?.Type?.Text ?? ''
-    const val  = f?.ValueDetection?.Text ?? ''
-    const conf = f?.ValueDetection?.Confidence ?? 0
-    if (key && val) fieldMap.set(key, { value: val, confidence: conf })
-  }
-
-  const get = (key: string) => fieldMap.get(key)?.value ?? ''
-
-  const supplierGstin  = get('VENDOR_VAT_NUMBER')
-  const recipientGstin = get('RECEIVER_VAT_NUMBER')
-  const totalGst       = parseAmount(get('TAX'))
-  const gst            = routeGst(supplierGstin, recipientGstin, totalGst)
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const lineItems: OcrLineItem[] = lineItemGroups.flatMap((group: any) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (group?.LineItems ?? []).map((item: any) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ff = item?.LineItemExpenseFields ?? []
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const lf = (type: string) => ff.find((f: any) => f?.Type?.Text === type)?.ValueDetection?.Text ?? ''
-      return { description: lf('ITEM'), qty: lf('QUANTITY'), rate: lf('UNIT_PRICE'), amount: lf('PRICE'), hsn: lf('PRODUCT_CODE') }
-    })
-  )
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scores = summaryFields.map((f: any) => f?.ValueDetection?.Confidence ?? 0).filter((c: number) => c > 0)
-  const confidence = scores.length > 0
-    ? Math.round((scores.reduce((a: number, b: number) => a + b, 0) / scores.length) * 100) / 100
-    : 0
-
-  const fieldConfidences: Record<string, number> = {}
-  for (const f of summaryFields) {
-    if (f?.Type?.Text && f?.ValueDetection?.Confidence != null) {
-      fieldConfidences[f.Type.Text] = Math.round(f.ValueDetection.Confidence * 100) / 100
-    }
-  }
-
-  return {
-    invoiceNo:      get('INVOICE_RECEIPT_ID'),
-    invoiceDate:    get('INVOICE_RECEIPT_DATE'),
-    supplierName:   get('VENDOR_NAME'),
-    supplierGstin,
-    recipientName:  get('RECEIVER_NAME'),
-    recipientGstin,
-    taxableValue:   parseAmount(get('SUBTOTAL')),
-    totalGst,
-    totalAmount:    parseAmount(get('TOTAL')),
-    cgst: gst.cgst, sgst: gst.sgst, igst: gst.igst,
-    gstType: gst.type, supplierState: gst.supplierState, recipientState: gst.recipientState,
-    lineItems, confidence, fieldConfidences,
-  }
 }
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
@@ -213,39 +104,102 @@ export default async function handler(req: Request): Promise<Response> {
   let body: { fileBase64?: string; fileType?: string }
   try { body = await req.json() } catch { return jsonRes({ error: 'Invalid JSON body' }, 400) }
 
-  const { fileBase64 } = body
+  const { fileBase64, fileType } = body
   if (!fileBase64) return jsonRes({ error: 'Missing fileBase64' }, 400)
-
   if (fileBase64.length > 6_900_000) return jsonRes({ error: 'File exceeds the 5 MB limit' }, 413)
 
-  // process.env is available in Vercel Edge Functions
-  const accessKeyId     = (process.env.AWS_ACCESS_KEY_ID     ?? '').trim()
-  const secretAccessKey = (process.env.AWS_SECRET_ACCESS_KEY ?? '').trim()
-  const region          = (process.env.AWS_REGION            ?? 'ap-south-1').trim()
+  const apiKey = (process.env.GEMINI_API_KEY ?? '').trim()
+  if (!apiKey) return jsonRes({ error: 'Server misconfigured: GEMINI_API_KEY missing' }, 500)
 
-  if (!accessKeyId || !secretAccessKey) {
-    return jsonRes({ error: 'Server misconfigured: AWS credentials missing' }, 500)
-  }
+  const mimeType = (fileType && fileType.startsWith('image/')) ? fileType : 'image/jpeg'
 
-  const payload = enc.encode(JSON.stringify({ Document: { Bytes: fileBase64 } }))
-
-  let textractRes: Response
+  // ── Call Gemini Flash ────────────────────────────────────────────────────
+  let geminiRes: Response
   try {
-    textractRes = await textractPost({
-      accessKeyId, secretAccessKey, region,
-      target: 'Textract_20180627.AnalyzeExpense',
-      payload,
-    })
+    geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inline_data: { mime_type: mimeType, data: fileBase64 } },
+              { text: EXTRACTION_PROMPT },
+            ],
+          }],
+          generationConfig: { temperature: 0, response_mime_type: 'application/json' },
+        }),
+      }
+    )
   } catch (err) {
-    return jsonRes({ error: `Failed to reach AWS Textract: ${err}` }, 502)
+    return jsonRes({ error: `Failed to reach Gemini: ${err}` }, 502)
   }
 
-  if (!textractRes.ok) {
-    const errText = await textractRes.text().catch(() => '')
-    return jsonRes({ error: `Textract error ${textractRes.status}: ${errText}` }, 502)
+  if (!geminiRes.ok) {
+    const errText = await geminiRes.text().catch(() => '')
+    return jsonRes({ error: `Gemini error ${geminiRes.status}: ${errText}` }, 502)
   }
+
+  const geminiData = await geminiRes.json() as Record<string, unknown>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const textContent: string = (geminiData as any)?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw = await textractRes.json() as Record<string, any>
-  return jsonRes(parseSummary(raw))
+  let extracted: Record<string, any>
+  try {
+    // Gemini may wrap JSON in markdown fences despite response_mime_type — strip them
+    const clean = textContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    extracted = JSON.parse(clean)
+  } catch {
+    return jsonRes({ error: `Could not parse Gemini response: ${textContent.slice(0, 300)}` }, 502)
+  }
+
+  // ── Build OcrResult ──────────────────────────────────────────────────────
+  const cgst         = Number(extracted.cgst ?? 0)
+  const sgst         = Number(extracted.sgst ?? 0)
+  const igst         = Number(extracted.igst ?? 0)
+  const totalGst     = Math.round((cgst + sgst + igst) * 100) / 100
+  const supplierGstin = String(extracted.supplierGstin ?? '')
+  const recipientGstin = String(extracted.recipientGstin ?? '')
+  const gst = routeGst(supplierGstin, recipientGstin, totalGst)
+
+  // Honour what Gemini extracted from the invoice; fall back to GSTIN-based routing
+  const resolvedCgst = cgst > 0 || sgst > 0 || igst > 0 ? cgst : gst.cgst
+  const resolvedSgst = cgst > 0 || sgst > 0 || igst > 0 ? sgst : gst.sgst
+  const resolvedIgst = cgst > 0 || sgst > 0 || igst > 0 ? igst : gst.igst
+  const resolvedType: 'intra' | 'inter' | 'unknown' =
+    resolvedIgst > 0 && resolvedCgst === 0 ? 'inter'
+    : resolvedCgst > 0                      ? 'intra'
+    : gst.type
+
+  const result: OcrResult = {
+    invoiceNo:      String(extracted.invoiceNo  ?? ''),
+    invoiceDate:    String(extracted.invoiceDate ?? ''),
+    supplierName:   String(extracted.supplierName  ?? ''),
+    supplierGstin,
+    recipientName:  String(extracted.recipientName ?? ''),
+    recipientGstin,
+    taxableValue:   Number(extracted.taxableValue ?? 0),
+    totalGst,
+    totalAmount:    Number(extracted.totalAmount ?? 0),
+    cgst:           resolvedCgst,
+    sgst:           resolvedSgst,
+    igst:           resolvedIgst,
+    gstType:        resolvedType,
+    supplierState:  gst.supplierState,
+    recipientState: gst.recipientState,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    lineItems: ((extracted.lineItems ?? []) as any[]).map(li => ({
+      description: String(li.description ?? ''),
+      qty:         String(li.qty   ?? ''),
+      rate:        String(li.rate  ?? ''),
+      amount:      String(li.amount ?? ''),
+      hsn:         String(li.hsn   ?? ''),
+    })),
+    confidence:       85,   // Gemini doesn't surface per-field scores
+    fieldConfidences: {},
+  }
+
+  return jsonRes(result)
 }

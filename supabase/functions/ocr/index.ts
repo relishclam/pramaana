@@ -60,7 +60,8 @@ async function textractPost(opts: {
   const canonicalHeaders = ch.map(([k, v]) => `${k}:${v}\n`).join('')
   const signedHeaders    = ch.map(([k]) => k).join(';')
 
-  const canonicalReq = ['POST', '/', '', canonicalHeaders, signedHeaders, payloadHash].join('\n')
+  // NOTE: canonicalHeaders already ends with \n — do NOT add another via join
+  const canonicalReq = `POST\n/\n\n${canonicalHeaders}${signedHeaders}\n${payloadHash}`
 
   const credentialScope = `${dateStamp}/${region}/textract/aws4_request`
   const stringToSign = [
@@ -265,19 +266,21 @@ serve(async (req) => {
   }
 
   // ── AWS credentials ───────────────────────────────────────────────────────
-  const region          = Deno.env.get('AWS_REGION')             ?? 'ap-south-1'
   const accessKeyId     = Deno.env.get('AWS_ACCESS_KEY_ID')      ?? ''
   const secretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY')  ?? ''
+  // Textract AnalyzeExpense is NOT available in ap-south-1 (Mumbai).
+  // Use TEXTRACT_REGION secret to override; default to ap-southeast-1 (Singapore).
+  const textractRegion  = Deno.env.get('TEXTRACT_REGION') ?? 'ap-southeast-1'
 
   if (!accessKeyId || !secretAccessKey) {
     return json({ error: 'Server misconfigured: AWS credentials missing' }, 500)
   }
 
-  // ── Call Textract AnalyzeExpense (native fetch + SigV4) ─────────────────
+  // ── Call Textract AnalyzeExpense (native fetch + SigV4) ─────────────────────
   let textractRes: Response
   try {
     textractRes = await textractPost({
-      accessKeyId, secretAccessKey, region,
+      accessKeyId, secretAccessKey, region: textractRegion,
       target:  'Textract_20181101.AnalyzeExpense',
       payload: JSON.stringify({ Document: { Bytes: fileBase64 } }),
     })

@@ -18,11 +18,76 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
-import {
-  TextractClient,
-  AnalyzeExpenseCommand,
-  type AnalyzeExpenseCommandOutput,
-} from 'npm:@aws-sdk/client-textract@^3'
+
+// ── Inline AWS SigV4 (Web Crypto — no external deps needed in Deno) ──────────
+const enc = new TextEncoder()
+
+async function sha256hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', enc.encode(s))
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+async function hmac(key: Uint8Array, msg: string): Promise<Uint8Array> {
+  const k = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(msg)))
+}
+
+async function hmacHex(key: Uint8Array, msg: string): Promise<string> {
+  const b = await hmac(key, msg)
+  return [...b].map(x => x.toString(16).padStart(2, '0')).join('')
+}
+
+async function textractPost(opts: {
+  accessKeyId: string; secretAccessKey: string; region: string
+  target: string; payload: string
+}): Promise<Response> {
+  const { accessKeyId, secretAccessKey, region, target, payload } = opts
+  const host      = `textract.${region}.amazonaws.com`
+  const now       = new Date()
+  const amzDate   = now.toISOString().replace(/[:\-]|\.\d{3}/g, '').slice(0, 15) + 'Z'
+  const dateStamp = amzDate.slice(0, 8)
+
+  const payloadHash = await sha256hex(payload)
+
+  // Canonical headers — sorted by lowercase key
+  const ch: [string, string][] = [
+    ['content-type', 'application/x-amz-json-1.1'],
+    ['host',         host],
+    ['x-amz-date',  amzDate],
+    ['x-amz-target', target],
+  ].sort(([a], [b]) => a.localeCompare(b))
+
+  const canonicalHeaders = ch.map(([k, v]) => `${k}:${v}\n`).join('')
+  const signedHeaders    = ch.map(([k]) => k).join(';')
+
+  const canonicalReq = ['POST', '/', '', canonicalHeaders, signedHeaders, payloadHash].join('\n')
+
+  const credentialScope = `${dateStamp}/${region}/textract/aws4_request`
+  const stringToSign = [
+    'AWS4-HMAC-SHA256', amzDate, credentialScope, await sha256hex(canonicalReq),
+  ].join('\n')
+
+  const kDate    = await hmac(enc.encode(`AWS4${secretAccessKey}`), dateStamp)
+  const kRegion  = await hmac(kDate, region)
+  const kService = await hmac(kRegion, 'textract')
+  const kSigning = await hmac(kService, 'aws4_request')
+  const signature = await hmacHex(kSigning, stringToSign)
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`
+
+  return fetch(`https://${host}/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': authorization,
+      'Content-Type':  'application/x-amz-json-1.1',
+      'X-Amz-Date':    amzDate,
+      'X-Amz-Target':  target,
+    },
+    body: payload,
+  })
+}
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
@@ -100,7 +165,7 @@ function parseAmount(str: string | undefined): number {
 }
 
 // deno-lint-ignore no-explicit-any
-function parseSummary(raw: AnalyzeExpenseCommandOutput): OcrResult {
+function parseSummary(raw: Record<string, unknown>): OcrResult {
   const doc            = (raw?.ExpenseDocuments ?? [])[0]
   const summaryFields  = doc?.SummaryFields  ?? []
   const lineItemGroups = doc?.LineItemGroups  ?? []
@@ -208,22 +273,26 @@ serve(async (req) => {
     return json({ error: 'Server misconfigured: AWS credentials missing' }, 500)
   }
 
-  // ── Call Textract AnalyzeExpense via AWS SDK ───────────────────────────────
-  const client = new TextractClient({
-    region,
-    credentials: { accessKeyId, secretAccessKey },
-  })
-
-  let raw: AnalyzeExpenseCommandOutput
+  // ── Call Textract AnalyzeExpense (native fetch + SigV4) ─────────────────
+  let textractRes: Response
   try {
-    raw = await client.send(new AnalyzeExpenseCommand({
-      Document: { Bytes: Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0)) },
-    }))
+    textractRes = await textractPost({
+      accessKeyId, secretAccessKey, region,
+      target:  'Textract_20181101.AnalyzeExpense',
+      payload: JSON.stringify({ Document: { Bytes: fileBase64 } }),
+    })
   } catch (err) {
-    console.error('Textract error:', err)
-    const msg = err instanceof Error ? err.message : String(err)
-    return json({ error: `Textract failed: ${msg}` }, 502)
+    console.error('Textract fetch error:', err)
+    return json({ error: 'Failed to reach AWS Textract' }, 502)
   }
+
+  if (!textractRes.ok) {
+    const errText = await textractRes.text().catch(() => '')
+    console.error(`Textract ${textractRes.status}:`, errText)
+    return json({ error: `Textract error ${textractRes.status}: ${errText}` }, 502)
+  }
+
+  const raw = await textractRes.json() as Record<string, unknown>
   const result = parseSummary(raw)
 
   return json(result)

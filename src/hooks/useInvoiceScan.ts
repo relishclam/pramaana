@@ -172,23 +172,69 @@ export function useInvoiceScan() {
     })
   }, [])
 
+  // ── PDF → JPEG conversion (page 1 only, via pdfjs-dist) ─────────────────
+  // Sending a JPEG to Textract is 3–5× faster than a raw PDF.
+  // Falls back to the original file if PDF.js fails or the file is not a PDF.
+  const extractFirstPageAsJpeg = useCallback(async (
+    file: File,
+  ): Promise<{ base64: string; mimeType: string }> => {
+    if (file.type !== 'application/pdf') {
+      // Already an image — just read it directly
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader()
+        r.onload  = () => resolve((r.result as string).split(',')[1] ?? '')
+        r.onerror = reject
+        r.readAsDataURL(file)
+      })
+      return { base64, mimeType: file.type }
+    }
+
+    try {
+      // Lazy-load pdfjs-dist (only when a PDF is selected — tree-shakes out otherwise)
+      const pdfjsLib = await import('pdfjs-dist')
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url,
+      ).toString()
+
+      const arrayBuffer = await file.arrayBuffer()
+      const pdf         = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+      const page        = await pdf.getPage(1)
+      const viewport    = page.getViewport({ scale: 2.0 })   // 2× scale → clearer text for OCR
+
+      const canvas    = document.createElement('canvas')
+      canvas.width    = viewport.width
+      canvas.height   = viewport.height
+      const ctx       = canvas.getContext('2d')!
+      await page.render({ canvasContext: ctx, canvas, viewport }).promise
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+      return { base64: dataUrl.split(',')[1] ?? '', mimeType: 'image/jpeg' }
+
+    } catch {
+      // PDF.js failed — fall back to sending the raw PDF
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader()
+        r.onload  = () => resolve((r.result as string).split(',')[1] ?? '')
+        r.onerror = reject
+        r.readAsDataURL(file)
+      })
+      return { base64, mimeType: 'application/pdf' }
+    }
+  }, [])
+
   // ── Step 2: Run OCR ───────────────────────────────────────────────────────
   const startScan = useCallback(async (file: File) => {
     setState(s => ({ ...s, step: 2, isProcessing: true, error: null }))
 
     try {
-      // Read as base64 (strip the data-URI prefix)
-      const fileBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload  = () => resolve((reader.result as string).split(',')[1] ?? '')
-        reader.onerror = reject
-        reader.readAsDataURL(file)
-      })
+      // For PDFs: render page 1 to JPEG first — 3–5× faster in Textract
+      const { base64: fileBase64, mimeType: fileType } = await extractFirstPageAsJpeg(file)
 
       const res = await fetch('/api/ocr', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ fileBase64, fileType: file.type }),
+        body:    JSON.stringify({ fileBase64, fileType }),
       })
 
       if (!res.ok) {

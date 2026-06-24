@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/ocr.ts": {
+      "maxDuration": 60
+    }
+  },
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

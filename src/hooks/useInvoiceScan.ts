@@ -231,13 +231,17 @@ export function useInvoiceScan() {
       // For PDFs: render page 1 to JPEG first — 3–5× faster in Textract
       const { base64: fileBase64, mimeType: fileType } = await extractFirstPageAsJpeg(file)
 
-      // Use Supabase Edge Function — 150 s timeout vs Vercel's 10 s limit
-      const { data: ocr, error: fnError } = await supabase.functions.invoke<OcrResult>('ocr', {
-        body: { fileBase64, fileType },
+      // Use Vercel Edge Function — 25 s duration on Hobby plan, Vercel's own V8 runtime
+      const ocrRes = await fetch('/api/ocr-edge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileBase64, fileType }),
       })
-
-      if (fnError) throw new Error(fnError.message ?? 'OCR function error')
-      if (!ocr)   throw new Error('Empty response from OCR service')
+      if (!ocrRes.ok) {
+        const errBody = await ocrRes.json().catch(() => ({ error: `OCR failed (${ocrRes.status})` }))
+        throw new Error((errBody as { error?: string }).error ?? `OCR failed (${ocrRes.status})`)
+      }
+      const ocr: OcrResult = await ocrRes.json()
       setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: ocrToForm(ocr) }))
 
     } catch (err: unknown) {

@@ -18,6 +18,7 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { AwsClient } from 'npm:aws4fetch'
 
 // ── Inline AWS SigV4 (Web Crypto — no external deps needed in Deno) ──────────
 const enc = new TextEncoder()
@@ -268,22 +269,30 @@ serve(async (req) => {
   // ── AWS credentials ───────────────────────────────────────────────────────
   const accessKeyId     = Deno.env.get('AWS_ACCESS_KEY_ID')      ?? ''
   const secretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY')  ?? ''
-  // Textract AnalyzeExpense is NOT available in ap-south-1 (Mumbai).
-  // Use TEXTRACT_REGION secret to override; default to ap-southeast-1 (Singapore).
-  const textractRegion  = Deno.env.get('TEXTRACT_REGION') ?? 'ap-southeast-1'
+  // AnalyzeExpense is available in us-east-1, us-east-2, us-west-2, eu-west-1, etc.
+  // Use TEXTRACT_REGION secret to override; default to us-east-1.
+  const textractRegion  = Deno.env.get('TEXTRACT_REGION') ?? 'us-east-1'
 
   if (!accessKeyId || !secretAccessKey) {
     return json({ error: 'Server misconfigured: AWS credentials missing' }, 500)
   }
 
-  // ── Call Textract AnalyzeExpense (native fetch + SigV4) ─────────────────────
+  // ── Call Textract AnalyzeExpense (aws4fetch handles SigV4 signing) ──────────
+  const awsClient = new AwsClient({ accessKeyId, secretAccessKey, region: textractRegion, service: 'textract' })
+
   let textractRes: Response
   try {
-    textractRes = await textractPost({
-      accessKeyId, secretAccessKey, region: textractRegion,
-      target:  'Textract_20180627.AnalyzeExpense',
-      payload: JSON.stringify({ Document: { Bytes: fileBase64 } }),
-    })
+    textractRes = await awsClient.fetch(
+      `https://textract.${textractRegion}.amazonaws.com/`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-amz-json-1.1',
+          'X-Amz-Target': 'Textract_20180627.AnalyzeExpense',
+        },
+        body: JSON.stringify({ Document: { Bytes: fileBase64 } }),
+      }
+    )
   } catch (err) {
     console.error('Textract fetch error:', err)
     return json({ error: 'Failed to reach AWS Textract' }, 502)

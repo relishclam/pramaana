@@ -281,7 +281,7 @@ serve(async (req) => {
   try {
     textractRes = await textractPost({
       accessKeyId, secretAccessKey, region: textractRegion,
-      target:  'Textract_20181101.AnalyzeExpense',
+      target:  'Textract_20180627.AnalyzeExpense',
       payload: JSON.stringify({ Document: { Bytes: fileBase64 } }),
     })
   } catch (err) {

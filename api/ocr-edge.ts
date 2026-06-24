@@ -1,12 +1,11 @@
 /**
- * Vercel Edge Function — Invoice OCR via Google Gemini Flash
+ * Vercel Edge Function — Invoice OCR via Anthropic Claude (Vision)
  * POST /api/ocr-edge
  *
  * Edge runtime: 25 s duration (Hobby + Pro).
- * Uses Gemini 1.5 Flash (vision) — plain JSON API, no AWS SigV4 or X-Amz-Target needed.
- * Free tier: 1,500 requests/day.
+ * Uses Claude 3.5 Haiku vision — plain JSON API, no AWS SigV4 or X-Amz-Target.
  *
- * Required Vercel env var: GEMINI_API_KEY
+ * Required Vercel env var: ANTHROPIC_API_KEY  (from console.anthropic.com)
  * Body (JSON): { fileBase64: string, fileType: string }
  * Returns: OcrResult JSON
  */
@@ -108,42 +107,48 @@ export default async function handler(req: Request): Promise<Response> {
   if (!fileBase64) return jsonRes({ error: 'Missing fileBase64' }, 400)
   if (fileBase64.length > 6_900_000) return jsonRes({ error: 'File exceeds the 5 MB limit' }, 413)
 
-  const apiKey = (process.env.GEMINI_API_KEY ?? '').trim()
-  if (!apiKey) return jsonRes({ error: 'Server misconfigured: GEMINI_API_KEY missing' }, 500)
+  const apiKey = (process.env.ANTHROPIC_API_KEY ?? '').trim()
+  if (!apiKey) return jsonRes({ error: 'Server misconfigured: ANTHROPIC_API_KEY missing' }, 500)
 
   const mimeType = (fileType && fileType.startsWith('image/')) ? fileType : 'image/jpeg'
 
-  // ── Call Gemini Flash ────────────────────────────────────────────────────
-  let geminiRes: Response
+  // ── Call Claude 3.5 Haiku ────────────────────────────────────────────────
+  let claudeRes: Response
   try {
-    geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inline_data: { mime_type: mimeType, data: fileBase64 } },
-              { text: EXTRACTION_PROMPT },
-            ],
-          }],
-          generationConfig: { temperature: 0, response_mime_type: 'application/json' },
-        }),
-      }
-    )
+    claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':    'application/json',
+        'x-api-key':       apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:      'claude-3-5-haiku-20241022',
+        max_tokens: 2048,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type:   'image',
+              source: { type: 'base64', media_type: mimeType, data: fileBase64 },
+            },
+            { type: 'text', text: EXTRACTION_PROMPT },
+          ],
+        }],
+      }),
+    })
   } catch (err) {
-    return jsonRes({ error: `Failed to reach Gemini: ${err}` }, 502)
+    return jsonRes({ error: `Failed to reach Anthropic: ${err}` }, 502)
   }
 
-  if (!geminiRes.ok) {
-    const errText = await geminiRes.text().catch(() => '')
-    return jsonRes({ error: `Gemini error ${geminiRes.status}: ${errText}` }, 502)
+  if (!claudeRes.ok) {
+    const errText = await claudeRes.text().catch(() => '')
+    return jsonRes({ error: `Claude error ${claudeRes.status}: ${errText}` }, 502)
   }
 
-  const geminiData = await geminiRes.json() as Record<string, unknown>
+  const claudeData = await claudeRes.json() as Record<string, unknown>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textContent: string = (geminiData as any)?.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+  const textContent: string = (claudeData as any)?.content?.[0]?.text ?? ''
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let extracted: Record<string, any>

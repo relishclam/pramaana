@@ -301,7 +301,32 @@ serve(async (req) => {
   if (!textractRes.ok) {
     const errText = await textractRes.text().catch(() => '')
     console.error(`Textract ${textractRes.status}:`, errText)
-    return json({ error: `Textract error ${textractRes.status}: ${errText}` }, 502)
+
+    // ── Diagnostic probe: test target variants WITHOUT auth ─────────────────
+    // Whichever variant returns MissingAuthenticationTokenException (not
+    // UnknownOperationException) is the correct X-Amz-Target prefix.
+    const probeUrl = `https://textract.${textractRegion}.amazonaws.com/`
+    const probeBody = '{"Document":{"Bytes":"AA=="}}'
+    const targets = [
+      'Textract_20180627.AnalyzeExpense',
+      'Textract_20181011.AnalyzeExpense',
+      'Textract_20181106.AnalyzeExpense',
+    ]
+    const probe: Record<string, string> = {}
+    for (const t of targets) {
+      try {
+        const r = await fetch(probeUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': t },
+          body: probeBody,
+        })
+        probe[t] = `${r.status}: ${await r.text()}`
+      } catch (e) {
+        probe[t] = `fetch-error: ${e}`
+      }
+    }
+    console.error('Target probe results:', JSON.stringify(probe))
+    return json({ error: `Textract error ${textractRes.status}: ${errText}`, targetProbe: probe }, 502)
   }
 
   const raw = await textractRes.json() as Record<string, unknown>

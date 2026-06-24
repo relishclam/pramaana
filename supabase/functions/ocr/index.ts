@@ -280,6 +280,11 @@ serve(async (req) => {
   // ── Call Textract AnalyzeExpense (aws4fetch handles SigV4 signing) ──────────
   const awsClient = new AwsClient({ accessKeyId, secretAccessKey, region: textractRegion, service: 'textract' })
 
+  // Use Uint8Array body to prevent any runtime Content-Type charset injection
+  const textractPayload = new TextEncoder().encode(
+    JSON.stringify({ Document: { Bytes: fileBase64 } })
+  )
+
   let textractRes: Response
   try {
     textractRes = await awsClient.fetch(
@@ -290,7 +295,7 @@ serve(async (req) => {
           'Content-Type': 'application/x-amz-json-1.1',
           'X-Amz-Target': 'Textract_20180627.AnalyzeExpense',
         },
-        body: JSON.stringify({ Document: { Bytes: fileBase64 } }),
+        body: textractPayload,
       }
     )
   } catch (err) {
@@ -302,27 +307,34 @@ serve(async (req) => {
     const errText = await textractRes.text().catch(() => '')
     console.error(`Textract ${textractRes.status}:`, errText)
 
-    // ── Diagnostic probe: test target variants WITHOUT auth ─────────────────
-    // Whichever variant returns MissingAuthenticationTokenException (not
-    // UnknownOperationException) is the correct X-Amz-Target prefix.
-    const probeUrl = `https://textract.${textractRegion}.amazonaws.com/`
-    const probeBody = '{"Document":{"Bytes":"AA=="}}'
-    const targets = [
-      'Textract_20180627.AnalyzeExpense',
-      'Textract_20181011.AnalyzeExpense',
-      'Textract_20181106.AnalyzeExpense',
+    // ── Diagnostic probe v2 ────────────────────────────────────────────────
+    // Use Uint8Array body to avoid any Content-Type charset mangling.
+    // Check x-amzn-requestid to confirm we are hitting real AWS (not a proxy).
+    // Test DetectDocumentText (oldest op) — if that returns MissingAuthenticationToken
+    // but AnalyzeExpense returns UnknownOperation, region doesn't support AnalyzeExpense.
+    // If ALL ops return UnknownOperation, the endpoint itself is wrong.
+    const probeBodyBytes = new TextEncoder().encode('{"Document":{"Bytes":"AA=="}}')
+
+    const probeTargets: Array<{ label: string; url: string; target: string }> = [
+      { label: 'us-e1.AnalyzeExpense',      url: `https://textract.us-east-1.amazonaws.com/`,  target: 'Textract_20180627.AnalyzeExpense'      },
+      { label: 'us-e1.DetectDocumentText',   url: `https://textract.us-east-1.amazonaws.com/`,  target: 'Textract_20180627.DetectDocumentText'   },
+      { label: 'us-e1.AnalyzeDocument',      url: `https://textract.us-east-1.amazonaws.com/`,  target: 'Textract_20180627.AnalyzeDocument'      },
+      { label: 'ap-s1.AnalyzeExpense',       url: `https://textract.ap-south-1.amazonaws.com/`, target: 'Textract_20180627.AnalyzeExpense'      },
+      { label: 'ap-s1.DetectDocumentText',   url: `https://textract.ap-south-1.amazonaws.com/`, target: 'Textract_20180627.DetectDocumentText'   },
     ]
+
     const probe: Record<string, string> = {}
-    for (const t of targets) {
+    for (const { label, url, target } of probeTargets) {
       try {
-        const r = await fetch(probeUrl, {
+        const r = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': t },
-          body: probeBody,
+          headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': target },
+          body: probeBodyBytes,
         })
-        probe[t] = `${r.status}: ${await r.text()}`
+        const reqId = r.headers.get('x-amzn-requestid') ?? 'NO-REQ-ID'
+        probe[label] = `${r.status}: ${await r.text()} [${reqId}]`
       } catch (e) {
-        probe[t] = `fetch-error: ${e}`
+        probe[label] = `fetch-error: ${e}`
       }
     }
     console.error('Target probe results:', JSON.stringify(probe))

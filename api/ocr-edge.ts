@@ -14,21 +14,21 @@ export const config = { runtime: 'edge' }
 
 // ── Extraction prompt ─────────────────────────────────────────────────────────
 
-const EXTRACTION_PROMPT = `Analyse this Indian tax invoice image and extract data.
-Return ONLY a single valid JSON object — no markdown fences, no explanation.
+const EXTRACTION_PROMPT = `You are an expert Indian GST invoice parser. Analyse this invoice image carefully and extract data with high accuracy.
+Return ONLY a single valid JSON object — no markdown fences, no explanation, no trailing text.
 
 {
-  "invoiceNo":       "invoice / receipt number (string, empty if absent)",
-  "invoiceDate":     "date as printed on the invoice e.g. 31-05-2026 (string)",
-  "supplierName":    "seller / vendor company name (string)",
-  "supplierGstin":   "seller GSTIN — 15-char alphanumeric (string, empty if absent)",
-  "recipientName":   "buyer / bill-to company name (string)",
-  "recipientGstin":  "buyer GSTIN — 15-char alphanumeric (string, empty if absent)",
-  "taxableValue":    taxable / subtotal before GST as a plain number,
+  "invoiceNo":       "invoice / bill / receipt number exactly as printed (string, empty if absent)",
+  "invoiceDate":     "date exactly as printed on invoice, e.g. 31/05/2026 or 31-05-2026 (string, empty if not found)",
+  "supplierName":    "seller / vendor / landlord company or person name (string)",
+  "supplierGstin":   "seller GSTIN — must be exactly 15 characters, alphanumeric, copy character-by-character (string, empty if absent)",
+  "recipientName":   "buyer / bill-to / tenant company or person name (string)",
+  "recipientGstin":  "buyer GSTIN — must be exactly 15 characters, alphanumeric, copy character-by-character (string, empty if absent)",
+  "taxableValue":    taxable amount before GST as a plain integer or decimal (CRITICAL: Indian numbers use commas as thousand separators — 2,10,000 means TWO LAKH TEN THOUSAND = 210000, NOT 2100000),
   "cgst":            CGST amount as a plain number (0 if absent),
   "sgst":            SGST amount as a plain number (0 if absent),
   "igst":            IGST amount as a plain number (0 if absent),
-  "totalAmount":     grand total including GST as a plain number,
+  "totalAmount":     grand total including all taxes as a plain number,
   "lineItems": [
     {
       "description": "item or service description",
@@ -40,11 +40,13 @@ Return ONLY a single valid JSON object — no markdown fences, no explanation.
   ]
 }
 
-Rules:
-- All monetary values must be plain numbers (no ₹ symbols, no commas).
-- If a field is not visible, use "" for strings and 0 for numbers.
-- Do NOT add extra fields.
-- Return ONLY the JSON object.`
+CRITICAL RULES:
+1. Indian number system: 1,00,000 = 100000 (one lakh), 10,00,000 = 1000000 (ten lakh), 2,10,000 = 210000. Remove all commas to get the actual number.
+2. GSTIN format: 2 digits (state code) + 10 char PAN + 1 digit entity + Z + 1 check digit. Transcribe exactly — do not guess missing characters.
+3. invoiceDate: always include even if only month/year is visible. Preserve the original format.
+4. All monetary output values must be plain numbers — no ₹ symbol, no commas, no formatting.
+5. If a field is genuinely absent, use "" for strings and 0 for numbers.
+6. Do NOT add extra fields. Return ONLY the JSON object.`
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -123,8 +125,8 @@ export default async function handler(req: Request): Promise<Response> {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model:      'claude-haiku-4-5',
-        max_tokens: 2048,
+        model:      'claude-sonnet-4-6',
+        max_tokens: 4096,
         messages: [{
           role: 'user',
           content: [

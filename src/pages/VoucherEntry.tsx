@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Trash2, Check, X, Loader2, Search, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Check, X, Loader2, Search, AlertTriangle, ScanLine } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/lib/vouchers'
 import { supabase } from '@/lib/supabase'
 import SimplifiedPaymentEntry from './SimplifiedPaymentEntry'
+import InvoiceScanModal from '@/components/InvoiceScanModal'
 import styles from './VoucherEntry.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -87,16 +88,27 @@ export default function VoucherEntry() {
   // ── Submission ─────────────────────────────────────────────────────────────
   const [saving, setSaving] = useState(false)
 
-  // ── Init ──────────────────────────────────────────────────────────────────
+  // ── Invoice scan modal ────────────────────────────────────────────────────
+  const [scanOpen, setScanOpen] = useState(false)
+
+  // ── Init: voucher types are global — load once independently ───────────────
+  useEffect(() => {
+    fetchVoucherTypes()
+      .then(types => {
+        setVoucherTypes(types)
+        if (types.length > 0) setActiveType(types.find(t => t.code === 'PYMT') ?? types[0])
+      })
+      .catch(err => toast.error('Failed to load voucher types: ' + err.message))
+  }, [])
+
+  // ── Init: company-specific data — reload when active company changes ─────
   useEffect(() => {
     if (!companyId) return
+    setLoadingInit(true)
     Promise.all([
-      fetchVoucherTypes(),
       fetchCostCentres(companyId),
       fetchBankLedgers(companyId),
-    ]).then(([types, centres, banks]) => {
-      setVoucherTypes(types)
-      if (types.length > 0) setActiveType(types.find(t => t.code === 'PYMT') ?? types[0])
+    ]).then(([centres, banks]) => {
       setCostCentres(centres)
       setBankLedgers(banks)
       setLoadingInit(false)
@@ -139,11 +151,12 @@ export default function VoucherEntry() {
 
       const entityIds = (entities as RawEntity[]).map(e => e.id)
 
-      // Step 2: find which of those have any payable role across all companies
+      // Step 2: find which of those have a role in the active company
       const { data: roles } = await supabase
         .schema('registry')
         .from('entity_roles')
         .select('entity_id, role')
+        .eq('company_id', companyId)
         .eq('is_active', true)
         .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor'])
         .in('entity_id', entityIds)
@@ -154,7 +167,7 @@ export default function VoucherEntry() {
       const entityMap = new Map<string, RawEntity>(
         (entities as RawEntity[]).map(e => [e.id, e])
       )
-      // Deduplicate by entity_id — an entity may have roles in multiple companies;
+      // Deduplicate by entity_id — an entity may have multiple roles in the same company;
       // show each entity only once (first matching role).
       const seen = new Set<string>()
       setEntityOptions(
@@ -311,7 +324,30 @@ export default function VoucherEntry() {
     <div className={styles.page}>
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>New Voucher</h1>
+        <button
+          type="button"
+          className={styles.scanBtn ?? ''}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+            background: 'none', border: '1px solid #d9d6cf',
+            borderRadius: '8px', padding: '0.4375rem 0.875rem',
+            fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer',
+            color: '#444', fontFamily: 'inherit',
+          }}
+          onClick={() => setScanOpen(true)}
+        >
+          <ScanLine size={15} /> Scan Invoice
+        </button>
       </div>
+
+      <InvoiceScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        companyId={companyId}
+        companyCode={companyCode}
+        userId={userId}
+        voucherTypes={voucherTypes}
+      />
 
       {/* ── Type selector — always visible ─────────────────────────────── */}
       <div className={styles.section} style={{ maxWidth: isPayment ? 640 : undefined }}>

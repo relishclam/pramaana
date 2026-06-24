@@ -172,8 +172,9 @@ export default function SimplifiedPaymentEntry({
         .schema('registry')
         .from('entity_roles')
         .select('entity_id, role')
+        .eq('company_id', companyId)
         .eq('is_active', true)
-        .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government'])
+        .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor'])
         .in('entity_id', ids)
 
       if (!roles?.length) { setEntityOptions([]); return }
@@ -317,7 +318,7 @@ export default function SimplifiedPaymentEntry({
       }
 
       toast.success('Voucher submitted for approval')
-      navigate('/approvals')
+      navigate('/vouchers')
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to submit voucher')
     } finally {

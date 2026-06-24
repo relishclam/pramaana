@@ -211,9 +211,12 @@ export default function VoucherEdit() {
       const entityMap = new Map<string, RawEntity>(
         (entities as RawEntity[]).map(e => [e.id, e])
       )
+      // Deduplicate by entity_id — an entity may have multiple roles in the same company;
+      // show each entity only once (first matching role).
+      const seen = new Set<string>()
       setEntityOptions(
         (roles as RawRole[])
-          .filter(r => entityMap.has(r.entity_id))
+          .filter(r => entityMap.has(r.entity_id) && !seen.has(r.entity_id) && seen.add(r.entity_id) !== undefined)
           .slice(0, 10)
           .map(r => {
             const e = entityMap.get(r.entity_id)!

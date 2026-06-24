@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
   AlertCircle, FileText, ExternalLink, Trash2, Edit3, Send, RotateCcw, BookOpen,
+  Download, ChevronDown,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -12,6 +13,7 @@ import {
   type VoucherEntryDetail,
   type ApprovalHistoryItem,
 } from '@/lib/approvals'
+import { exportVouchersCsv, type VoucherRecord } from '@/lib/exportVoucherCsv'
 import {
   fetchVouchers,
   recallVoucher,
@@ -30,6 +32,13 @@ import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './VoucherRegister.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+const menuItem: React.CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left',
+  padding: '0.625rem 1rem', fontSize: '0.8125rem',
+  border: 'none', background: 'none', cursor: 'pointer',
+  color: '#333', fontFamily: 'inherit',
+}
 
 const NATURE_COLOR: Record<string, string> = {
   payment:  '#e05252',
@@ -594,7 +603,56 @@ export default function VoucherRegister() {
     setSearchInput('')
     setFilter('search', '')
   }
+  // ── Export ───────────────────────────────────────────────────────────────────
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    if (!exportOpen) return
+    function onClickOutside(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [exportOpen])
+
+  function rowsToRecords(rows: RegisterVoucher[]): VoucherRecord[] {
+    return rows.map(r => ({
+      voucherNo:      r.voucher_number,
+      voucherDate:    r.voucher_date,
+      voucherType:    r.voucher_type.name,
+      nature:         r.voucher_type.nature,
+      referenceNo:    null,
+      supplierName:   r.entity_name ?? null,
+      supplierGstin:  null,
+      supplierState:  null,
+      recipientName:  null,
+      recipientGstin: null,
+      recipientState: null,
+      gstType:        null,
+      hsnCode:        null,
+      narration:      r.narration ?? null,
+      taxableValue:   r.amount,
+      cgstAmount:     0,
+      sgstAmount:     0,
+      igstAmount:     0,
+      totalGst:       0,
+      invoiceTotal:   r.amount,
+      itcEligible:    true,
+      ocrConfidence:  null,
+      status:         r.status,
+      createdAt:      r.created_at,
+      lineItems:      [],
+    }))
+  }
+
+  function handleExport(format: 'summary' | 'lineitems') {
+    if (allRows.length === 0) { toast.error('No vouchers to export'); return }
+    exportVouchersCsv(rowsToRecords(allRows), format, filters.dateFrom, filters.dateTo)
+    setExportOpen(false)
+  }
   // ── Data ─────────────────────────────────────────────────────────────────
   const [allRows,     setAllRows]     = useState<RegisterVoucher[]>([])
   const [hasMore,     setHasMore]     = useState(false)
@@ -670,9 +728,53 @@ export default function VoucherRegister() {
       {/* Page header */}
       <div className={styles.pageHeader}>
         <h1 className={styles.pageTitle}>Vouchers</h1>
-        <button className={styles.newBtn} onClick={() => navigate('/vouchers/new')}>
-          <Plus size={14} /> New Voucher
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* Export dropdown */}
+          <div ref={exportRef} style={{ position: 'relative' }}>
+            <button
+              className={styles.newBtn}
+              style={{ background: 'none', border: '1px solid #d9d6cf', color: '#444' }}
+              onClick={() => setExportOpen(o => !o)}
+              aria-haspopup="true"
+              aria-expanded={exportOpen}
+            >
+              <Download size={14} /> Export <ChevronDown size={12} />
+            </button>
+            {exportOpen && (
+              <div style={{
+                position: 'absolute', right: 0, top: '100%', marginTop: 4,
+                background: '#fff', border: '1px solid #e8e6e1', borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 50,
+                minWidth: 220, overflow: 'hidden',
+              }}>
+                <button
+                  style={menuItem}
+                  onClick={() => handleExport('summary')}
+                >
+                  All filtered vouchers — Summary CSV
+                </button>
+                <button
+                  style={menuItem}
+                  onClick={() => handleExport('lineitems')}
+                >
+                  All filtered vouchers — Line Items CSV
+                </button>
+                <div style={{ borderTop: '1px solid #f0efeb' }}>
+                  <button style={{ ...menuItem, color: '#bbb', cursor: 'default' }} disabled>
+                    Export for Tally&nbsp;<span style={{
+                      fontSize: '0.6875rem', background: '#f0efeb',
+                      color: '#888', borderRadius: 4, padding: '1px 5px',
+                    }}>Soon</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button className={styles.newBtn} onClick={() => navigate('/vouchers/new')}>
+            <Plus size={14} /> New Voucher
+          </button>
+        </div>
       </div>
 
       {/* ── Filters bar ─────────────────────────────────────────────────── */}

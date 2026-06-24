@@ -91,7 +91,7 @@ export default async function handler(req: Request): Promise<Response> {
         'Content-Type':  fileType || 'application/octet-stream',
         'x-upsert':      'false',
       },
-      body: bytes,
+      body: bytes as BodyInit,
     },
   )
 

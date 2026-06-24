@@ -18,7 +18,11 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
-import { AwsClient } from 'https://esm.sh/aws4fetch@1.0.20'
+import {
+  TextractClient,
+  AnalyzeExpenseCommand,
+  type AnalyzeExpenseCommandOutput,
+} from 'npm:@aws-sdk/client-textract@^3'
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
@@ -96,7 +100,7 @@ function parseAmount(str: string | undefined): number {
 }
 
 // deno-lint-ignore no-explicit-any
-function parseSummary(raw: any): OcrResult {
+function parseSummary(raw: AnalyzeExpenseCommandOutput): OcrResult {
   const doc            = (raw?.ExpenseDocuments ?? [])[0]
   const summaryFields  = doc?.SummaryFields  ?? []
   const lineItemGroups = doc?.LineItemGroups  ?? []
@@ -204,33 +208,22 @@ serve(async (req) => {
     return json({ error: 'Server misconfigured: AWS credentials missing' }, 500)
   }
 
-  // ── Call Textract AnalyzeExpense ──────────────────────────────────────────
-  const aws = new AwsClient({ accessKeyId, secretAccessKey, region, service: 'textract' })
+  // ── Call Textract AnalyzeExpense via AWS SDK ───────────────────────────────
+  const client = new TextractClient({
+    region,
+    credentials: { accessKeyId, secretAccessKey },
+  })
 
-  let textractRes: Response
+  let raw: AnalyzeExpenseCommandOutput
   try {
-    textractRes = await aws.fetch(`https://textract.${region}.amazonaws.com/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-amz-json-1.1',
-        'X-Amz-Target': 'Textract_20181101.AnalyzeExpense',
-      },
-      body: JSON.stringify({
-        Document: { Bytes: fileBase64 },
-      }),
-    })
+    raw = await client.send(new AnalyzeExpenseCommand({
+      Document: { Bytes: Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0)) },
+    }))
   } catch (err) {
-    console.error('Textract fetch error:', err)
-    return json({ error: 'Failed to reach AWS Textract' }, 502)
+    console.error('Textract error:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    return json({ error: `Textract failed: ${msg}` }, 502)
   }
-
-  if (!textractRes.ok) {
-    const errText = await textractRes.text().catch(() => '')
-    console.error(`Textract error ${textractRes.status}:`, errText)
-    return json({ error: `Textract returned ${textractRes.status}: ${errText}` }, 502)
-  }
-
-  const raw = await textractRes.json()
   const result = parseSummary(raw)
 
   return json(result)

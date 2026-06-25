@@ -13,12 +13,13 @@ import styles from './InvoiceScanModal.module.css'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  open:         boolean
-  onClose:      () => void
-  companyId:    string
-  companyCode:  string
-  userId:       string
-  voucherTypes: VoucherType[]
+  open:          boolean
+  onClose:       () => void
+  companyId:     string
+  companyCode:   string
+  companyGstin?: string
+  userId:        string
+  voucherTypes:  VoucherType[]
 }
 
 // ── Stepper ───────────────────────────────────────────────────────────────────
@@ -611,9 +612,9 @@ function StepDone({
 // ── Main modal ────────────────────────────────────────────────────────────────
 
 export default function InvoiceScanModal({
-  open, onClose, companyId, userId, voucherTypes,
+  open, onClose, companyId, userId, companyGstin = '', voucherTypes,
 }: Props) {
-  const { state, selectFile, startScan, updateField, submitVoucher, reset } = useInvoiceScan()
+  const { state, selectFile, startScan, updateField, submitVoucher, reset } = useInvoiceScan({ companyGstin })
   const modalRef = useRef<HTMLDivElement>(null)
 
   // Focus trap + ESC handler

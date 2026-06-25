@@ -367,6 +367,7 @@ export default function VoucherEntry() {
         onClose={() => setScanOpen(false)}
         companyId={companyId}
         companyCode={companyCode}
+        companyGstin={user?.activeCompany?.gstin ?? ''}
         userId={userId}
         voucherTypes={voucherTypes}
       />

@@ -95,17 +95,31 @@ function initialState(): ScanState {
   }
 }
 
-function ocrToForm(ocr: OcrResult): ScanForm {
+function normalizeDate(dateStr: string): string {
+  if (!dateStr) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+  // DD/MM/YYYY or DD-MM-YYYY
+  const m = dateStr.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  return dateStr
+}
+
+function ocrToForm(ocr: OcrResult, companyGstin = ''): ScanForm {
   const hsn = ocr.lineItems[0]?.hsn ?? ''
+  const isOurSale = companyGstin
+    ? ocr.supplierGstin.toUpperCase() === companyGstin.toUpperCase()
+    : false
+
+  const partyName = isOurSale ? ocr.recipientName : ocr.supplierName
   const narration = [
-    ocr.supplierName,
+    partyName,
     ocr.invoiceNo ? `Inv ${ocr.invoiceNo}` : '',
     hsn ? `HSN ${hsn}` : '',
   ].filter(Boolean).join(' · ')
 
   return {
     invoiceNo:      ocr.invoiceNo,
-    invoiceDate:    ocr.invoiceDate,
+    invoiceDate:    normalizeDate(ocr.invoiceDate),
     supplierName:   ocr.supplierName,
     supplierGstin:  ocr.supplierGstin,
     recipientName:  ocr.recipientName,
@@ -116,9 +130,9 @@ function ocrToForm(ocr: OcrResult): ScanForm {
     igst:           String(ocr.igst),
     totalGst:       String(ocr.totalGst),
     totalAmount:    String(ocr.totalAmount),
-    voucherType:    'purchase',
+    voucherType:    isOurSale ? 'sales' : 'purchase',
     narration,
-    itcEligible:    true,
+    itcEligible:    !isOurSale,
     entityId:       null,
     hsn,
     gstType:        ocr.gstType,
@@ -150,7 +164,7 @@ function rerouteGst(form: ScanForm): ScanForm {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useInvoiceScan() {
+export function useInvoiceScan({ companyGstin = '' }: { companyGstin?: string } = {}) {
   const [state, setState] = useState<ScanState>(initialState)
 
   // ── Step 1: Select file ───────────────────────────────────────────────────
@@ -242,7 +256,7 @@ export function useInvoiceScan() {
         throw new Error((errBody as { error?: string }).error ?? `OCR failed (${ocrRes.status})`)
       }
       const ocr: OcrResult = await ocrRes.json()
-      setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: ocrToForm(ocr) }))
+      setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: ocrToForm(ocr, companyGstin) }))
 
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : 'Unexpected error'

@@ -42,8 +42,8 @@ Return ONLY a single valid JSON object — no markdown fences, no explanation, n
 
 CRITICAL RULES:
 1. Indian number system: 1,00,000 = 100000 (one lakh), 10,00,000 = 1000000 (ten lakh), 2,10,000 = 210000. Remove all commas to get the actual number.
-2. GSTIN format: 2 digits (state code) + 10 char PAN + 1 digit entity + Z + 1 check digit. Transcribe exactly — do not guess missing characters.
-3. invoiceDate: always include even if only month/year is visible. Preserve the original format.
+2. GSTIN format: 2-digit state code + 5 uppercase letters + 4 digits + 1 letter + 1 digit + letter Z + 1 alphanumeric = exactly 15 chars. CRITICAL: the 14th character (second from last) is ALWAYS the letter 'Z' — never T, never 0, never Q, never O. Copy every character exactly from the invoice image without substitution.
+3. invoiceDate: return in YYYY-MM-DD format. If printed as DD/MM/YYYY or DD-MM-YYYY, convert it. Always include the date if visible anywhere on the invoice.
 4. All monetary output values must be plain numbers — no ₹ symbol, no commas, no formatting.
 5. If a field is genuinely absent, use "" for strings and 0 for numbers.
 6. Do NOT add extra fields. Return ONLY the JSON object.`

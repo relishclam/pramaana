@@ -13,6 +13,9 @@
  *   - Caller must have is_super_admin = TRUE in registry.profiles
  *   - Email is validated server-side before calling the Auth API
  *
+ * Dashboard setting: "Verify JWT with legacy secret" → OFF
+ *   (We do our own JWT verification via /auth/v1/user)
+ *
  * Supabase built-ins (auto-injected, never exposed to browser):
  *   SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
@@ -29,6 +32,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 serve(async (req: Request) => {
@@ -36,93 +46,77 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')              ?? ''
+  const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    return json({ error: 'Server misconfiguration: missing Supabase env vars' }, 500)
+  }
+
   try {
-    const SUPABASE_URL  = Deno.env.get('SUPABASE_URL')              ?? ''
-    const SERVICE_KEY   = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    // ── 1. Extract caller JWT ─────────────────────────────────────────────────
+    const authHeader = req.headers.get('Authorization') ?? ''
+    if (!authHeader.startsWith('Bearer ')) {
+      return json({ error: 'Unauthorized' }, 401)
+    }
+    const callerJwt = authHeader.slice(7)
 
-    if (!SUPABASE_URL || !SERVICE_KEY) {
-      throw new Error('Server misconfiguration: missing Supabase env vars')
+    // ── 2. Verify JWT via Auth API (raw fetch — most reliable in Deno) ────────
+    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        'apikey':        SERVICE_KEY,
+        'Authorization': `Bearer ${callerJwt}`,
+      },
+    })
+    if (!userRes.ok) {
+      return json({ error: 'Invalid or expired token' }, 401)
+    }
+    const userData = await userRes.json() as { id?: string }
+    const callerId = userData.id
+    if (!callerId) {
+      return json({ error: 'Invalid or expired token' }, 401)
     }
 
-    // ── 1. Verify the caller is an authenticated super-admin ──────────────────
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+    // ── 3. Check is_super_admin via PostgREST (raw fetch — avoids Deno client issues) ──
+    const profileRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/profiles?select=is_super_admin&id=eq.${callerId}&limit=1`,
+      {
+        headers: {
+          'apikey':         SERVICE_KEY,
+          'Authorization':  `Bearer ${SERVICE_KEY}`,
+          'Accept-Profile': 'registry',
+        },
+      },
+    )
+    const profiles = profileRes.ok ? await profileRes.json() as { is_super_admin: boolean }[] : []
+    if (!profiles[0]?.is_super_admin) {
+      return json({ error: 'Forbidden: super_admin access required to invite users' }, 403)
     }
 
-    const callerJwt   = authHeader.slice(7)
-    const callerClient = createClient(SUPABASE_URL, SERVICE_KEY)
-
-    // Verify JWT and get caller's user id
-    const { data: { user: caller }, error: jwtErr } = await callerClient.auth.getUser(callerJwt)
-    if (jwtErr || !caller) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid or expired token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+    // ── 4. Validate email ─────────────────────────────────────────────────────
+    const body = await req.json().catch(() => ({})) as { email?: string; redirectTo?: string }
+    const email = (body.email ?? '').trim().toLowerCase()
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return json({ error: 'Invalid email address' }, 400)
     }
-
-    // Check is_super_admin in registry.profiles
-    const { data: profile } = await callerClient
-      .schema('registry')
-      .from('profiles')
-      .select('is_super_admin')
-      .eq('id', caller.id)
-      .single()
-
-    if (!profile?.is_super_admin) {
-      return new Response(
-        JSON.stringify({ error: 'Forbidden: super_admin access required to invite users' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
-    }
-
-    // ── 2. Parse and validate request body ────────────────────────────────────
-    const body = await req.json().catch(() => ({}))
-    const email: string = (body.email ?? '').trim().toLowerCase()
-
-    const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!email || !EMAIL_RE.test(email)) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid email address' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
-    }
-
-    // Optional redirect URL — defaults to Suite if not provided
     const redirectTo: string | undefined = body.redirectTo ?? undefined
 
-    // ── 3. Send the invite using the service_role admin client ────────────────
+    // ── 5. Send invite via admin client ───────────────────────────────────────
     const adminClient = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-
     const { data, error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail(
       email,
       redirectTo ? { redirectTo } : undefined,
     )
-
     if (inviteErr) {
-      // Surface Supabase's own error message (e.g. "User already registered")
-      return new Response(
-        JSON.stringify({ error: inviteErr.message }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      )
+      return json({ error: inviteErr.message }, 400)
     }
 
-    return new Response(
-      JSON.stringify({ success: true, userId: data.user?.id ?? null }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    )
+    return json({ success: true, userId: data.user?.id ?? null })
 
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unexpected error'
-    return new Response(
-      JSON.stringify({ error: msg }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    )
+    return json({ error: msg }, 500)
   }
 })

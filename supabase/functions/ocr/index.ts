@@ -261,11 +261,11 @@ serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey, {
     auth: { persistSession: false },
-    db:   { schema: 'pramaana' },
   })
 
   // ── Resolve company code ──────────────────────────────────────────────────
   const { data: company, error: compErr } = await supabase
+    .schema('registry')
     .from('companies')
     .select('code')
     .eq('id', companyId)
@@ -362,6 +362,7 @@ serve(async (req) => {
   // ── Write to DB ───────────────────────────────────────────────────────────
   try {
     const { data: scan, error: scanErr } = await supabase
+      .schema('pramaana')
       .from('invoice_scans')
       .insert({
         company_id:    companyId,
@@ -412,6 +413,7 @@ serve(async (req) => {
       }))
 
       const { error: itemsErr } = await supabase
+        .schema('pramaana')
         .from('invoice_scan_items')
         .insert(itemsPayload)
 

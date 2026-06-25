@@ -15,6 +15,10 @@ import type { AuthUser, Company, CompanyUser, CompanyUserRole, Profile } from '@
 interface AuthContextValue {
   user: AuthUser | null
   loading: boolean
+  /** True when the current session requires the user to set a new password
+   *  (invite link or password-recovery link). */
+  needsPasswordSet: boolean
+  clearNeedsPasswordSet: () => void
   /** Switch the active company (super_admin only, or if user has multiple). */
   setActiveCompany: (company: Company) => void
   signOut: () => Promise<void>
@@ -150,6 +154,7 @@ async function buildAuthUser(supabaseUser: User): Promise<AuthUser | null> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [needsPasswordSet, setNeedsPasswordSet] = useState(false)
 
   const loadUser = useCallback(async (supabaseUser: User) => {
     setLoading(true)
@@ -173,7 +178,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // focus; calling loadUser (which sets loading=true) would destroy all
     // in-progress form state.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
+        // Detect invite link (SIGNED_IN with type=invite hash) or password recovery
+        if (event === 'PASSWORD_RECOVERY') {
+          setNeedsPasswordSet(true)
+        }
+        if (
+          event === 'SIGNED_IN' &&
+          typeof window !== 'undefined' &&
+          window.location.hash.includes('type=invite')
+        ) {
+          setNeedsPasswordSet(true)
+        }
         if (session?.user) {
           buildAuthUser(session.user).then(authUser => {
             if (authUser) setUser(authUser)
@@ -201,14 +217,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const clearNeedsPasswordSet = useCallback(() => {
+    setNeedsPasswordSet(false)
+  }, [])
+
   const signOut = useCallback(async () => {
     localStorage.removeItem('pramaana_active_company_id')
     await supabase.auth.signOut()
     setUser(null)
+    setNeedsPasswordSet(false)
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, loading, setActiveCompany, signOut }}>
+    <AuthContext.Provider value={{ user, loading, needsPasswordSet, clearNeedsPasswordSet, setActiveCompany, signOut }}>
       {children}
     </AuthContext.Provider>
   )

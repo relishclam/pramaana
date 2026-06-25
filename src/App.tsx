@@ -5,6 +5,7 @@ import { Toaster } from 'sonner'
 import css from './App.module.css'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import Login from '@/pages/Login'
+import SetPassword from '@/pages/SetPassword'
 import CompanySelector from '@/pages/CompanySelector'
 import Ledgers from '@/pages/Ledgers'
 import VoucherEntry from '@/pages/VoucherEntry'
@@ -390,7 +391,7 @@ function ReportGuard({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { user, loading } = useAuth()
+  const { user, loading, needsPasswordSet } = useAuth()
 
   if (loading) {
     return (
@@ -414,10 +415,21 @@ function AppRoutes() {
   if (!user) {
     return (
       <Routes>
-        <Route path="/login"        element={<Login />} />
-        <Route path="/relay"        element={<RelayCapture />} />
-        <Route path="/settle/:token" element={<SettleCapture />} />
-        <Route path="*"             element={<Navigate to="/login" replace />} />
+        <Route path="/login"          element={<Login />} />
+        <Route path="/set-password"   element={<SetPassword />} />
+        <Route path="/relay"          element={<RelayCapture />} />
+        <Route path="/settle/:token"  element={<SettleCapture />} />
+        <Route path="*"               element={<Navigate to="/login" replace />} />
+      </Routes>
+    )
+  }
+
+  // User is logged in but must set a password (invite or recovery link)
+  if (needsPasswordSet) {
+    return (
+      <Routes>
+        <Route path="/set-password" element={<SetPassword />} />
+        <Route path="*"             element={<Navigate to="/set-password" replace />} />
       </Routes>
     )
   }

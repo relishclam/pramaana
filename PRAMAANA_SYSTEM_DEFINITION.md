@@ -1,6 +1,6 @@
 # Pramaana — System Definition
 **Generated:** 2026-06-19  
-**Last Updated:** 2026-06-25 (commit `57ad25f` — Invoice OCR scan module, OTP-gated payment approval, status constraint fixes, sequence-based scan_ref, GSTIN mismatch blocking)  
+**Last Updated:** 2026-06-25 (commit `8727ca7` — OCR company-master auto-correction + locked field UI in Review step)  
 **Scope:** `pramaana/` repo only — `src/`, `api/`, `supabase/migrations/`, `supabase/functions/`  
 **Method:** Direct code inspection of all lib files, page components, migrations, App.tsx, AuthContext.tsx, and config files  
 **Not covered:** Relish Suite (`relish-business-suite/` parent repo), ClamFlow backend/frontend (separate repos)
@@ -1003,6 +1003,23 @@ State machine hook for the Invoice OCR workflow inside `InvoiceScanModal` (trigg
 
 **Signature:** `useInvoiceScan({ companyGstin?: string, companyName?: string })`
 
+**`ScanForm` interface** (editable state in Step 3):
+
+| Field | Type | Source |
+|---|---|---|
+| `invoiceNo` | string | OCR |
+| `invoiceDate` | string (YYYY-MM-DD) | OCR, normalised |
+| `supplierName` | string | OCR, or `companyName` if sale invoice |
+| `supplierGstin` | string | OCR, or `companyGstin` if sale invoice |
+| `recipientName` | string | OCR, or `companyName` if purchase invoice |
+| `recipientGstin` | string | OCR, or `companyGstin` if purchase invoice |
+| `taxableValue` / `cgst` / `sgst` / `igst` / `totalGst` / `totalAmount` | string (numeric) | OCR |
+| `voucherType` | `'purchase'\|'sales'\|...` | Derived (`isOurSale` → `'sales'`) |
+| `narration` | string | Built from party name + invoice no + HSN |
+| `itcEligible` | boolean | `false` for sales, `true` for purchases |
+| `gstType` | `'intra'\|'inter'\|'unknown'` | Derived from GSTIN state codes |
+| `ourPartyVerified` | boolean | `true` when `companyName` or `companyGstin` were available — drives locked-field UI in Review |
+
 **Key functions:**
 
 | Function | What it does |
@@ -1014,12 +1031,16 @@ State machine hook for the Invoice OCR workflow inside `InvoiceScanModal` (trigg
 | `createDraft()` | Calls `saveDraftVoucher(payload, entries)`. Draft `voucher_number = 'DRAFT-{Date.now()}'` (unique per millisecond). `voucher_date = today`. `ref_document_number = '{invoiceNo} dt {invoiceDate}'`. |
 | `reset()` | Resets state machine to step 1 |
 
-**`ocrToForm(ocr, companyGstin, companyName)` — sale detection logic:**
+**`ocrToForm(ocr, companyGstin, companyName)` — our company auto-correction + sale detection:**
 - `gstinMatch`: `ocr.supplierGstin === companyGstin` (normalised uppercase, spaces stripped)
 - `nameMatch`: `ocr.supplierName.includes(companyName.replace(/pvt.*$/i,'').trim())`
 - `isOurSale = gstinMatch || nameMatch`
 - When `isOurSale`: `voucherType='sales'`, `itcEligible=false`, narration uses recipient name
-- When `isOurSale && companyGstin`: `supplierGstin = companyGstin` (overrides OCR misread with authoritative value)
+- **Our company fields are always filled from master data, not OCR:**
+  - Purchase (`!isOurSale`) → `recipientName = companyName`, `recipientGstin = companyGstin`
+  - Sale (`isOurSale`) → `supplierName = companyName`, `supplierGstin = companyGstin`
+  - Falls back to OCR value only if `companyName`/`companyGstin` are absent
+- Sets `ourPartyVerified = !!(companyName || companyGstin)` — consumed by the Review UI
 
 **`normalizeDate(dateStr)`:** Converts `DD/MM/YYYY` and `DD-MM-YYYY` to `YYYY-MM-DD`. Passes through already-ISO dates unchanged.
 
@@ -1032,6 +1053,13 @@ Modal triggered from `VoucherEntry` via the "Scan Invoice" button.
 **Props:** `{ open, onClose, companyId, companyCode, companyGstin?, companyName?, userId, voucherTypes }`
 
 Consumes `useInvoiceScan({ companyGstin, companyName })`. On `createDraft()` success redirects to `/vouchers/{draftId}/edit`.
+
+**Locked-field UI in Step 3 (Review):**  
+When `form.ourPartyVerified` is `true`, the party fields for *our own company's side* are rendered read-only with a green **🔒 Company Master** badge:
+- Purchase invoice → Recipient Name + Recipient GSTIN are locked
+- Sale invoice → Supplier Name + Supplier GSTIN are locked
+
+This immediately signals to the user which fields are authoritative (from `registry.companies`) and which came from OCR (editable, potentially wrong). The other side's fields remain fully editable.
 
 ---
 

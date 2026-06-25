@@ -83,11 +83,13 @@ function fmtDateTime(iso: string) {
 
 function defaultFilters(): RegisterFilters {
   const today = new Date()
-  const first = new Date(today.getFullYear(), today.getMonth(), 1)
+  // Default to current Indian financial year (Apr 1 – today)
+  const fyYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1
+  const fyStart = new Date(fyYear, 3, 1) // April 1
   return {
     status:   '',
     nature:   '',
-    dateFrom: first.toISOString().slice(0, 10),
+    dateFrom: fyStart.toISOString().slice(0, 10),
     dateTo:   today.toISOString().slice(0, 10),
     search:   '',
   }

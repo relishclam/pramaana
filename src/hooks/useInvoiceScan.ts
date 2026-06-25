@@ -322,7 +322,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       company_id:          companyId,
       voucher_type_id:     voucherTypeId,
       voucher_number:      `DRAFT-${Date.now()}`,
-      voucher_date:        voucherDate,
+      voucher_date:        new Date().toISOString().slice(0, 10), // booking date = today; invoice date in ref_document_number
       narration:           form.narration || null,
       entity_id:           form.entityId,
       amount:              parseFloat(form.totalAmount) || 0,
@@ -332,7 +332,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       cheque_date:         null,
       utr_number:          null,
       cost_centre_id:      null,
-      ref_document_number: form.invoiceNo || null,
+      ref_document_number: form.invoiceNo ? `${form.invoiceNo} dt ${form.invoiceDate || ''}`.trim() : null,
       status:              'draft',
       created_by:          userId,
     }

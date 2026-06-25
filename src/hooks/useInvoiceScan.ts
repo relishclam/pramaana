@@ -104,11 +104,17 @@ function normalizeDate(dateStr: string): string {
   return dateStr
 }
 
-function ocrToForm(ocr: OcrResult, companyGstin = ''): ScanForm {
+function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanForm {
   const hsn = ocr.lineItems[0]?.hsn ?? ''
-  const isOurSale = companyGstin
-    ? ocr.supplierGstin.toUpperCase() === companyGstin.toUpperCase()
+
+  // Detect if WE are the supplier → Sale voucher
+  const gstinMatch = companyGstin
+    ? ocr.supplierGstin.toUpperCase().replace(/\s/g, '') === companyGstin.toUpperCase().replace(/\s/g, '')
     : false
+  const nameMatch = companyName
+    ? ocr.supplierName.toLowerCase().includes(companyName.toLowerCase().replace(/pvt.*$/i, '').trim().toLowerCase())
+    : false
+  const isOurSale = gstinMatch || nameMatch
 
   const partyName = isOurSale ? ocr.recipientName : ocr.supplierName
   const narration = [
@@ -164,7 +170,7 @@ function rerouteGst(form: ScanForm): ScanForm {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useInvoiceScan({ companyGstin = '' }: { companyGstin?: string } = {}) {
+export function useInvoiceScan({ companyGstin = '', companyName = '' }: { companyGstin?: string; companyName?: string } = {}) {
   const [state, setState] = useState<ScanState>(initialState)
 
   // ── Step 1: Select file ───────────────────────────────────────────────────
@@ -256,7 +262,7 @@ export function useInvoiceScan({ companyGstin = '' }: { companyGstin?: string } 
         throw new Error((errBody as { error?: string }).error ?? `OCR failed (${ocrRes.status})`)
       }
       const ocr: OcrResult = await ocrRes.json()
-      setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: ocrToForm(ocr, companyGstin) }))
+      setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: ocrToForm(ocr, companyGstin, companyName) }))
 
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : 'Unexpected error'

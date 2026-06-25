@@ -18,6 +18,7 @@ interface Props {
   companyId:     string
   companyCode:   string
   companyGstin?: string
+  companyName?:  string
   userId:        string
   voucherTypes:  VoucherType[]
 }
@@ -612,9 +613,9 @@ function StepDone({
 // ── Main modal ────────────────────────────────────────────────────────────────
 
 export default function InvoiceScanModal({
-  open, onClose, companyId, userId, companyGstin = '', voucherTypes,
+  open, onClose, companyId, userId, companyGstin = '', companyName = '', voucherTypes,
 }: Props) {
-  const { state, selectFile, startScan, updateField, submitVoucher, reset } = useInvoiceScan({ companyGstin })
+  const { state, selectFile, startScan, updateField, submitVoucher, reset } = useInvoiceScan({ companyGstin, companyName })
   const modalRef = useRef<HTMLDivElement>(null)
 
   // Focus trap + ESC handler

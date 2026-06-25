@@ -368,6 +368,7 @@ export default function VoucherEntry() {
         companyId={companyId}
         companyCode={companyCode}
         companyGstin={user?.activeCompany?.gstin ?? ''}
+        companyName={user?.activeCompany?.name ?? ''}
         userId={userId}
         voucherTypes={voucherTypes}
       />

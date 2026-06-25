@@ -49,7 +49,7 @@ export async function fetchDayBook(
     .from('vouchers')
     .select('id, voucher_number, voucher_date, narration, amount, entity_id, voucher_types(name)')
     .eq('company_id', companyId)
-    .eq('status', 'posted')
+    .in('status', ['approved', 'completed'])
     .gte('voucher_date', from)
     .lte('voucher_date', to)
     .order('voucher_date', { ascending: true })
@@ -148,7 +148,7 @@ export async function fetchLedgerStatement(
   const { data: vouchers, error: vErr } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id, voucher_date, voucher_number, entity_id, voucher_types(name)')
-    .eq('company_id', companyId).eq('status', 'posted')
+    .eq('company_id', companyId).in('status', ['approved', 'completed'])
     .gte('voucher_date', from).lte('voucher_date', to)
     .order('voucher_date', { ascending: true })
     .order('voucher_number', { ascending: true })
@@ -266,7 +266,7 @@ export async function fetchTrialBalance(
   const { data: voucherRows, error: vErr } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id')
-    .eq('company_id', companyId).eq('status', 'posted')
+    .eq('company_id', companyId).in('status', ['approved', 'completed'])
     .lte('voucher_date', toDate)
 
   if (vErr) throw new Error(vErr.message)
@@ -432,7 +432,7 @@ export async function fetchOutstandingLedgers(
   const { data: vs, error: vErr } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id, voucher_date')
-    .eq('company_id', companyId).eq('status', 'posted')
+    .eq('company_id', companyId).in('status', ['approved', 'completed'])
     .lte('voucher_date', asAtDate)
   if (vErr) throw new Error(vErr.message)
 
@@ -507,7 +507,7 @@ export async function fetchGSTVouchers(
   const { data, error } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id, voucher_number, voucher_date, amount, entity_id')
-    .eq('company_id', companyId).eq('status', 'posted')
+    .eq('company_id', companyId).in('status', ['approved', 'completed'])
     .gte('voucher_date', from).lte('voucher_date', to)
     .in('voucher_type_id', typeIds)
     .order('voucher_date', { ascending: true })

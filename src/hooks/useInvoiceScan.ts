@@ -18,24 +18,26 @@ export type { OcrResult, OcrLineItem }
 // ── Form state (editable in Step 3) ──────────────────────────────────────────
 
 export interface ScanForm {
-  invoiceNo:      string
-  invoiceDate:    string
-  supplierName:   string
-  supplierGstin:  string
-  recipientName:  string
-  recipientGstin: string
-  taxableValue:   string
-  cgst:           string
-  sgst:           string
-  igst:           string
-  totalGst:       string
-  totalAmount:    string
+  invoiceNo:        string
+  invoiceDate:      string
+  supplierName:     string
+  supplierGstin:    string
+  recipientName:    string
+  recipientGstin:   string
+  taxableValue:     string
+  cgst:             string
+  sgst:             string
+  igst:             string
+  totalGst:         string
+  totalAmount:      string
   voucherType:    'purchase' | 'sales' | 'journal' | 'payment' | 'receipt'
-  narration:      string
-  itcEligible:    boolean
-  entityId:       string | null
-  hsn:            string
-  gstType:        'intra' | 'inter' | 'unknown'
+  narration:        string
+  itcEligible:      boolean
+  entityId:         string | null
+  hsn:              string
+  gstType:          'intra' | 'inter' | 'unknown'
+  /** true when our own company's name + GSTIN were filled from company master (not OCR) */
+  ourPartyVerified: boolean
 }
 
 // ── Top-level hook state ──────────────────────────────────────────────────────
@@ -78,6 +80,7 @@ function defaultForm(): ScanForm {
     entityId:       null,
     hsn:            '',
     gstType:        'unknown',
+    ourPartyVerified: false,
   }
 }
 
@@ -116,6 +119,9 @@ function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanFor
     : false
   const isOurSale = gstinMatch || nameMatch
 
+  // Whether we can authoritatively fill our own company's party fields
+  const ourPartyVerified = !!(companyName || companyGstin)
+
   const partyName = isOurSale ? ocr.recipientName : ocr.supplierName
   const narration = [
     partyName,
@@ -123,14 +129,20 @@ function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanFor
     hsn ? `HSN ${hsn}` : '',
   ].filter(Boolean).join(' · ')
 
+  // For OUR side of the invoice, replace OCR output with authoritative company master data.
+  // Purchase → WE are the recipient. Sale → WE are the supplier.
+  const ourName  = companyName  || ''
+  const ourGstin = companyGstin || ''
+
   return {
     invoiceNo:      ocr.invoiceNo,
     invoiceDate:    normalizeDate(ocr.invoiceDate),
-    supplierName:   ocr.supplierName,
-    // If WE are the supplier, use the authoritative company GSTIN (OCR often misreads it)
-    supplierGstin:  isOurSale && companyGstin ? companyGstin : ocr.supplierGstin,
-    recipientName:  ocr.recipientName,
-    recipientGstin: ocr.recipientGstin,
+    // Sale: we are the supplier — use master name+GSTIN
+    supplierName:   isOurSale && ourName  ? ourName  : ocr.supplierName,
+    supplierGstin:  isOurSale && ourGstin ? ourGstin : ocr.supplierGstin,
+    // Purchase: we are the recipient — use master name+GSTIN
+    recipientName:  !isOurSale && ourName  ? ourName  : ocr.recipientName,
+    recipientGstin: !isOurSale && ourGstin ? ourGstin : ocr.recipientGstin,
     taxableValue:   String(ocr.taxableValue),
     cgst:           String(ocr.cgst),
     sgst:           String(ocr.sgst),
@@ -143,6 +155,7 @@ function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanFor
     entityId:       null,
     hsn,
     gstType:        ocr.gstType,
+    ourPartyVerified,
   }
 }
 

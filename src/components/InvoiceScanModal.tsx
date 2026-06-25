@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  X, FileText, AlertTriangle, CheckCircle, Download, Loader2, ArrowLeft,
+  X, FileText, AlertTriangle, CheckCircle, Download, Loader2, ArrowLeft, Lock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useInvoiceScan, GSTIN_RE, type ScanForm } from '@/hooks/useInvoiceScan'
@@ -255,6 +255,7 @@ function StepProcessing() {
 function StepReview({
   form, ocrConfidence, fieldConfidences, lineItems,
   voucherTypes, isSubmitting, error,
+  companyName, companyGstin,
   onUpdate, onBack, onSubmit,
 }: {
   form:              ScanForm
@@ -264,6 +265,8 @@ function StepReview({
   voucherTypes:      VoucherType[]
   isSubmitting:      boolean
   error:             string | null
+  companyName?:      string
+  companyGstin?:     string
   onUpdate:          <K extends keyof ScanForm>(key: K, val: ScanForm[K]) => void
   onBack:            () => void
   onSubmit:          () => void
@@ -282,6 +285,10 @@ function StepReview({
 
   const suppGstinOk = !form.supplierGstin  || GSTIN_RE.test(form.supplierGstin)
   const recpGstinOk = !form.recipientGstin || GSTIN_RE.test(form.recipientGstin)
+
+  // Which side is "our company" (locked to master data)?
+  const isOurSale     = form.voucherType === 'sales'
+  const ourSideLocked = form.ourPartyVerified
 
   const confKeys = Object.entries(fieldConfidences)
     .sort(([, a], [, b]) => a - b)
@@ -339,43 +346,103 @@ function StepReview({
             {/* Parties */}
             <div className={styles.card}>
               <p className={styles.cardTitle}>Parties</p>
+
+              {/* Supplier row — locked if it’s our company on a sale invoice */}
               <Field label="Supplier">
-                <input
-                  className={styles.input}
-                  value={form.supplierName}
-                  onChange={e => onUpdate('supplierName', e.target.value)}
-                  aria-label="Supplier name"
-                />
+                {ourSideLocked && isOurSale ? (
+                  <div className={styles.lockedField}>
+                    <input
+                      className={`${styles.input} ${styles.inputLocked}`}
+                      value={form.supplierName}
+                      readOnly
+                      aria-label="Supplier name (company master)"
+                    />
+                    <span className={styles.verifiedBadge}>
+                      <Lock size={10} /> Company Master
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    className={styles.input}
+                    value={form.supplierName}
+                    onChange={e => onUpdate('supplierName', e.target.value)}
+                    aria-label="Supplier name"
+                  />
+                )}
               </Field>
               <Field label="Supplier GSTIN">
-                <input
-                  className={`${styles.input} ${styles.inputMono} ${!suppGstinOk ? styles.inputError : ''}`}
-                  value={form.supplierGstin}
-                  onChange={e => onUpdate('supplierGstin', e.target.value.toUpperCase())}
-                  maxLength={15}
-                  placeholder="22AAAAA0000A1Z5"
-                  aria-label="Supplier GSTIN"
-                  aria-invalid={!suppGstinOk}
-                />
+                {ourSideLocked && isOurSale ? (
+                  <div className={styles.lockedField}>
+                    <input
+                      className={`${styles.input} ${styles.inputMono} ${styles.inputLocked}`}
+                      value={form.supplierGstin}
+                      readOnly
+                      aria-label="Supplier GSTIN (company master)"
+                    />
+                    <span className={styles.verifiedBadge}>
+                      <Lock size={10} /> Company Master
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    className={`${styles.input} ${styles.inputMono} ${!suppGstinOk ? styles.inputError : ''}`}
+                    value={form.supplierGstin}
+                    onChange={e => onUpdate('supplierGstin', e.target.value.toUpperCase())}
+                    maxLength={15}
+                    placeholder="22AAAAA0000A1Z5"
+                    aria-label="Supplier GSTIN"
+                    aria-invalid={!suppGstinOk}
+                  />
+                )}
               </Field>
+
+              {/* Recipient row — locked if it’s our company on a purchase invoice */}
               <Field label="Recipient">
-                <input
-                  className={styles.input}
-                  value={form.recipientName}
-                  onChange={e => onUpdate('recipientName', e.target.value)}
-                  aria-label="Recipient name"
-                />
+                {ourSideLocked && !isOurSale ? (
+                  <div className={styles.lockedField}>
+                    <input
+                      className={`${styles.input} ${styles.inputLocked}`}
+                      value={form.recipientName}
+                      readOnly
+                      aria-label="Recipient name (company master)"
+                    />
+                    <span className={styles.verifiedBadge}>
+                      <Lock size={10} /> Company Master
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    className={styles.input}
+                    value={form.recipientName}
+                    onChange={e => onUpdate('recipientName', e.target.value)}
+                    aria-label="Recipient name"
+                  />
+                )}
               </Field>
               <Field label="Recipient GSTIN">
-                <input
-                  className={`${styles.input} ${styles.inputMono} ${!recpGstinOk ? styles.inputError : ''}`}
-                  value={form.recipientGstin}
-                  onChange={e => onUpdate('recipientGstin', e.target.value.toUpperCase())}
-                  maxLength={15}
-                  placeholder="33AAAAA0000A1Z5"
-                  aria-label="Recipient GSTIN"
-                  aria-invalid={!recpGstinOk}
-                />
+                {ourSideLocked && !isOurSale ? (
+                  <div className={styles.lockedField}>
+                    <input
+                      className={`${styles.input} ${styles.inputMono} ${styles.inputLocked}`}
+                      value={form.recipientGstin}
+                      readOnly
+                      aria-label="Recipient GSTIN (company master)"
+                    />
+                    <span className={styles.verifiedBadge}>
+                      <Lock size={10} /> Company Master
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    className={`${styles.input} ${styles.inputMono} ${!recpGstinOk ? styles.inputError : ''}`}
+                    value={form.recipientGstin}
+                    onChange={e => onUpdate('recipientGstin', e.target.value.toUpperCase())}
+                    maxLength={15}
+                    placeholder="33AAAAA0000A1Z5"
+                    aria-label="Recipient GSTIN"
+                    aria-invalid={!recpGstinOk}
+                  />
+                )}
               </Field>
             </div>
 
@@ -729,6 +796,8 @@ export default function InvoiceScanModal({
             voucherTypes={voucherTypes}
             isSubmitting={isSubmitting}
             error={error}
+            companyName={companyName}
+            companyGstin={companyGstin}
             onUpdate={updateField}
             onBack={handleBack}
             onSubmit={handleSubmit}

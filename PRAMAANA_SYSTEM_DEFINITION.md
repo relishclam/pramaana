@@ -1,7 +1,7 @@
 # Pramaana — System Definition
 **Generated:** 2026-06-19  
-**Last Updated:** 2026-06-19 (commit `698407a` — Phase 3 reports, Voucher Search, Inventory)  
-**Scope:** `pramaana/` repo only — `src/`, `api/`, `supabase/migrations/`  
+**Last Updated:** 2026-06-25 (commit `57ad25f` — Invoice OCR scan module, OTP-gated payment approval, status constraint fixes, sequence-based scan_ref, GSTIN mismatch blocking)  
+**Scope:** `pramaana/` repo only — `src/`, `api/`, `supabase/migrations/`, `supabase/functions/`  
 **Method:** Direct code inspection of all lib files, page components, migrations, App.tsx, AuthContext.tsx, and config files  
 **Not covered:** Relish Suite (`relish-business-suite/` parent repo), ClamFlow backend/frontend (separate repos)
 
@@ -257,7 +257,7 @@ CREATE POLICY vtype_write ON pramaana.voucher_types
 | ref_document_number | TEXT | YES | — | PO number, invoice number cross-ref |
 | ref_document_type | TEXT | YES | — | 'purchase_order','invoice','gst_invoice' |
 | needs_approval | BOOLEAN | YES | FALSE | |
-| status | TEXT | NOT NULL | 'draft' | CHECK IN ('draft','pending_approval','approved','posted','cancelled') |
+| status | TEXT | NOT NULL | 'draft' | CHECK IN ('draft','pending_approval','approved','completed','posted','cancelled','open','rejected','partial','closed') — expanded by migration 025 |
 | is_suspense | BOOLEAN | NOT NULL | FALSE | Added migration 021 |
 | suspense_purpose | TEXT | YES | — | Added migration 021 |
 | suspense_balance | NUMERIC(15,2) | YES | 0 | Added migration 021 |
@@ -269,6 +269,12 @@ CREATE POLICY vtype_write ON pramaana.voucher_types
 | created_by | UUID | YES | — | FK → auth.users(id) |
 | created_at | TIMESTAMPTZ | YES | now() | |
 | updated_at | TIMESTAMPTZ | YES | now() | Updated by trigger `trg_updated_at` |
+| ocr_confidence | NUMERIC(5,2) | YES | — | Added migration 033. Average GPT-4o confidence (0–100) when `source='ocr'`. NULL for manual vouchers. |
+| source | TEXT | YES | 'manual' | Added migration 033. CHECK IN ('manual','ocr'). Index `idx_vouchers_source` on OCR rows. |
+| otp_verified_at | TIMESTAMPTZ | YES | — | Written by `verifyPaymentOtp()` when OTP confirmed. Column existence not in tracked migrations — verify in live DB. |
+| otp_verified_by | UUID | YES | — | FK → auth.users(id). Written by `verifyPaymentOtp()`. |
+| completed_at | TIMESTAMPTZ | YES | — | Written by `verifyPaymentOtp()` when voucher reaches `completed`. |
+| completed_by | UUID | YES | — | FK → auth.users(id). Written by `verifyPaymentOtp()`. |
 
 **UNIQUE:** `(company_id, voucher_number)`
 
@@ -644,6 +650,86 @@ CREATE POLICY audit_log_insert ON pramaana.audit_log
 
 ---
 
+#### `pramaana.inventory_valuations`
+**Pramaana READS + WRITES. Created by migration 030. Admin role only for writes.**
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| company_id | UUID | FK → registry.companies(id) |
+| lot_id | TEXT | Cross-DB reference to ClamFlow `lots.id` — NO FK constraint (cross-DB) |
+| rate_per_kg | NUMERIC(15,4) | Admin-set valuation rate |
+| notes | TEXT | Optional |
+| set_by | UUID | FK → auth.users(id) |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | Updated by trigger |
+
+**UNIQUE:** `(company_id, lot_id)` — UPSERT target.  
+**RLS:** SELECT: any company member. INSERT/UPDATE/DELETE: `role='admin'` in `registry.company_users` only.
+
+---
+
+#### `pramaana.invoice_scans`
+**Written by `supabase/functions/ocr` Supabase Edge Function. Created by migration not tracked in this repo's migrations folder (table exists in live DB). `our_gstin` column added by migration 034.**
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| company_id | UUID | FK → registry.companies(id) |
+| scan_ref | TEXT | UNIQUE. Formatted scan identifier e.g. `RFPL/2627/PUR/20260625-0001` |
+| type | TEXT | `'purchase'` or `'sale'` |
+| invoice_no | TEXT | |
+| invoice_date | DATE | |
+| party_name | TEXT | Supplier (purchase) or recipient (sale) |
+| party_gstin | TEXT | |
+| our_gstin | TEXT | Company GSTIN at scan time. Added migration 034 (IF NOT EXISTS). |
+| taxable_value | NUMERIC | |
+| total_gst | NUMERIC | |
+| cgst / sgst / igst | NUMERIC | |
+| total_amount | NUMERIC | |
+| gst_type | TEXT | `'intra'`, `'inter'`, `'unknown'` |
+| raw_json | JSONB | Full `OcrResult` as returned by GPT-4o |
+| confidence | NUMERIC | GPT-4o overall confidence (0.0–1.0) |
+| storage_path | TEXT | Path in `bill-attachments` bucket |
+| scanned_by | UUID | FK → auth.users(id) |
+| created_at | TIMESTAMPTZ | |
+
+**UNIQUE:** `scan_ref` — HTTP 409 returned on duplicate scan (prevents double-processing same invoice).
+
+---
+
+#### `pramaana.invoice_scan_items`
+**Written by `supabase/functions/ocr`. Line items per scan. Created by same undocumented migration.**
+
+| Column | Type | Notes |
+|---|---|---|
+| id | UUID | PK |
+| scan_id | UUID | FK → pramaana.invoice_scans(id) |
+| company_id | UUID | |
+| line_no | INT | 1-based |
+| description | TEXT | |
+| hsn_sac | TEXT | |
+| quantity | NUMERIC | |
+| unit | TEXT | KG, NOS, etc. |
+| unit_price | NUMERIC | |
+| amount | NUMERIC | |
+
+---
+
+#### `pramaana.scan_sequence_counters`
+**Created by migration 034 (PENDING — not yet applied to production). Used by `pramaana.next_scan_ref()` RPC.**
+
+| Column | Type | Notes |
+|---|---|---|
+| company_id | UUID | NOT NULL. Part of PK. |
+| type_code | TEXT | NOT NULL. CHECK IN ('PUR','SAL'). Part of PK. |
+| fy | INT | NOT NULL. FY start year (e.g. 2026 for FY 26-27). Part of PK. |
+| last_number | INT | NOT NULL DEFAULT 0. Atomically incremented. |
+
+**PK:** `(company_id, type_code, fy)` — one counter row per company per scan type per FY.
+
+---
+
 ### 1.3 Tables in `registry` schema read by Pramaana
 
 Pramaana reads these registry tables. It does NOT write to them.
@@ -750,6 +836,11 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 | 020_voucher_attachments.sql | ✅ Applied | Recreates `pramaana.voucher_attachments` with correct schema (`storage_path`, `file_size`, `mime_type`, `is_deleted`), Storage bucket, storage RLS |
 | 021_suspense_schema_extension.sql | ✅ Applied | Adds `is_suspense`, `suspense_purpose`, `suspense_balance` to vouchers; adds `token`, `expires_at`, `advance_voucher_id` to settlement_sessions; adds `entry_type`, `description`, `head_of_account`, `reference_number`, `invoice_available` to suspense_settlements; `anon` grants + RLS policies |
 | 030_inventory_valuations.sql | ✅ Applied | New table `pramaana.inventory_valuations` — Admin/Super-Admin-set `rate_per_kg` for ClamFlow lots. RLS: any company member can SELECT; only `role='admin'` in `registry.company_users` can INSERT/UPDATE/DELETE. `lot_id` stored as `TEXT` (cross-DB ref, no FK to ClamFlow). `updated_at` trigger. |
+| 025_fix_status_enums_and_payment_columns.sql | ✅ Applied | Fixes three status CHECK constraint mismatches between migration 008 and runtime code. (1) `pramaana.vouchers.status` expanded to include `'completed','open','rejected','partial','closed'`. (2) `pramaana.suspense_settlements.status` changed to `'pending','approved','rejected','open','partial','cleared'`. (3) `pramaana.settlement_sessions.status` adds `'open'` to existing values. All changes use DROP CONSTRAINT IF EXISTS + re-ADD — safe to run on existing DB. |
+| 031_reset_rpc.sql | ✅ Applied | Creates `public.pramaana_reset_company_data(p_company_id UUID)` — SECURITY DEFINER function (super_admin only) that cascades-deletes all company-scoped accounting data while preserving registry rows, system groups, voucher_types, and system cost_centres. Also creates `pramaana.upsert_ledger_group()` and `pramaana.upsert_ledger()` import helpers for CSV/seed data. |
+| 032_grant_pramaana_schema_to_postgrest_roles.sql | ✅ Applied | Grants `USAGE ON SCHEMA pramaana` to `anon`, `authenticated`, `service_role`. Grants `ALL ON ALL TABLES/SEQUENCES/ROUTINES IN SCHEMA pramaana` to `service_role`. Ensures Supabase Edge Functions using service_role key can access pramaana schema. Also grants `SELECT ON pramaana.settlement_sessions` to `authenticated`. |
+| 033_ocr_confidence.sql | ✅ Applied | Adds `ocr_confidence NUMERIC(5,2)` and `source TEXT DEFAULT 'manual' CHECK IN ('manual','ocr')` to `pramaana.vouchers`. Back-fills existing rows with `source='manual'`. Creates index `idx_vouchers_source WHERE source='ocr'`. |
+| 034_scan_ref_sequence.sql | ⏳ **PENDING — not yet applied to production** | Creates `pramaana.scan_sequence_counters` table (PK: company_id + type_code + fy) and `pramaana.next_scan_ref(p_company_id, p_company_code, p_type, p_scan_date)` RPC. Atomically increments counter and returns formatted ref like `RFPL/2627/PUR/20260625-0001`. Also adds `our_gstin TEXT` to `pramaana.invoice_scans` (IF NOT EXISTS). |
 
 ---
 
@@ -844,7 +935,7 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 | `fetchPendingCount` | `(companyId) → number` | pramaana.vouchers | `count: 'exact', head: true` WHERE `status='pending_approval'` |
 | `fetchPendingVouchers` | `(companyId) → PendingVoucher[]` | pramaana.vouchers, pramaana.voucher_types, registry.profiles, registry.entities | SELECT + batch cross-schema fetches |
 | `fetchVoucherFull` | `(voucherId) → VoucherFull` | pramaana.vouchers, pramaana.voucher_entries, pramaana.ledgers, pramaana.ledger_groups, pramaana.approval_actions, registry.profiles, registry.entities, pramaana.cost_centres | 3 parallel SELECTs, then 4 parallel lookups |
-| `approveVoucher` | `(voucherId, companyId, userId, comments) → void` | pramaana.vouchers, pramaana.approval_actions | UPDATE `{status:'posted', posted_at, posted_by}` WHERE `status='pending_approval'`; INSERT approval_action `action='approved'` |
+| `approveVoucher` | `(voucherId, companyId, userId, comments, entityId) → ApproveVoucherResult` | pramaana.vouchers, pramaana.approval_actions, pramaana.otp_sessions, registry.entities | UPDATE `{status:'approved', posted_at, posted_by}` WHERE `status='pending_approval'`; INSERT approval_action `action='approved'`; calls `initiatePaymentOtp()` → OTP SMS sent to payee mobile. Returns `{approved, otp_sent, mobile_masked, otp_reason?}`. **Note:** transitions to `'approved'` NOT `'posted'` — DB balance trigger does NOT fire. |
 | `rejectVoucher` | `(voucherId, companyId, userId, reason) → void` | pramaana.vouchers, pramaana.approval_actions | UPDATE `{status:'draft'}` (returns to draft); INSERT approval_action `action='rejected'` |
 
 ---
@@ -885,6 +976,125 @@ Storage path: `${companyId}/${voucherId}/${Date.now()}_${random}.${ext}`
 
 ---
 
+### `src/lib/otp.ts`
+
+OTP-based payment verification. Called by `approvals.ts` (initiate) and `ApprovalQueue.tsx` (verify).
+
+| Function | Signature | Tables | Operation |
+|---|---|---|---|
+| `initiatePaymentOtp` | `(voucherId, companyId, initiatedBy, entityId) → OtpInitResult` | registry.entities, pramaana.otp_sessions | Fetches entity mobile; cancels existing pending OTP sessions for this voucher; generates 6-digit OTP; calls `POST /api/otp` to bcrypt-hash it; INSERTs `pramaana.otp_sessions` row (10-min expiry); sends SMS via `sendPaymentOtpSms()`. Returns `{sent:true, mobile_masked}` or `{sent:false, reason}`. |
+| `verifyPaymentOtp` | `(voucherId, plainOtp, verifiedBy) → OtpVerifyResult` | pramaana.otp_sessions, pramaana.vouchers | Fetches active pending session; checks attempt limit (max 3); calls `POST /api/otp` to verify OTP against bcrypt hash; on match: marks session `verified`, UPDATEs voucher to `status='completed'` with `otp_verified_at`, `completed_at`. On mismatch: increments `failed_attempts`. |
+
+**`/api/otp` Vercel Edge Function:** Handles both `action:'hash'` (bcrypt hash generation) and `action:'verify'` (bcrypt compare). Uses `VITE_OTP_INTERNAL_SECRET` as anti-abuse header. Plain OTP is NEVER stored — only the bcrypt hash is persisted in `pramaana.otp_sessions`.
+
+**OTP session row:** `{voucher_id, company_id, initiated_by, mobile, otp_hash, expires_at: now+10min, status:'pending', failed_attempts:0}`
+
+**OTP flow:**
+1. `approveVoucher()` → admin approves in UI → voucher: `pending_approval → approved` → OTP sent to payee mobile
+2. Payee receives SMS, reads code to admin
+3. Admin enters code in ApprovalQueue OTP panel → `verifyPaymentOtp()` called
+4. On match → voucher: `approved → completed`
+
+---
+
+### `src/hooks/useInvoiceScan.ts`
+
+State machine hook for the Invoice OCR workflow inside `InvoiceScanModal` (triggered from `VoucherEntry`). Manages 4 steps: Upload → Processing → Review → Done.
+
+**Signature:** `useInvoiceScan({ companyGstin?: string, companyName?: string })`
+
+**Key functions:**
+
+| Function | What it does |
+|---|---|
+| `selectFile(file)` | Validates file (PDF/JPG/PNG, max 5 MB); creates object URL for image preview |
+| `extractFirstPageAsJpeg(file)` | For PDFs: renders page 1 to JPEG at 2× scale via `pdfjs-dist` (3–5× faster OCR). Falls back to raw PDF if PDF.js fails. Returns `{base64, mimeType}`. |
+| `startScan(file)` | Calls PDF→JPEG conversion, then `POST /api/ocr-edge` with base64. Handles `COMPANY_MISMATCH` error (HTTP 4xx with `error:'COMPANY_MISMATCH'`). On success: calls `ocrToForm(ocr, companyGstin, companyName)`. |
+| `updateField(key, value)` | Updates form field; auto-recalculates GST totals when CGST/SGST/IGST/taxable change; auto-routes CGST/SGST vs IGST based on GSTIN state codes. |
+| `createDraft()` | Calls `saveDraftVoucher(payload, entries)`. Draft `voucher_number = 'DRAFT-{Date.now()}'` (unique per millisecond). `voucher_date = today`. `ref_document_number = '{invoiceNo} dt {invoiceDate}'`. |
+| `reset()` | Resets state machine to step 1 |
+
+**`ocrToForm(ocr, companyGstin, companyName)` — sale detection logic:**
+- `gstinMatch`: `ocr.supplierGstin === companyGstin` (normalised uppercase, spaces stripped)
+- `nameMatch`: `ocr.supplierName.includes(companyName.replace(/pvt.*$/i,'').trim())`
+- `isOurSale = gstinMatch || nameMatch`
+- When `isOurSale`: `voucherType='sales'`, `itcEligible=false`, narration uses recipient name
+- When `isOurSale && companyGstin`: `supplierGstin = companyGstin` (overrides OCR misread with authoritative value)
+
+**`normalizeDate(dateStr)`:** Converts `DD/MM/YYYY` and `DD-MM-YYYY` to `YYYY-MM-DD`. Passes through already-ISO dates unchanged.
+
+---
+
+### `src/components/InvoiceScanModal.tsx`
+
+Modal triggered from `VoucherEntry` via the "Scan Invoice" button.
+
+**Props:** `{ open, onClose, companyId, companyCode, companyGstin?, companyName?, userId, voucherTypes }`
+
+Consumes `useInvoiceScan({ companyGstin, companyName })`. On `createDraft()` success redirects to `/vouchers/{draftId}/edit`.
+
+---
+
+### `api/ocr-edge.ts` (Vercel Edge Function)
+
+```typescript
+export const config = { runtime: 'edge' }
+```
+
+- **Endpoint:** `POST /api/ocr-edge` — called by `useInvoiceScan.startScan()`
+- **Auth:** None (same-origin Vercel deployment)
+- **Env var:** `ANTHROPIC_API_KEY` (name is historical; the VALUE is an OpenAI API key)
+- **Calls:** `https://api.openai.com/v1/chat/completions` with `gpt-4o` model and `image_url` content type (base64 JPEG/PNG)
+- **Input:** `{ fileBase64: string, fileType: string }`
+- **Output:** `OcrResult` JSON (or error object)
+- **Does NOT write to DB** — DB writes are done client-side in `createDraft()`
+
+**GSTIN prompt rules (in `EXTRACTION_PROMPT`):**
+- Position 14 is ALWAYS `Z`
+- Read each character individually — do not reconstruct or guess
+- Use `?` for unreadable characters rather than guessing
+- Indian number system: commas as thousands separators (`2,10,000 = 210000`)
+- Returns `invoiceDate` in `YYYY-MM-DD` format
+
+**GST routing:** After extraction, `routeGst(supplierGstin, recipientGstin, totalGst)` splits into CGST/SGST (intra-state) or IGST (inter-state) based on the first 2 digits of each GSTIN (state code).
+
+---
+
+### `supabase/functions/ocr/index.ts` (Supabase Edge Function)
+
+- **Name:** `ocr`
+- **Runtime:** Deno (150 s wall-clock limit)
+- **Invoked via:** `supabase.functions.invoke('ocr', { body: {...} })` from `src/modules/invoice-scan/hooks/useOcr.ts`
+- **Env secrets required:** `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Input:** `{ fileBase64, fileType, invoiceType:'purchase'|'sale', companyId, userId?, storagePath? }`
+
+**Processing sequence:**
+1. Resolves company from `registry.companies` → gets `code`, `gstin`, `name`
+2. Calls OpenAI GPT-4o Vision with `gpt-4o` model
+3. **GSTIN mismatch check:** For `purchase`, checks `recipientGstin === companyGstin`; for `sale`, checks `supplierGstin === companyGstin`. If mismatch → returns HTTP 422 `{ error:'COMPANY_MISMATCH', message, extractedGstin, activeCompanyGstin }`. Frontend (`useOcr.ts`) catches this and shows a specific "Wrong company" error.
+4. Calls `pramaana.next_scan_ref(p_company_id, p_company_code, p_type, p_scan_date)` RPC for sequence-based scan_ref. Falls back to `buildScanRef()` (deterministic string) if RPC fails (migration 034 not yet applied).
+5. INSERTs into `pramaana.invoice_scans` (company_id, scan_ref, type, invoice_no, invoice_date, party_name, party_gstin, our_gstin, taxable_value, total_gst, cgst, sgst, igst, total_amount, gst_type, raw_json, confidence, storage_path, scanned_by)
+6. If insert succeeds and line items exist: INSERTs into `pramaana.invoice_scan_items` (scan_id, company_id, line_no, description, hsn_sac, quantity, unit, unit_price, amount)
+7. Returns `{ ...OcrResult, scanId, scanRef }`. Non-fatal: returns OCR result even if DB write fails.
+
+**scan_ref format (sequence-based):** `{companyCode}/{fyText}/{PUR|SAL}/{YYYYMMDD}-{NNNN}`  
+Example: `RFPL/2627/PUR/20260625-0001`
+
+**scan_ref format (fallback):** `{companyCode}/{fy}/{PUR|SAL}/{YYYYMMDD}-{invoiceNo}-{partyName}`
+
+---
+
+### `src/lib/reports.ts` — ⚠️ CRITICAL BUG
+
+**All report queries filter `.eq('status','posted')`** — but no voucher reaches `'posted'` status in the current approval flow (flow ends at `'completed'`). **All reports return empty data.**
+
+Affected functions: `fetchDayBook`, `fetchLedgerStatement`, `fetchTrialBalance`, `fetchOutstandingLedgers`, `fetchGSTVouchers`, `fetchCashFlow`.
+
+**Root cause:** `approveVoucher` was changed to set `status='approved'` instead of `'posted'`. Reports were not updated.
+
+**Fix required:** Change `.eq('status','posted')` to `.in('status', ['approved','completed'])` across all six functions — OR restructure the approval flow so final state is `'posted'`.
+
+---
 ### `src/lib/sms.ts`
 SMS is fire-and-forget — all public functions never throw. Calls `POST /api/send-sms` (Vercel Edge Function).
 
@@ -1057,8 +1267,22 @@ No role check in the function itself. Gate is the route guard on `/approvals`: a
 | `TWOFACTOR_API_KEY` | Server-side only | Vercel project settings | `api/send-sms.ts` via `process.env` |
 | `TWOFACTOR_WHATSAPP_KEY` | Server-side only | Not yet set (awaiting 2Factor approval) | Future `api/send-whatsapp.ts` |
 | `TWOFACTOR_WHATSAPP_PHONE_ID` | Server-side only | Not yet set (awaiting 2Factor approval) | Future `api/send-whatsapp.ts` |
+| `ANTHROPIC_API_KEY` | Server-side only | Vercel project settings | `api/ocr-edge.ts` via `process.env`. **Name is historical — the VALUE is an OpenAI API key, not Anthropic.** |
 
-`VITE_*` variables are bundled into the client JS by Vite at build time. `TWOFACTOR_API_KEY` has no `VITE_` prefix and is only available in the Vercel Edge Function runtime via `process.env`.
+`VITE_*` variables are bundled into the client JS by Vite at build time. `TWOFACTOR_API_KEY` and `ANTHROPIC_API_KEY` have no `VITE_` prefix and are only available in the Vercel Edge Function runtime via `process.env`.
+
+### 5.1a Supabase Edge Function Secrets
+
+Set via Supabase Dashboard → Edge Functions → Secrets (not in version control):
+
+| Secret | Used by | Notes |
+|---|---|---|
+| `OPENAI_API_KEY` | `supabase/functions/ocr/index.ts` | OpenAI API key for GPT-4o Vision OCR calls |
+| `SUPABASE_URL` | `supabase/functions/ocr/index.ts` | Auto-injected by Supabase runtime — no manual set needed |
+| `SUPABASE_SERVICE_ROLE_KEY` | `supabase/functions/ocr/index.ts` | Auto-injected by Supabase runtime — no manual set needed |
+| `ANTHROPIC_API_KEY` | Not used by any function | Was set as a secret but current `ocr` function uses `OPENAI_API_KEY`. Can be ignored. |
+
+**Note:** The Supabase Edge Function (`supabase/functions/ocr`) must be **redeployed via Supabase Dashboard** whenever `supabase/functions/ocr/index.ts` is changed. There is no Docker/CLI deploy — paste the file contents into the inline editor in the Dashboard.
 
 ### 5.2 SMS Provider
 **2Factor TSMS API**  
@@ -1087,13 +1311,14 @@ Full WhatsApp Business API via 2Factor: onboarding initiated 2026-06-12, credent
 
 | Issue | Location | Priority | Notes |
 |---|---|---|---|
-| `suspense_settlements.status` CHECK constraint mismatch | Migration 008 vs. runtime code | High | Migration 008 defines `status CHECK IN ('open','partial','cleared')`. App code (`suspense.ts`) writes `'pending'`, `'approved'`, `'rejected'`. These values violate the constraint — either the constraint was dropped/amended without a tracked migration, or these writes currently fail. Needs verification against live DB. |
-| `settlement_sessions.status` CHECK constraint mismatch | Migration 008 vs. runtime code | Medium | Migration 008 defines `status CHECK IN ('draft','in_progress','completed','cancelled')`. Code in `createOrRefreshSession` inserts `status:'open'` and the guard in `anon_insert_suspense_settlements` checks `ss.status != 'completed'`. 'open' is not in the CHECK constraint. Needs verification. |
-| `vouchers.status` CHECK constraint does not include suspense statuses | Migration 008 vs. `suspense.ts` | High | `fn_prevent_posted_edit` checks `status IN ('posted','cancelled')` and blocks those. But `approveSuspenseVoucher` sets `status='open'` and `rejectSuspenseVoucher` sets `status='rejected'` — neither 'open' nor 'rejected' is in the CHECK constraint `('draft','pending_approval','approved','posted','cancelled')`. Needs verification. |
+| `suspense_settlements.status` CHECK constraint mismatch | Migration 025 | ✅ **RESOLVED 2026-06-25** | Migration 025 replaced the constraint with `CHECK IN ('pending','approved','rejected','open','partial','cleared')` — aligning with what `suspense.ts` actually writes. |
+| `settlement_sessions.status` CHECK constraint mismatch | Migration 025 | ✅ **RESOLVED 2026-06-25** | Migration 025 added `'open'` to the CHECK constraint: `CHECK IN ('draft','open','in_progress','completed','cancelled')`. |
+| `vouchers.status` CHECK constraint — suspense states missing | Migration 025 | ✅ **RESOLVED 2026-06-25** | Migration 025 expanded the constraint to include `'completed','open','rejected','partial','closed'`. |
 | `src/lib/permissions.ts` absent | `src/lib/` | Low | Referenced as an existing file in RELISH_PLATFORM_MASTER.md §8.3 and §8.4. Not present in the directory. Permission checks are done inline in App.tsx route guards. |
 | `src/lib/whatsapp.ts` absent | `src/lib/` | Low | Referenced as an existing file in RELISH_PLATFORM_MASTER.md §8.3. Not present in the directory. WhatsApp link builder logic is not implemented as a separate module. |
 | `voucher_attachments` defined twice | Migrations 008 + 020 | Documentation | Migration 008 defines the table with `file_url TEXT NOT NULL` (no `storage_path`, no `is_deleted`). Migration 020 uses `CREATE TABLE IF NOT EXISTS` with the correct schema. If 008 ran first, 020's `CREATE TABLE IF NOT EXISTS` is a no-op — the old column set would remain. The app code uses `storage_path`, `is_deleted` etc. Likely the table was dropped manually between migrations, or 020 ran before 008. |
-| `approved` status unused | `pramaana.vouchers` | Low | The CHECK constraint includes `'approved'` but no code path in approvals.ts transitions to it — `approveVoucher` jumps directly `'pending_approval'` → `'posted'`. The intermediate `'approved'` state is schema-only. |
+| `posted` status is unreachable — ALL REPORTS EMPTY | `approvals.ts`, `src/lib/reports.ts` | **CRITICAL** | `approveVoucher` was changed to transition `pending_approval → approved` (NOT `posted`). `verifyPaymentOtp` then transitions `approved → completed`. No code path ever sets `status='posted'`. **Consequence 1:** `fn_validate_voucher_balance` trigger only fires on `→ posted` — Dr/Cr balance is **never validated** in the current flow. **Consequence 2:** All six report functions (DayBook, LedgerStatement, TrialBalance, OutstandingLedgers, GSTVouchers, CashFlow) filter `.eq('status','posted')` — all reports show empty data. Fix: change filter to `.in('status', ['approved','completed'])` or restructure final status. |
+| OTP/completion columns not in tracked migration | `pramaana.vouchers`, `src/lib/otp.ts` | High | `verifyPaymentOtp()` writes `otp_verified_at`, `otp_verified_by`, `completed_at`, `completed_by` to `pramaana.vouchers`. These columns do not appear in any migration file in `supabase/migrations/`. The write error is caught and not rethrown (`// Non-fatal`), so it fails silently if the columns don't exist. Verify in live DB: `SELECT column_name FROM information_schema.columns WHERE table_schema='pramaana' AND table_name='vouchers'`. |
 | Dashboard is a placeholder | `src/App.tsx` `Dashboard()` | Medium | No KPI cards. Returns a simple welcome message with company name and role. |
 | `VoucherEdit.tsx` not end-to-end tested | `src/pages/VoucherEdit.tsx` | Medium | Built, route added, but no confirmed test of save path with a real draft voucher. |
 | Financial reports not built | Phase 3 | ✅ BUILT 2026-06-19 | All core + extended reports now built — see Section 3.2 routes. |
@@ -1233,16 +1458,23 @@ Trigger: `trg_audit_vouchers AFTER INSERT OR UPDATE OR DELETE ON pramaana.vouche
 | `draft` → `pending_approval` | `submitVoucher()` or `submitDraftVoucher()` | `vouchers.ts`, `vouchers-list.ts` | Sets real voucher number via `getNextSequence` |
 | `pending_approval` → `draft` | `recallVoucher()` | `vouchers-list.ts` | `.eq('status','pending_approval')` guard on UPDATE |
 | `pending_approval` → `draft` | `rejectVoucher()` | `approvals.ts` | No status guard on UPDATE (relies on `fn_prevent_posted_edit`) |
-| `pending_approval` → `posted` | `approveVoucher()` | `approvals.ts` | `.eq('status','pending_approval')` guard; DB trigger validates Dr=Cr |
+| `pending_approval` → `approved` | `approveVoucher()` | `approvals.ts` | `.eq('status','pending_approval')` guard; OTP initiated via `initiatePaymentOtp()`; **DB balance trigger NOT fired** (trigger only fires on → `'posted'`) |
+| `approved` → `completed` | `verifyPaymentOtp()` | `otp.ts` | `.eq('status','approved')` guard; OTP bcrypt-verified via `/api/otp`; writes `otp_verified_at`, `otp_verified_by`, `completed_at`, `completed_by` |
 | `draft` → (deleted) | `deleteVoucher()` | `vouchers-list.ts` | `.eq('status','draft')` guard on DELETE |
 | any editable → (edit) | `updateDraftVoucher()` | `vouchers.ts` | DB trigger raises EXCEPTION if `OLD.status IN ('posted','cancelled')` |
 
-**`approved` state is never entered by any code path.** `approveVoucher` transitions directly `pending_approval` → `posted`. The `'approved'` value exists in the CHECK constraint but no function writes it.
+**`approved` state**: Written by `approveVoucher()` (`pending_approval → approved`). This is an intermediate OTP-pending state — the payment has been admin-approved but the payee has not yet confirmed via OTP.
+
+**`completed` state**: Written by `verifyPaymentOtp()` (`approved → completed`). Terminal state for a successfully OTP-verified payment voucher.
+
+**`posted` state is NEVER written** by any current code path. The DB trigger `fn_validate_voucher_balance` fires only on the `→ posted` transition — meaning Dr=Cr balance is **never validated** in the current flow. All six report functions filter `.eq('status','posted')` and return empty data.
 
 **Reversibility:**
 - `draft` → deletable, editable, submittable
-- `pending_approval` → recallable to `draft`; rejectable to `draft`; approvable to `posted`
-- `posted` → **IMMUTABLE**. DB trigger blocks all UPDATE and DELETE. No reversal in Phase 2 (CREATE REVERSAL is Phase 3).
+- `pending_approval` → recallable to `draft`; rejectable to `draft`; approvable to `approved`
+- `approved` → advances to `completed` via OTP verification. `fn_prevent_posted_edit` does NOT block UPDATE on `approved` rows (only blocks `posted` and `cancelled`).
+- `completed` → `fn_prevent_posted_edit` does NOT block UPDATE on `completed` rows. No code modifies completed vouchers, but no DB-level immutability either.
+- `posted` → **IMMUTABLE** (DB trigger). **Never reached in current approval flow.**
 - `cancelled` → **IMMUTABLE**. DB trigger blocks all UPDATE and DELETE.
 
 ---
@@ -1262,7 +1494,36 @@ Suspense vouchers have `voucher_number = 'SUS-DRAFT'` until `approveSuspenseVouc
 
 ---
 
-### 7.3 Sequence Number Generation
+### 7.3 OTP-Gated Payment Approval Flow
+
+Payment vouchers (PYMT, RCPT) go through a two-step approval after being submitted to the queue:
+
+**Step 1 — Admin Approval (in `/approvals` UI):**
+1. Admin reviews voucher in `ApprovalQueue`
+2. Calls `approveVoucher(voucherId, companyId, userId, comments, entityId)`
+3. Voucher: `pending_approval → approved`
+4. `initiatePaymentOtp()` sends a 6-digit OTP via SMS to payee's registered mobile
+5. OTP is bcrypt-hashed; only hash is stored in `pramaana.otp_sessions` (10-min expiry)
+6. UI shows masked mobile (e.g. `******1234`) — admin asks payee to read OTP aloud
+
+**Step 2 — OTP Verification (in `/approvals` OTP panel):**
+1. Admin receives OTP verbally from payee, enters it in the UI
+2. `verifyPaymentOtp(voucherId, plainOtp, verifiedBy)` called
+3. `/api/otp` edge function bcrypt-compares against stored hash
+4. On match: voucher `approved → completed`; writes `otp_verified_at`, `completed_at`
+5. On mismatch: `failed_attempts` incremented; max 3 attempts before session locked
+
+**Security properties:**
+- Plain OTP never stored (bcrypt hash only)
+- OTP expires after 10 minutes
+- Max 3 attempts per session
+- `VITE_OTP_INTERNAL_SECRET` header prevents direct calls to `/api/otp` from outside the Vercel deployment
+
+**⚠️ Gap:** Vouchers that don't need OTP (e.g. journal entries, non-payment vouchers) still go through `approveVoucher` which attempts to initiate OTP. If entity has no mobile, `otp_sent=false` is returned but the voucher is still marked `approved`. It cannot reach `completed` without an OTP flow — no bypass exists in current code.
+
+---
+
+### 7.4 Sequence Number Generation
 
 **Function:** `registry.next_fy_sequence` (defined in `002_registry_schema.sql`)
 

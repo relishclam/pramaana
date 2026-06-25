@@ -30,6 +30,7 @@ import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
 import AdminPanel from '@/pages/AdminPanel'
 import DashboardPage from '@/pages/Dashboard'
+import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
 
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
@@ -56,7 +57,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/vouchers',  label: 'Vouchers',  end: false, badge: 0            },
     { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
     { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount },
+    { to: '/invoices',  label: 'Invoices',  end: false, badge: 0            },
     { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
+  ]
+
+  const INVOICE_SUB_ITEMS = [
+    { to: '/invoices/scan',  label: 'Scan',  end: true  },
+    { to: '/invoices/inbox', label: 'Inbox', end: false },
   ]
 
   const VOUCHER_SUB_ITEMS = [
@@ -99,6 +106,33 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Main nav items */}
         {NAV_ITEMS.map(({ to, label, end, badge }) => {
+          if (to === '/invoices') {
+            return (
+              <div key={to}>
+                <NavLink
+                  to={to}
+                  end={false}
+                  className={({ isActive }) =>
+                    `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
+                  }
+                >
+                  <span>{label}</span>
+                </NavLink>
+                {INVOICE_SUB_ITEMS.map(({ to: s, label: sl, end: se }) => (
+                  <NavLink
+                    key={s}
+                    to={s}
+                    end={se}
+                    className={({ isActive }) =>
+                      `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`
+                    }
+                  >
+                    {sl}
+                  </NavLink>
+                ))}
+              </div>
+            )
+          }
           if (to === '/vouchers') {
             return (
               <div key={to}>
@@ -311,6 +345,38 @@ function AdminGuard() {
   return <AppShell><AdminPanel /></AppShell>
 }
 
+const INVOICE_ROLES = new Set(['admin', 'accounts'])
+
+function InvoiceScanUploadGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && INVOICE_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><ScanUpload /></AppShell>
+}
+
+function InvoiceScanInboxGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && LEDGER_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><ScanInbox /></AppShell>
+}
+
+function InvoiceScanDetailGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && LEDGER_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><ScanDetail /></AppShell>
+}
+
 const REPORT_ROLES = new Set(['admin', 'accounts', 'auditor'])
 
 function ReportGuard({ children }: { children: React.ReactNode }) {
@@ -384,6 +450,10 @@ function AppRoutes() {
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
         <Route path="/inventory"      element={<InventoryGuard />} />
+        <Route path="/invoices/scan"              element={<InvoiceScanUploadGuard />} />
+        <Route path="/invoices/inbox"             element={<InvoiceScanInboxGuard />} />
+        <Route path="/invoices/inbox/:id"         element={<InvoiceScanDetailGuard />} />
+        <Route path="/invoices"                   element={<Navigate to="/invoices/inbox" replace />} />
         <Route path="/admin"          element={<AdminGuard />} />
         <Route path="/reports/day-book"             element={<ReportGuard><DayBook /></ReportGuard>} />
         <Route path="/reports/ledger"               element={<ReportGuard><LedgerStatement /></ReportGuard>} />

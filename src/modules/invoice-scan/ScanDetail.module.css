@@ -1,0 +1,276 @@
+.wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 3rem;
+}
+
+/* ── Back + header ─────────────────────────────────────────────────────────── */
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1.25rem;
+  transition: color 0.1s;
+}
+
+.backBtn:hover { color: var(--text); }
+
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.headingGroup {}
+
+.heading {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.125rem;
+}
+
+.scanRef {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* ── Status badge ──────────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.badgePending  { background: rgba(201,168,76,0.12); color: var(--gold);    }
+.badgeReviewed { background: rgba(74,158,158,0.12); color: var(--teal);    }
+.badgeCreated  { background: rgba(76,175,125,0.12); color: var(--success); }
+.badgeRejected { background: rgba(224,82,82,0.08);  color: var(--error);   }
+
+/* ── Confidence badge ──────────────────────────────────────────────────────── */
+
+.confRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.confLabel {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.confBadge {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  padding: 0.2rem 0.6rem;
+  border-radius: 5px;
+}
+
+.confHigh   { background: rgba(76,175,125,0.12);  color: var(--success); }
+.confMedium { background: rgba(201,168,76,0.12);  color: var(--gold);    }
+.confLow    { background: rgba(224,82,82,0.08);   color: var(--error);   }
+
+/* ── Section cards ─────────────────────────────────────────────────────────── */
+
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+
+.sectionHead {
+  padding: 0.75rem 1.125rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.sectionBody {
+  padding: 1.125rem;
+}
+
+/* ── Field grid ────────────────────────────────────────────────────────────── */
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.fieldItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.fieldLabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.fieldValue {
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.fieldValueMono {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.fieldValueMuted {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+/* ── GST type indicator ────────────────────────────────────────────────────── */
+
+.gstTag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.gstIntra { background: rgba(74,158,158,0.12); color: var(--teal);    }
+.gstInter { background: rgba(201,168,76,0.12); color: var(--gold);    }
+.gstUnk   { background: var(--surface-2);       color: var(--text-muted); }
+
+/* ── Action bar ────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+
+.btnPrimary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.25rem;
+  background: var(--teal);
+  color: #0e1117;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btnPrimary:hover:not(:disabled) { background: var(--teal-dark); color: var(--text); }
+.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnSecondary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.1rem;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+}
+
+.btnSecondary:hover:not(:disabled) { color: var(--text); border-color: var(--border-2); }
+.btnSecondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btnDanger {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.65rem 1.1rem;
+  background: none;
+  color: var(--error);
+  font-size: 0.875rem;
+  border: 1px solid rgba(224,82,82,0.25);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.btnDanger:hover:not(:disabled) { background: rgba(224,82,82,0.08); }
+.btnDanger:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Attachment preview ────────────────────────────────────────────────────── */
+
+.attachLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--teal);
+}
+
+/* ── Loading / error ───────────────────────────────────────────────────────── */
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 4rem 1rem;
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg) } }
+
+.errorBox {
+  padding: 1.5rem;
+  color: var(--error);
+  font-size: 0.875rem;
+}
+
+/* ── Voucher created state ─────────────────────────────────────────────────── */
+
+.voucherLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--teal);
+  font-size: 0.875rem;
+  font-weight: 500;
+}

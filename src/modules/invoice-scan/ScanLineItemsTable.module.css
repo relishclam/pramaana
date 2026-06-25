@@ -1,0 +1,81 @@
+/* ── Editable line items table ─────────────────────────────────────────────── */
+
+.tableWrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-top: 0.25rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+thead {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+th.right { text-align: right; }
+
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+tbody tr:last-child { border-bottom: none; }
+
+td {
+  padding: 0.5rem 0.75rem;
+  vertical-align: middle;
+}
+
+td.right {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+td.muted {
+  color: var(--text-muted);
+}
+
+/* ── Category select ───────────────────────────────────────────────────────── */
+
+.catSelect {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 0.7875rem;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.catSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Empty ─────────────────────────────────────────────────────────────────── */
+
+.empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}

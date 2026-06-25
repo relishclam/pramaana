@@ -1,0 +1,181 @@
+/**
+ * useOcr — calls the Supabase Edge Function `ocr` and returns loading/result state.
+ *
+ * Before calling, the frontend uploads the original file to the bill-attachments
+ * bucket and passes the storagePath here.
+ */
+
+import { useState, useCallback } from 'react'
+import { supabase }              from '@/lib/supabase'
+
+// ── Types (keep in sync with supabase/functions/ocr/index.ts) ─────────────────
+
+export interface OcrLineItem {
+  description: string
+  qty:         string
+  unit:        string
+  rate:        string
+  amount:      string
+  hsn:         string
+}
+
+export interface OcrResult {
+  invoiceNo:        string
+  invoiceDate:      string
+  supplierName:     string
+  supplierGstin:    string
+  recipientName:    string
+  recipientGstin:   string
+  taxableValue:     number
+  totalGst:         number
+  totalAmount:      number
+  cgst:             number
+  sgst:             number
+  igst:             number
+  gstType:          'intra' | 'inter' | 'unknown'
+  supplierState:    string
+  recipientState:   string
+  lineItems:        OcrLineItem[]
+  confidence:       number
+  fieldConfidences: Record<string, number>
+  // DB-written fields returned by the edge function
+  scanId?:  string
+  scanRef?: string
+}
+
+// ── Request params ─────────────────────────────────────────────────────────────
+
+export interface OcrRequest {
+  file:         File
+  invoiceType:  'purchase' | 'sale'
+  companyId:    string
+  companyCode:  string
+  userId:       string
+}
+
+// ── State ──────────────────────────────────────────────────────────────────────
+
+export interface OcrState {
+  loading:     boolean
+  result:      OcrResult | null
+  error:       string | null
+  storagePath: string | null
+}
+
+// ── File → base64 helper ───────────────────────────────────────────────────────
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload  = () => resolve((reader.result as string).split(',')[1] ?? '')
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+// ── Hook ───────────────────────────────────────────────────────────────────────
+
+export function useOcr() {
+  const [state, setState] = useState<OcrState>({
+    loading:     false,
+    result:      null,
+    error:       null,
+    storagePath: null,
+  })
+
+  const runOcr = useCallback(async (req: OcrRequest): Promise<OcrResult | null> => {
+    const { file, invoiceType, companyId, companyCode, userId } = req
+
+    // ── Client-side validation ──────────────────────────────────────────────
+    const MAX_BYTES = 5 * 1024 * 1024
+    if (file.size > MAX_BYTES) {
+      setState(s => ({ ...s, error: 'File exceeds 5 MB. Please compress or use a smaller file.' }))
+      return null
+    }
+    const ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'])
+    if (!ALLOWED.has(file.type)) {
+      setState(s => ({ ...s, error: 'Only PDF, JPG, and PNG files are accepted.' }))
+      return null
+    }
+
+    setState({ loading: true, result: null, error: null, storagePath: null })
+
+    // ── 1. Upload original file to bill-attachments ─────────────────────────
+    const fy       = getFY(new Date().toISOString())
+    const filePath = `${companyCode}/${fy}/${invoiceType}/${Date.now()}-${file.name}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from('bill-attachments')
+      .upload(filePath, file, { upsert: false })
+
+    if (uploadErr) {
+      console.error('Storage upload error:', uploadErr)
+      // Non-fatal — proceed without storage_path
+    }
+
+    // ── 2. Convert to base64 ────────────────────────────────────────────────
+    let fileBase64: string
+    try {
+      fileBase64 = await fileToBase64(file)
+    } catch (err) {
+      setState(s => ({ ...s, loading: false, error: 'Failed to read file.' }))
+      return null
+    }
+
+    // ── 3. Call edge function ───────────────────────────────────────────────
+    const { data, error: fnErr } = await supabase.functions.invoke<OcrResult & { duplicate?: boolean; scanRef?: string }>('ocr', {
+      body: {
+        fileBase64,
+        fileType:    file.type,
+        invoiceType,
+        companyId,
+        userId,
+        storagePath: uploadErr ? null : filePath,
+      },
+    })
+
+    if (fnErr) {
+      const msg = fnErr.message ?? 'OCR failed. Please try again.'
+      setState(s => ({ ...s, loading: false, error: msg }))
+      return null
+    }
+
+    if (!data) {
+      setState(s => ({ ...s, loading: false, error: 'OCR returned no data.' }))
+      return null
+    }
+
+    // ── 4. Handle duplicate invoice ─────────────────────────────────────────
+    // The edge function returns HTTP 409 for duplicate scan_ref
+    // supabase.functions.invoke wraps non-2xx as fnErr, so this path
+    // handles any data-level duplicate flag if the edge fn returns 200 anyway
+    if ((data as { duplicate?: boolean }).duplicate) {
+      setState(s => ({
+        ...s, loading: false,
+        error: `Duplicate invoice — scan ref ${(data as { scanRef?: string }).scanRef ?? ''} already exists.`,
+      }))
+      return null
+    }
+
+    const result = data as OcrResult
+    setState({ loading: false, result, error: null, storagePath: uploadErr ? null : filePath })
+    return result
+
+  }, [])
+
+  const reset = useCallback(() => {
+    setState({ loading: false, result: null, error: null, storagePath: null })
+  }, [])
+
+  return { ...state, runOcr, reset }
+}
+
+// ── FY helper (mirrors edge function) ─────────────────────────────────────────
+
+function getFY(isoDate: string): string {
+  const d     = new Date(isoDate)
+  const month = d.getMonth() + 1
+  const year  = d.getFullYear()
+  const start = month >= 4 ? year : year - 1
+  return `${String(start).slice(2)}${String(start + 1).slice(2)}`
+}

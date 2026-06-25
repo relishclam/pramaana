@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Plus, Trash2, Check, X, Loader2, Search, AlertTriangle, ScanLine } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -52,16 +52,31 @@ function emptyEntry(): VoucherEntryRow {
 export default function VoucherEntry() {
   const { user } = useAuth()
   const navigate  = useNavigate()
+  const location  = useLocation()
   const companyId   = user?.activeCompany?.id   ?? ''
   const companyCode = user?.activeCompany?.code  ?? ''
   const userId      = user?.id                   ?? ''
+
+  // ── fromScan prefill (passed via navigate state from CreateVoucherButton) ─
+  const fromScanState = (location.state as {
+    fromScan?: boolean
+    scanId?:   string
+    prefill?: {
+      voucher_type?: string
+      party_name?:   string | null
+      party_gstin?:  string | null
+      amount?:       number
+      narration?:    string
+      bill_ref?:     string | null
+    }
+  } | null)
 
   // ── Header state ──────────────────────────────────────────────────────────
   const [voucherTypes,  setVoucherTypes]  = useState<VoucherType[]>([])
   const [activeType,    setActiveType]    = useState<VoucherType | null>(null)
   const [voucherDate,   setVoucherDate]   = useState(() => new Date().toISOString().slice(0, 10))
   const [refNumber,     setRefNumber]     = useState('')
-  const [narration,     setNarration]     = useState('')
+  const [narration,     setNarration]     = useState(() => fromScanState?.prefill?.narration ?? '')
   const [paymentMode,   setPaymentMode]   = useState('')
   const [costCentreId,  setCostCentreId]  = useState('')
   const [bankLedgerId,  setBankLedgerId]  = useState('')
@@ -96,10 +111,17 @@ export default function VoucherEntry() {
     fetchVoucherTypes()
       .then(types => {
         setVoucherTypes(types)
-        if (types.length > 0) setActiveType(types.find(t => t.code === 'PYMT') ?? types[0])
+        // When arriving from an invoice scan, pre-select the matching voucher type
+        const scanVoucherType = fromScanState?.prefill?.voucher_type?.toUpperCase()
+        if (scanVoucherType && types.length > 0) {
+          const match = types.find(t => t.code === scanVoucherType) ?? types[0]
+          setActiveType(match)
+        } else if (types.length > 0) {
+          setActiveType(types.find(t => t.code === 'PYMT') ?? types[0])
+        }
       })
       .catch(err => toast.error('Failed to load voucher types: ' + err.message))
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Init: company-specific data — reload when active company changes ─────
   useEffect(() => {
@@ -348,6 +370,25 @@ export default function VoucherEntry() {
         userId={userId}
         voucherTypes={voucherTypes}
       />
+
+      {/* ── fromScan banner ────────────────────────────────────────────── */}
+      {fromScanState?.fromScan && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.625rem',
+          padding: '0.75rem 1rem', marginBottom: '1rem',
+          background: 'rgba(74,158,158,0.08)', border: '1px solid rgba(74,158,158,0.25)',
+          borderRadius: '8px', fontSize: '0.875rem', color: 'var(--teal)',
+        }}>
+          <ScanLine size={15} style={{ flexShrink: 0 }} />
+          <span>
+            Pre-filled from invoice scan.
+            {fromScanState.prefill?.party_name && (
+              <> Party: <strong>{fromScanState.prefill.party_name}</strong>.</>
+            )}
+            {' '}Narration and amount pre-populated — review entries before submitting.
+          </span>
+        </div>
+      )}
 
       {/* ── Type selector — always visible ─────────────────────────────── */}
       <div className={styles.section} style={{ maxWidth: isPayment ? 640 : undefined }}>

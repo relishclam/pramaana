@@ -127,7 +127,8 @@ function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanFor
     invoiceNo:      ocr.invoiceNo,
     invoiceDate:    normalizeDate(ocr.invoiceDate),
     supplierName:   ocr.supplierName,
-    supplierGstin:  ocr.supplierGstin,
+    // If WE are the supplier, use the authoritative company GSTIN (OCR often misreads it)
+    supplierGstin:  isOurSale && companyGstin ? companyGstin : ocr.supplierGstin,
     recipientName:  ocr.recipientName,
     recipientGstin: ocr.recipientGstin,
     taxableValue:   String(ocr.taxableValue),
@@ -320,7 +321,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
     const payload: VoucherPayload = {
       company_id:          companyId,
       voucher_type_id:     voucherTypeId,
-      voucher_number:      'DRAFT',
+      voucher_number:      `DRAFT-${Date.now()}`,
       voucher_date:        voucherDate,
       narration:           form.narration || null,
       entity_id:           form.entityId,

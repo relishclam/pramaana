@@ -114,43 +114,42 @@ export default async function handler(req: Request): Promise<Response> {
 
   const mimeType = (fileType && fileType.startsWith('image/')) ? fileType : 'image/jpeg'
 
-  // ── Call Claude 3.5 Haiku ────────────────────────────────────────────────
-  let claudeRes: Response
+  // ── Call GPT-4o Vision ───────────────────────────────────────────────────
+  let openaiRes: Response
   try {
-    claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+    openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Content-Type':    'application/json',
-        'x-api-key':       apiKey,
-        'anthropic-version': '2023-06-01',
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model:      'claude-sonnet-4-6',
+        model:      'gpt-4o',
         max_tokens: 4096,
         messages: [{
           role: 'user',
           content: [
-            {
-              type:   'image',
-              source: { type: 'base64', media_type: mimeType, data: fileBase64 },
-            },
             { type: 'text', text: EXTRACTION_PROMPT },
+            {
+              type:      'image_url',
+              image_url: { url: `data:${mimeType};base64,${fileBase64}`, detail: 'high' },
+            },
           ],
         }],
       }),
     })
   } catch (err) {
-    return jsonRes({ error: `Failed to reach Anthropic: ${err}` }, 502)
+    return jsonRes({ error: `Failed to reach OpenAI: ${err}` }, 502)
   }
 
-  if (!claudeRes.ok) {
-    const errText = await claudeRes.text().catch(() => '')
-    return jsonRes({ error: `Claude error ${claudeRes.status}: ${errText}` }, 502)
+  if (!openaiRes.ok) {
+    const errText = await openaiRes.text().catch(() => '')
+    return jsonRes({ error: `OpenAI error ${openaiRes.status}: ${errText}` }, 502)
   }
 
-  const claudeData = await claudeRes.json() as Record<string, unknown>
+  const openaiData = await openaiRes.json() as Record<string, unknown>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textContent: string = (claudeData as any)?.content?.[0]?.text ?? ''
+  const textContent: string = (openaiData as any)?.choices?.[0]?.message?.content ?? ''
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let extracted: Record<string, any>

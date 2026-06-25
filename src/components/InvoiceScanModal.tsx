@@ -210,7 +210,7 @@ function StepUpload({
 // ── Step 2: Processing ────────────────────────────────────────────────────────
 
 const STATUS_MSGS = [
-  'Uploading to AWS Textract…',
+  'Uploading to GPT-4o Vision…',
   'Reading invoice fields…',
   'Applying GST routing logic…',
 ]

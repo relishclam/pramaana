@@ -33,11 +33,13 @@ export interface ScanForm {
   voucherType:    'purchase' | 'sales' | 'journal' | 'payment' | 'receipt'
   narration:        string
   itcEligible:      boolean
-  entityId:         string | null
-  hsn:              string
-  gstType:          'intra' | 'inter' | 'unknown'
+  entityId:              string | null
+  hsn:                   string
+  gstType:               'intra' | 'inter' | 'unknown'
   /** true when our own company's name + GSTIN were filled from company master (not OCR) */
-  ourPartyVerified: boolean
+  ourPartyVerified:      boolean
+  /** true when counter-party GSTIN matched an existing entity in registry.entities */
+  counterPartyVerified:  boolean
 }
 
 // ── Top-level hook state ──────────────────────────────────────────────────────
@@ -77,10 +79,11 @@ function defaultForm(): ScanForm {
     voucherType:    'purchase',
     narration:      '',
     itcEligible:    true,
-    entityId:       null,
-    hsn:            '',
-    gstType:        'unknown',
-    ourPartyVerified: false,
+    entityId:             null,
+    hsn:                  '',
+    gstType:              'unknown',
+    ourPartyVerified:     false,
+    counterPartyVerified: false,
   }
 }
 
@@ -152,10 +155,11 @@ function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanFor
     voucherType:    isOurSale ? 'sales' : 'purchase',
     narration,
     itcEligible:    !isOurSale,
-    entityId:       null,
+    entityId:             null,
     hsn,
-    gstType:        ocr.gstType,
+    gstType:              ocr.gstType,
     ourPartyVerified,
+    counterPartyVerified: false,
   }
 }
 
@@ -279,7 +283,35 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
         throw new Error((errBody as { error?: string }).error ?? `OCR failed (${ocrRes.status})`)
       }
       const ocr: OcrResult = await ocrRes.json()
-      setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: ocrToForm(ocr, companyGstin, companyName) }))
+      const initialForm = ocrToForm(ocr, companyGstin, companyName)
+
+      // ── GSTIN entity lookup ────────────────────────────────────────────
+      // After OCR, try to match the counter-party GSTIN against registry.entities.
+      // For a purchase invoice WE are the recipient → supplier is the counter-party.
+      // For a sales invoice WE are the supplier → recipient is the counter-party.
+      const counterGstin = (initialForm.voucherType === 'sales'
+        ? initialForm.recipientGstin
+        : initialForm.supplierGstin
+      ).replace(/\s/g, '').toUpperCase()
+
+      let resolvedForm = initialForm
+      if (counterGstin && GSTIN_RE.test(counterGstin)) {
+        const { data: matched } = await supabase
+          .schema('registry')
+          .from('entities')
+          .select('id, display_name')
+          .ilike('gstin', counterGstin)
+          .maybeSingle()
+        if (matched) {
+          resolvedForm = {
+            ...initialForm,
+            entityId:             matched.id,
+            counterPartyVerified: true,
+          }
+        }
+      }
+
+      setState(s => ({ ...s, step: 3, isProcessing: false, ocrResult: ocr, form: resolvedForm }))
 
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : 'Unexpected error'

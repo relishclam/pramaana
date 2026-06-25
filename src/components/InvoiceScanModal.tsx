@@ -287,8 +287,9 @@ function StepReview({
   const recpGstinOk = !form.recipientGstin || GSTIN_RE.test(form.recipientGstin)
 
   // Which side is "our company" (locked to master data)?
-  const isOurSale     = form.voucherType === 'sales'
-  const ourSideLocked = form.ourPartyVerified
+  const isOurSale          = form.voucherType === 'sales'
+  const ourSideLocked      = form.ourPartyVerified
+  const counterSideMatched = form.counterPartyVerified
 
   const confKeys = Object.entries(fieldConfidences)
     .sort(([, a], [, b]) => a - b)
@@ -383,6 +384,19 @@ function StepReview({
                       <Lock size={10} /> Company Master
                     </span>
                   </div>
+                ) : counterSideMatched && !isOurSale ? (
+                  <div className={styles.lockedField}>
+                    <input
+                      className={`${styles.input} ${styles.inputMono} ${styles.inputLocked}`}
+                      value={form.supplierGstin}
+                      onChange={e => onUpdate('supplierGstin', e.target.value.toUpperCase())}
+                      maxLength={15}
+                      aria-label="Supplier GSTIN (matched from entity master)"
+                    />
+                    <span className={styles.verifiedBadge}>
+                      ✓ Entity Master
+                    </span>
+                  </div>
                 ) : (
                   <input
                     className={`${styles.input} ${styles.inputMono} ${!suppGstinOk ? styles.inputError : ''}`}
@@ -430,6 +444,19 @@ function StepReview({
                     />
                     <span className={styles.verifiedBadge}>
                       <Lock size={10} /> Company Master
+                    </span>
+                  </div>
+                ) : counterSideMatched && isOurSale ? (
+                  <div className={styles.lockedField}>
+                    <input
+                      className={`${styles.input} ${styles.inputMono} ${styles.inputLocked}`}
+                      value={form.recipientGstin}
+                      onChange={e => onUpdate('recipientGstin', e.target.value.toUpperCase())}
+                      maxLength={15}
+                      aria-label="Recipient GSTIN (matched from entity master)"
+                    />
+                    <span className={styles.verifiedBadge}>
+                      ✓ Entity Master
                     </span>
                   </div>
                 ) : (

@@ -260,6 +260,9 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       })
       if (!ocrRes.ok) {
         const errBody = await ocrRes.json().catch(() => ({ error: `OCR failed (${ocrRes.status})` }))
+        if ((errBody as { error?: string }).error === 'COMPANY_MISMATCH') {
+          throw new Error((errBody as { message?: string }).message ?? 'Invoice does not match the active company. Switch company and re-scan.')
+        }
         throw new Error((errBody as { error?: string }).error ?? `OCR failed (${ocrRes.status})`)
       }
       const ocr: OcrResult = await ocrRes.json()

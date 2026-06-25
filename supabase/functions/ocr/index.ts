@@ -263,11 +263,11 @@ serve(async (req) => {
     auth: { persistSession: false },
   })
 
-  // ── Resolve company code ──────────────────────────────────────────────────
+  // ── Resolve company ───────────────────────────────────────────────────────
   const { data: company, error: compErr } = await supabase
     .schema('registry')
     .from('companies')
-    .select('code')
+    .select('code, gstin, name')
     .eq('id', companyId)
     .single()
 
@@ -275,7 +275,9 @@ serve(async (req) => {
     console.error('Company lookup failed:', compErr)
     return json({ error: 'Company not found' }, 400)
   }
-  const companyCode = (company.code as string) ?? 'UNK'
+  const companyCode  = (company.code  as string) ?? 'UNK'
+  const companyGstin = (company.gstin as string | null) ?? null
+  const companyName  = (company.name  as string) ?? ''
 
   // ── Determine media type for OpenAI ───────────────────────────────────────
   // GPT-4o accepts image/* and application/pdf natively
@@ -350,14 +352,43 @@ serve(async (req) => {
 
   const result = parseGptResponse(parsedRaw)
 
-  // ── Build scan_ref ────────────────────────────────────────────────────────
-  const scanRef = buildScanRef(
-    companyCode,
-    invoiceType,
-    result.invoiceDate,
-    result.invoiceNo,
-    result.supplierName || result.recipientName,
-  )
+  // ── GSTIN mismatch check ─────────────────────────────────────────────────
+  // For purchase invoices: our GSTIN should match recipientGstin
+  // For sale invoices: our GSTIN should match supplierGstin
+  if (companyGstin) {
+    const extractedOurGstin = invoiceType === 'sale'
+      ? result.supplierGstin?.trim().toUpperCase()
+      : result.recipientGstin?.trim().toUpperCase()
+    const knownGstin = companyGstin.trim().toUpperCase()
+    if (extractedOurGstin && extractedOurGstin !== knownGstin) {
+      console.warn(`GSTIN mismatch: extracted=${extractedOurGstin} known=${knownGstin}`)
+      return json({
+        error:              'COMPANY_MISMATCH',
+        message:            `Invoice GSTIN ${extractedOurGstin} does not match active company ${companyName} (${knownGstin}). Switch company and re-scan.`,
+        extractedGstin:     extractedOurGstin,
+        activeCompanyGstin: knownGstin,
+      }, 422)
+    }
+  }
+
+  // ── Build scan_ref via sequence RPC ──────────────────────────────────────
+  let scanRef: string
+  try {
+    const { data: seqRef, error: seqErr } = await supabase
+      .schema('pramaana')
+      .rpc('next_scan_ref', {
+        p_company_id:   companyId,
+        p_company_code: companyCode,
+        p_type:         invoiceType,
+        p_scan_date:    new Date().toISOString().slice(0, 10),
+      })
+    if (seqErr || !seqRef) throw seqErr
+    scanRef = seqRef as string
+  } catch (seqErr) {
+    // Fallback to timestamp-based ref if RPC fails (e.g. migration not yet applied)
+    console.warn('next_scan_ref RPC failed, using fallback:', seqErr)
+    scanRef = buildScanRef(companyCode, invoiceType, result.invoiceDate, result.invoiceNo, result.supplierName || result.recipientName)
+  }
 
   // ── Write to DB ───────────────────────────────────────────────────────────
   try {
@@ -372,7 +403,7 @@ serve(async (req) => {
         invoice_date:  result.invoiceDate || null,
         party_name:    result.supplierName || result.recipientName || null,
         party_gstin:   result.supplierGstin  || null,
-        our_gstin:     result.recipientGstin || null,
+        our_gstin:     companyGstin || result.recipientGstin || null,
         taxable_value: result.taxableValue,
         total_gst:     result.totalGst,
         cgst:          result.cgst,

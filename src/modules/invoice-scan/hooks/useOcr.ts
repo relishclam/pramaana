@@ -135,6 +135,13 @@ export function useOcr() {
     })
 
     if (fnErr) {
+      // Parse the error body — supabase.functions.invoke puts it in fnErr.context
+      // deno-lint-ignore no-explicit-any
+      const errBody = (fnErr as any)?.context ?? {}
+      if (errBody?.error === 'COMPANY_MISMATCH') {
+        setState(s => ({ ...s, loading: false, error: `Wrong company: ${errBody.message}` }))
+        return null
+      }
       const msg = fnErr.message ?? 'OCR failed. Please try again.'
       setState(s => ({ ...s, loading: false, error: msg }))
       return null

@@ -86,7 +86,24 @@ serve(async (req: Request) => {
       return json({ error: inviteErr.message }, 400)
     }
 
-    return json({ success: true, userId: data.user?.id ?? null })
+    const userId = data.user?.id
+    if (userId) {
+      // ── 4. Bootstrap a profile row so the user can log in ──────────────────
+      // ON CONFLICT DO NOTHING — safe to call even if profile already exists.
+      const { error: profileErr } = await admin
+        .schema('registry')
+        .from('profiles')
+        .upsert(
+          { id: userId, email, is_active: true, is_super_admin: false },
+          { onConflict: 'id', ignoreDuplicates: true },
+        )
+      if (profileErr) {
+        // Non-fatal: invite was sent. Log and continue.
+        console.error('invite-user: profile upsert failed:', profileErr.message)
+      }
+    }
+
+    return json({ success: true, userId: userId ?? null })
 
   } catch (err: unknown) {
     return json({ error: err instanceof Error ? err.message : 'Unexpected error' }, 500)

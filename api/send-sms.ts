@@ -18,6 +18,22 @@ export const config = { runtime: 'edge' }
 const SENDER_ID = 'RELISH'
 const API_BASE  = 'https://2factor.in/API/V1'
 
+function env(name: string): string | undefined {
+  // Works in Vercel edge + local dev shims
+  const procEnv = typeof process !== 'undefined' ? process.env?.[name] : undefined
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const globalEnv = (globalThis as any)?.process?.env?.[name] as string | undefined
+  return procEnv ?? globalEnv
+}
+
+function normalizeIndianMobile(input: string): string | null {
+  const digits = input.replace(/\D/g, '')
+  if (digits.length === 10) return digits
+  if (digits.length === 11 && digits.startsWith('0')) return digits.slice(1)
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2)
+  return null
+}
+
 // Exact names as registered in Vilpower DLT — do not change spacing/casing
 const TEMPLATE_NAMES: Record<string, string> = {
   'settlement-link':   'Pramaana-Settlement-Link',
@@ -65,19 +81,34 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  // process.env is available in Vercel Edge runtime
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apiKey = (globalThis as any).process?.env?.TWOFACTOR_API_KEY as string | undefined
+  const apiKey =
+    env('TWOFACTOR_API_KEY') ??
+    env('TWO_FACTOR_API_KEY') ??
+    env('SMS_API_KEY')
+
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'SMS not configured' }), {
+    return new Response(JSON.stringify({ error: 'SMS not configured (missing TWOFACTOR_API_KEY)' }), {
       status: 500, headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  const templateName = TEMPLATE_NAMES[template]
+  const otpTemplateFromEnv = env('TWOFACTOR_TEMPLATE_NAME')
+  const templateName =
+    template === 'payment-otp' && otpTemplateFromEnv
+      ? otpTemplateFromEnv
+      : TEMPLATE_NAMES[template]
+
   if (!templateName) {
     return new Response(JSON.stringify({ error: `Unknown template: ${template}` }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  const normalizedMobile = normalizeIndianMobile(mobile)
+  if (!normalizedMobile) {
+    return new Response(JSON.stringify({ error: 'Invalid mobile number format' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
     })
   }
 
@@ -89,7 +120,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const params = new URLSearchParams({
     From:         SENDER_ID,
-    To:           mobile,
+    To:           normalizedMobile,
     TemplateName: templateName,
     VAR1:         finalVars[0] ?? '',
     VAR2:         finalVars[1] ?? '',

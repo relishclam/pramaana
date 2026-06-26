@@ -140,8 +140,6 @@ export async function fetchSuspenseVouchers(
     .order('created_at',   { ascending: false })
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)  // fetch +1 for hasMore
 
-  if (role === 'accounts') q = q.eq('created_by', userId)
-
   const { data, error } = await q
   if (error) throw new Error('Failed to load suspense vouchers: ' + error.message)
 

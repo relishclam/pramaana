@@ -110,6 +110,9 @@ function StatusBadge({ status }: { status: string }) {
       )
     case 'posted':
       return <span className={`${styles.badge} ${styles.badgePosted}`}>Posted</span>
+    case 'completed':
+    case 'approved':
+      return <span className={`${styles.badge} ${styles.badgePosted}`}>Posted</span>
     case 'cancelled':
       return <span className={`${styles.badge} ${styles.badgeCancelled}`}>Cancelled</span>
     default:

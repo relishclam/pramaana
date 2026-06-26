@@ -85,8 +85,13 @@ export async function fetchVouchers(
     .order('created_at',   { ascending: false })
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) // +1 to detect hasMore
 
-  if (role === 'accounts')   q = q.eq('created_by', userId)
-  if (filters.status)        q = q.eq('status', filters.status)
+  // Imported vouchers are system-seeded and may be created by a designated admin user.
+  // Accounts users must still be able to see all company vouchers.
+  if (filters.status === 'posted') {
+    q = q.in('status', ['posted', 'completed', 'approved'])
+  } else if (filters.status) {
+    q = q.eq('status', filters.status)
+  }
   if (typeIds)               q = q.in('voucher_type_id', typeIds)
 
   if (filters.search) {

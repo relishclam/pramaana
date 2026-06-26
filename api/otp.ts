@@ -14,17 +14,50 @@
  *   OTP correctness is still enforced by the pramaana.otp_sessions lookup
  *   and voucher state transitions in the app/database layer.
  *
- * Why bcryptjs (not bcrypt):
- *   The Vercel Edge Runtime is a V8 isolate — it cannot load native
- *   Node addons. bcrypt requires a native addon. bcryptjs is pure JS
- *   and works in any JS runtime including the Edge Runtime.
+ * Implementation note:
+ *   This endpoint uses Web Crypto instead of bcrypt to stay fully
+ *   compatible with the Vercel Edge runtime. The stored value is a
+ *   salted SHA-256 string in the format `salt:hash`.
  */
-
-import bcrypt from 'bcryptjs'
 
 export const config = { runtime: 'edge' }
 
-const SALT_ROUNDS = 10
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  }
+  return out
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input)
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return bytesToHex(new Uint8Array(digest))
+}
+
+async function hashOtp(otp: string): Promise<string> {
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16))
+  const salt = bytesToHex(saltBytes)
+  const hash = await sha256Hex(`${salt}:${otp}`)
+  return `${salt}:${hash}`
+}
+
+async function verifyOtp(otp: string, stored: string): Promise<boolean> {
+  const [salt, existingHash] = stored.split(':')
+  if (!salt || !existingHash) return false
+  const computed = await sha256Hex(`${salt}:${otp}`)
+  const a = hexToBytes(existingHash)
+  const b = hexToBytes(computed)
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i]
+  return diff === 0
+}
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -53,7 +86,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   // ── Hash ──────────────────────────────────────────────────────────────────
   if (action === 'hash') {
-    const hashed = await bcrypt.hash(otp, SALT_ROUNDS)
+    const hashed = await hashOtp(otp)
     return new Response(JSON.stringify({ hash: hashed }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -68,7 +101,7 @@ export default async function handler(req: Request): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       })
     }
-    const match = await bcrypt.compare(otp, hash)
+    const match = await verifyOtp(otp, hash)
     return new Response(JSON.stringify({ match }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

@@ -14,6 +14,8 @@ export type SmsResult =
   | { sent: true;  dryRun?: boolean }
   | { sent: false; reason: string }
 
+const API_TIMEOUT_MS = 15000
+
 // ── Core caller ───────────────────────────────────────────────────────────────
 
 async function callApi(
@@ -22,17 +24,24 @@ async function callApi(
   vars:     string[],
 ): Promise<SmsResult> {
   try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
     const res = await fetch('/api/send-sms', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ template, mobile, vars }),
+      signal:  ctrl.signal,
     })
+    clearTimeout(timer)
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string }
       return { sent: false, reason: err.error ?? `HTTP ${res.status}` }
     }
     return { sent: true }
   } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      return { sent: false, reason: 'SMS request timed out' }
+    }
     console.warn('[sms] send failed:', e)
     return { sent: false, reason: e instanceof Error ? e.message : 'error' }
   }

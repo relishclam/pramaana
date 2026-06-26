@@ -18,6 +18,8 @@ export const config = { runtime: 'edge' }
 const SENDER_ID = 'RELISH'
 const API_BASE  = 'https://2factor.in/API/V1'
 
+const PROVIDER_TIMEOUT_MS = 12000
+
 function env(name: string): string | undefined {
   // Works in Vercel edge + local dev shims
   const procEnv = typeof process !== 'undefined' ? process.env?.[name] : undefined
@@ -32,6 +34,23 @@ function normalizeIndianMobile(input: string): string | null {
   if (digits.length === 11 && digits.startsWith('0')) return digits.slice(1)
   if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2)
   return null
+}
+
+function timeoutSignal(ms: number): AbortSignal {
+  const ctrl = new AbortController()
+  setTimeout(() => ctrl.abort(), ms)
+  return ctrl.signal
+}
+
+async function parse2FactorResponse(res: Response): Promise<{ Status?: string; Details?: string }> {
+  const text = await res.text()
+  if (!text) return { Status: 'Error', Details: `HTTP ${res.status}` }
+  try {
+    const data = JSON.parse(text) as { Status?: string; Details?: string }
+    return data
+  } catch {
+    return { Status: res.ok ? 'Success' : 'Error', Details: text }
+  }
 }
 
 // Exact names as registered in Vilpower DLT — do not change spacing/casing
@@ -120,12 +139,21 @@ export default async function handler(req: Request): Promise<Response> {
     const otp = (vars as string[])[0] ?? ''
     const otpUrl = `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/${encodeURIComponent(otp)}/${encodeURIComponent(templateName)}`
 
-    const tfRes = await fetch(otpUrl, { method: 'GET' })
-    const data = await tfRes.json() as { Status: string; Details: string }
+    let tfRes: Response
+    try {
+      tfRes = await fetch(otpUrl, { method: 'GET', signal: timeoutSignal(PROVIDER_TIMEOUT_MS) })
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : 'timeout'
+      return new Response(JSON.stringify({ error: `2Factor OTP request failed: ${reason}` }), {
+        status: 504, headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
-    if (data.Status !== 'Success') {
+    const data = await parse2FactorResponse(tfRes) as { Status?: string; Details?: string }
+
+    if (!tfRes.ok || data.Status !== 'Success') {
       console.error('2Factor OTP API error:', data)
-      return new Response(JSON.stringify({ error: data.Details }), {
+      return new Response(JSON.stringify({ error: data.Details ?? `HTTP ${tfRes.status}` }), {
         status: 502, headers: { 'Content-Type': 'application/json' },
       })
     }
@@ -153,14 +181,14 @@ export default async function handler(req: Request): Promise<Response> {
 
   const tfRes = await fetch(
     `${API_BASE}/${apiKey}/ADDON_SERVICES/SEND/TSMS`,
-    { method: 'POST', body: params },
+    { method: 'POST', body: params, signal: timeoutSignal(PROVIDER_TIMEOUT_MS) },
   )
 
-  const data = await tfRes.json() as { Status: string; Details: string }
+  const data = await parse2FactorResponse(tfRes) as { Status?: string; Details?: string }
 
-  if (data.Status !== 'Success') {
+  if (!tfRes.ok || data.Status !== 'Success') {
     console.error('2Factor TSMS error:', data)
-    return new Response(JSON.stringify({ error: data.Details }), {
+    return new Response(JSON.stringify({ error: data.Details ?? `HTTP ${tfRes.status}` }), {
       status: 502, headers: { 'Content-Type': 'application/json' },
     })
   }

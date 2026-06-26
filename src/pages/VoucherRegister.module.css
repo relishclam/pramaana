@@ -807,6 +807,128 @@
   flex: 1;
 }
 
+/* ── OTP persistent panel (approved vouchers) ───────────────────────────── */
+
+.otpInlineWrap {
+  width: 100%;
+}
+
+.otpPanel {
+  width: 100%;
+  border: 1px solid rgba(45, 149, 150, 0.35);
+  background: rgba(45, 149, 150, 0.08);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.otpHeader {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.otpTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.otpSub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.otpInputRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.otpDigit {
+  width: 2rem;
+  height: 2.1rem;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.otpDigit:focus {
+  outline: none;
+  border-color: var(--teal);
+}
+
+.otpDigitError {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.otpVerifyBtn {
+  margin-left: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--teal);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.otpVerifyBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.otpError {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #ef4444;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.otpFooter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.otpResendBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.otpResendBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.otpAttemptsNote {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
 /* ── Shared utilities ────────────────────────────────────────────────────── */
 
 .spin {

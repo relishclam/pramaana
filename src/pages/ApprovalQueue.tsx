@@ -55,6 +55,14 @@ function fmtDateTime(iso: string) {
   })
 }
 
+function maskMobile(mobile: string | null | undefined): string | null {
+  if (!mobile) return null
+  const digits = mobile.replace(/\D/g, '')
+  if (digits.length < 4) return '****'
+  const masked = digits.slice(0, -4).replace(/\d/g, '*')
+  return masked + digits.slice(-4)
+}
+
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 function EmptyState() {
@@ -78,6 +86,7 @@ function VoucherRow({
   onClick: () => void
 }) {
   const color = NATURE_COLOR[voucher.voucher_type.nature] ?? 'var(--text-muted)'
+  const isOtpPending = voucher.status === 'approved'
   return (
     <tr
       className={`${styles.row} ${selected ? styles.rowSelected : ''}`}
@@ -98,7 +107,9 @@ function VoucherRow({
       </td>
       <td className={styles.amountCell}>{formatIndianCurrency(voucher.amount)}</td>
       <td>{voucher.created_by_name}</td>
-      <td className={styles.dim}>{fmtDateTime(voucher.created_at)}</td>
+      <td className={styles.dim}>
+        {isOtpPending ? 'Approved (OTP pending)' : fmtDateTime(voucher.created_at)}
+      </td>
       <td>
         <ChevronRight
           size={14}
@@ -487,8 +498,8 @@ function DetailPanel({
     setRejectReason('')
     setRejectError('')
     setShowRejectForm(false)
-    setOtpPending(false)
-    setOtpMasked(null)
+    setOtpPending(voucher?.status === 'approved')
+    setOtpMasked(voucher?.status === 'approved' ? maskMobile(voucher?.entity_mobile) : null)
     setAttachments([])
     setLightboxUrl(null)
     if (!voucher?.id) return
@@ -497,7 +508,7 @@ function DetailPanel({
       .then(setAttachments)
       .catch(() => { /* silently ignore */ })
       .finally(() => setAttachLoading(false))
-  }, [voucher?.id])
+  }, [voucher?.id, voucher?.status, voucher?.entity_mobile])
 
   const handleApprove = async () => {
     if (!voucher) return
@@ -739,7 +750,7 @@ function DetailPanel({
       </div>
 
       {/* OTP panel — shown after approve, before verification */}
-      {otpPending && voucher && (
+      {(otpPending || voucher?.status === 'approved') && voucher && (
         <div className={styles.panelFooter}>
           <OtpPanel
             voucherId={voucher.id}
@@ -753,7 +764,7 @@ function DetailPanel({
       )}
 
       {/* Footer — approve / reject actions (admin + super_admin only) */}
-      {canApprove && voucher && !loading && !otpPending && (
+      {canApprove && voucher && !loading && voucher.status === 'pending_approval' && !otpPending && (
         <div className={styles.panelFooter}>
           {showRejectForm ? (
             <div className={styles.rejectForm}>
@@ -910,8 +921,8 @@ export default function ApprovalQueue() {
         {!loading && (
           <p className={styles.pageSubtitle}>
             {vouchers.length === 0
-              ? 'All vouchers reviewed'
-              : `${vouchers.length} voucher${vouchers.length !== 1 ? 's' : ''} pending`}
+              ? 'No vouchers awaiting action'
+              : `${vouchers.length} voucher${vouchers.length !== 1 ? 's' : ''} awaiting approval / OTP`}
           </p>
         )}
       </div>

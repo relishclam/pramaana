@@ -59,7 +59,7 @@ export async function fetchPendingCount(companyId: string): Promise<number> {
     .from('vouchers')
     .select('id', { count: 'exact', head: true })
     .eq('company_id', companyId)
-    .eq('status', 'pending_approval')
+    .in('status', ['pending_approval', 'approved'])
   if (error) return 0
   return count ?? 0
 }
@@ -85,7 +85,7 @@ export async function fetchPendingVouchers(companyId: string): Promise<PendingVo
     .from('vouchers')
     .select('id, voucher_number, voucher_date, amount, status, narration, created_at, entity_id, created_by, voucher_type:voucher_types(id, code, name, nature)')
     .eq('company_id', companyId)
-    .eq('status', 'pending_approval')
+    .in('status', ['pending_approval', 'approved'])
     .order('created_at', { ascending: false })
 
   if (error) throw new Error('Failed to load pending vouchers: ' + error.message)

@@ -28,6 +28,7 @@ import {
   formatFileSize,
   type AttachmentWithUrl,
 } from '@/lib/attachments'
+import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './VoucherRegister.module.css'
 
@@ -67,6 +68,9 @@ const NATURE_PILLS = [
   { label: 'Sales',    value: 'sales' },
 ]
 
+const OTP_LENGTH = 6
+const OTP_RESEND_COOLDOWN_SECONDS = 60
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string) {
@@ -79,6 +83,13 @@ function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-IN', {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   })
+}
+
+function maskMobile(mobile?: string | null): string | null {
+  if (!mobile) return null
+  const digits = mobile.replace(/\D/g, '')
+  if (digits.length < 4) return '****'
+  return `${'*'.repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`
 }
 
 function defaultFilters(): RegisterFilters {
@@ -282,6 +293,212 @@ function HistoryTimeline({
   )
 }
 
+// ── OTP panel (persistent for approved vouchers) ────────────────────────────
+
+interface PersistentOtpPanelProps {
+  voucherId: string
+  companyId: string
+  userId: string
+  entityId: string | null
+  mobileMasked: string | null
+  onVerified: () => void
+}
+
+function PersistentOtpPanel({
+  voucherId,
+  companyId,
+  userId,
+  entityId,
+  mobileMasked,
+  onVerified,
+}: PersistentOtpPanelProps) {
+  const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
+  const [verifying, setVerifying] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [otpError, setOtpError] = useState<string | null>(null)
+  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
+  const [cooldown, setCooldown] = useState(0)
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const startCooldown = useCallback(() => {
+    if (cooldownRef.current) clearInterval(cooldownRef.current)
+    setCooldown(OTP_RESEND_COOLDOWN_SECONDS)
+    cooldownRef.current = setInterval(() => {
+      setCooldown((c) => {
+        if (c <= 1) {
+          if (cooldownRef.current) clearInterval(cooldownRef.current)
+          return 0
+        }
+        return c - 1
+      })
+    }, 1000)
+  }, [])
+
+  useEffect(() => {
+    inputRefs.current[0]?.focus()
+    startCooldown()
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current)
+    }
+  }, [startCooldown])
+
+  const handleDigitChange = (index: number, value: string) => {
+    const digit = value.replace(/\D/g, '').slice(-1)
+    const next = [...digits]
+    next[index] = digit
+    setDigits(next)
+    setOtpError(null)
+    if (digit && index < OTP_LENGTH - 1) inputRefs.current[index + 1]?.focus()
+  }
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !digits[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus()
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH)
+    if (!pasted) return
+    e.preventDefault()
+    const next = Array(OTP_LENGTH).fill('')
+    pasted.split('').forEach((d, i) => {
+      next[i] = d
+    })
+    setDigits(next)
+    setOtpError(null)
+    const focusIdx = Math.min(pasted.length, OTP_LENGTH - 1)
+    inputRefs.current[focusIdx]?.focus()
+  }
+
+  const handleVerify = async () => {
+    const code = digits.join('')
+    if (code.length < OTP_LENGTH) {
+      setOtpError('Enter all 6 digits')
+      return
+    }
+
+    setVerifying(true)
+    setOtpError(null)
+    try {
+      const result = await verifyPaymentOtp(voucherId, code, userId)
+      if (result.verified) {
+        toast.success('OTP verified — voucher completed')
+        onVerified()
+      } else if (result.error === 'invalid_otp') {
+        const left = result.attempts_left ?? 0
+        setAttemptsLeft(left)
+        setOtpError(
+          left === 0
+            ? 'Incorrect OTP. No attempts remaining.'
+            : `Incorrect OTP. ${left} attempt${left === 1 ? '' : 's'} remaining.`
+        )
+        setDigits(Array(OTP_LENGTH).fill(''))
+        inputRefs.current[0]?.focus()
+      } else if (result.error === 'max_attempts') {
+        setAttemptsLeft(0)
+        setOtpError('OTP locked after 3 failed attempts. Please resend OTP.')
+      } else {
+        setOtpError('OTP expired or not found. Please resend OTP.')
+      }
+    } catch (err: unknown) {
+      setOtpError(err instanceof Error ? err.message : 'OTP verification failed')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const handleResend = async () => {
+    if (cooldown > 0 || resending) return
+    setResending(true)
+    setOtpError(null)
+    setDigits(Array(OTP_LENGTH).fill(''))
+    setAttemptsLeft(null)
+    try {
+      const result = await initiatePaymentOtp(voucherId, companyId, userId, entityId)
+      if (result.sent) {
+        toast.success(`OTP resent to ${result.mobile_masked}`)
+        startCooldown()
+        inputRefs.current[0]?.focus()
+      } else {
+        const reason = 'reason' in result ? result.reason : 'unknown'
+        toast.error(`Could not resend OTP: ${reason}`)
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Resend failed')
+    } finally {
+      setResending(false)
+    }
+  }
+
+  return (
+    <div className={styles.otpPanel}>
+      <div className={styles.otpHeader}>
+        <div>
+          <div className={styles.otpTitle}>Payee OTP Verification Required</div>
+          {mobileMasked && (
+            <div className={styles.otpSub}>OTP will be sent to <strong>+91 {mobileMasked}</strong></div>
+          )}
+          <div className={styles.otpSub}>Resend and verify until OTP is successfully entered.</div>
+        </div>
+      </div>
+
+      <div className={styles.otpInputRow} onPaste={handlePaste}>
+        {digits.map((d, i) => (
+          <input
+            key={i}
+            ref={(el) => { inputRefs.current[i] = el }}
+            type="text"
+            inputMode="numeric"
+            maxLength={2}
+            value={d}
+            onChange={(e) => handleDigitChange(i, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(i, e)}
+            className={`${styles.otpDigit} ${otpError ? styles.otpDigitError : ''}`}
+            autoComplete="one-time-code"
+          />
+        ))}
+        <button
+          type="button"
+          className={styles.otpVerifyBtn}
+          onClick={handleVerify}
+          disabled={verifying || digits.join('').length < OTP_LENGTH}
+        >
+          {verifying ? <Loader2 size={13} className={styles.spin} /> : <CheckCircle size={13} />}
+          Verify
+        </button>
+      </div>
+
+      {otpError && (
+        <p className={styles.otpError}>
+          <AlertCircle size={12} /> {otpError}
+        </p>
+      )}
+
+      <div className={styles.otpFooter}>
+        <button
+          type="button"
+          className={styles.otpResendBtn}
+          onClick={handleResend}
+          disabled={cooldown > 0 || resending}
+        >
+          {resending ? <Loader2 size={12} className={styles.spin} /> : <RotateCcw size={12} />}
+          {cooldown > 0 ? `Resend OTP (${cooldown}s)` : 'Resend OTP'}
+        </button>
+        {attemptsLeft !== null && attemptsLeft > 0 && (
+          <span className={styles.otpAttemptsNote}>
+            ⚠ {attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} remaining
+          </span>
+        )}
+        {attemptsLeft === null && (
+          <span className={styles.otpAttemptsNote}>3 attempts allowed</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Detail panel ──────────────────────────────────────────────────────────────
 
 interface DetailPanelProps {
@@ -305,13 +522,18 @@ function DetailPanel({
   const navigate = useNavigate()
   const [actioning,      setActioning]      = useState(false)
   const [confirmDelete,  setConfirmDelete]  = useState(false)
+  const [confirmDeletePending, setConfirmDeletePending] = useState(false)
 
   const isAdmin   = role === 'admin' || role === 'super_admin'
+  const canManageOtp = role === 'admin' || role === 'accounts' || role === 'super_admin'
   const isAuditor = role === 'auditor'
   const canRecall = row && (row.created_by === userId || isAdmin)
 
   // Reset confirm state when panel changes
-  useEffect(() => { setConfirmDelete(false) }, [row?.id])
+  useEffect(() => {
+    setConfirmDelete(false)
+    setConfirmDeletePending(false)
+  }, [row?.id])
 
   const handleRecall = async () => {
     if (!row) return
@@ -347,6 +569,35 @@ function DetailPanel({
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to submit')
     } finally { setActioning(false) }
+  }
+
+  const handleEditPending = async () => {
+    if (!row) return
+    setActioning(true)
+    try {
+      await recallVoucher(row.id)
+      toast.success('Voucher recalled to draft for editing')
+      navigate(`/vouchers/${row.id}/edit`)
+      onRefresh(); onClose()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to recall for edit')
+    } finally { setActioning(false) }
+  }
+
+  const handleDeletePending = async () => {
+    if (!row) return
+    setActioning(true)
+    try {
+      await recallVoucher(row.id)
+      await deleteVoucher(row.id)
+      toast.success('Pending voucher deleted')
+      onRefresh(); onClose()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete pending voucher')
+    } finally {
+      setActioning(false)
+      setConfirmDeletePending(false)
+    }
   }
 
   return (
@@ -548,6 +799,37 @@ function DetailPanel({
                       Recall to Draft
                     </button>
                   )}
+                  {isAdmin && (
+                    <button
+                      className={styles.btnSecondary}
+                      onClick={handleEditPending}
+                      disabled={actioning}
+                    >
+                      {actioning ? <Loader2 size={13} className={styles.spin} /> : <Edit3 size={13} />}
+                      Edit (Recall)
+                    </button>
+                  )}
+                  {isAdmin && !confirmDeletePending && (
+                    <button
+                      className={styles.btnDanger}
+                      onClick={() => setConfirmDeletePending(true)}
+                      disabled={actioning}
+                    >
+                      <Trash2 size={13} /> Delete (Recall)
+                    </button>
+                  )}
+                  {isAdmin && confirmDeletePending && (
+                    <div className={styles.confirmRow}>
+                      <span className={styles.confirmText}>Recall and permanently delete this pending voucher?</span>
+                      <button className={styles.btnDanger} onClick={handleDeletePending} disabled={actioning}>
+                        {actioning ? <Loader2 size={12} className={styles.spin} /> : null}
+                        Yes, delete
+                      </button>
+                      <button className={styles.btnSecondary} onClick={() => setConfirmDeletePending(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -562,6 +844,25 @@ function DetailPanel({
                     <RotateCcw size={13} /> Create Reversal
                     <span className={styles.comingSoon}>Phase 3</span>
                   </button>
+                </>
+              )}
+
+              {/* Approved (OTP pending) */}
+              {row.status === 'approved' && canManageOtp && (
+                <>
+                  <div className={styles.otpInlineWrap}>
+                    <PersistentOtpPanel
+                      voucherId={row.id}
+                      companyId={companyId}
+                      userId={userId}
+                      entityId={detail.entity_id}
+                      mobileMasked={maskMobile(detail.entity_mobile)}
+                      onVerified={() => {
+                        onRefresh()
+                        onClose()
+                      }}
+                    />
+                  </div>
                 </>
               )}
 

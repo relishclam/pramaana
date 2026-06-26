@@ -33,6 +33,13 @@ import AdminPanel from '@/pages/AdminPanel'
 import DashboardPage from '@/pages/Dashboard'
 import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
 
+function fmtRole(role: string | null | undefined): string {
+  if (!role) return '—'
+  return role
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+}
+
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
 function AppShell({ children }: { children: React.ReactNode }) {
@@ -89,6 +96,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
     user?.profile.is_super_admin ||
     (user?.activeRole !== null &&
      ['admin', 'accounts', 'auditor'].includes(user?.activeRole ?? ''))
+
+  const activePerson = user?.profile.full_name?.trim() || user?.email || '—'
+  const activeRole = user?.profile.is_super_admin ? 'super_admin' : (user?.activeRole ?? null)
+  const activeCompany =
+    user?.activeCompany?.name ||
+    user?.activeCompany?.code ||
+    '—'
 
   return (
     <div className={css.shell}>
@@ -229,6 +243,15 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Page content */}
       <div className={css.mainWrap}>
+        {/* Desktop global header */}
+        <header className={css.globalHeader}>
+          <div className={css.globalHeaderMeta}>
+            <span className={css.metaPill}><strong>Login</strong>{activePerson}</span>
+            <span className={css.metaPill}><strong>Role</strong>{fmtRole(activeRole)}</span>
+            <span className={css.metaPill}><strong>Company</strong>{activeCompany}</span>
+          </div>
+        </header>
+
         {/* Mobile topbar */}
         <div className={css.topbar}>
           <button
@@ -239,7 +262,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={18} />
           </button>
           <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '28px', width: 'auto' }} />
-          <span className={css.topbarCompany}>{user?.activeCompany?.name}</span>
+          <div className={css.topbarMeta}>
+            <span className={css.topbarMetaLine}>{activePerson}</span>
+            <span className={css.topbarMetaLine}>{fmtRole(activeRole)} • {activeCompany}</span>
+          </div>
         </div>
         <main className={css.main}>{children}</main>
       </div>

@@ -243,6 +243,51 @@
 
 .main { flex: 1; }
 
+/* ── Global header (desktop) ─────────────────────────────────────────────── */
+
+.globalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0.625rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 90;
+}
+
+.globalHeaderMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.metaPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  max-width: min(38vw, 360px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metaPill strong {
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
 /* ── Mobile topbar ────────────────────────────────────────────────────────── */
 
 .topbar {
@@ -310,14 +355,25 @@
     z-index: 100;
   }
 
-  .topbarCompany {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--text-muted);
+  .globalHeader { display: none; }
+
+  .topbarMeta {
     margin-left: auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.125rem;
+    max-width: 58vw;
+  }
+
+  .topbarMetaLine {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 140px;
+    max-width: 100%;
   }
 }

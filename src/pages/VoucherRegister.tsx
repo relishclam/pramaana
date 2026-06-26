@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
   AlertCircle, FileText, ExternalLink, Trash2, Edit3, Send, RotateCcw, BookOpen,
-  Download, ChevronDown,
+  Download, ChevronDown, Paperclip,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -27,8 +27,10 @@ import {
   isImage,
   formatFileSize,
   type AttachmentWithUrl,
+  uploadVoucherAttachments,
 } from '@/lib/attachments'
 import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
+import { sendPaymentConfirmedSms } from '@/lib/sms'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './VoucherRegister.module.css'
 
@@ -83,6 +85,34 @@ function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-IN', {
     day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
   })
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// ── WhatsApp payment confirmation URL builder ────────────────────────────────
+function buildWhatsAppPaymentUrl(
+  mobile: string,
+  name: string,
+  amount: number,
+  voucherNo: string,
+  companyCode: string,
+): string {
+  const digits = mobile.replace(/\D/g, '')
+  const amtStr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount)
+  const msg =
+    `\u{1F9FE} *Relish Accounts \u2014 Payment Processed*\n\n` +
+    `Hi ${name},\n\n` +
+    `Payment of *${amtStr}* (Voucher: ${voucherNo}) from *${companyCode}* ` +
+    `has been processed to your account.\n\n` +
+    `\u2014 Relish Accounts`
+  return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`
 }
 
 function maskMobile(mobile?: string | null): string | null {
@@ -304,6 +334,57 @@ interface PersistentOtpPanelProps {
   onVerified: () => void
 }
 
+// ── WA send button for completed vouchers ───────────────────────────────────
+
+interface WaPaymentBtnProps {
+  mobile: string | null
+  name: string | null
+  amount: number
+  voucherNo: string
+  companyCode: string
+  entityId: string | null
+  onSmsSent: () => void
+}
+
+function WaPaymentBtn({ mobile, name, amount, voucherNo, companyCode, entityId, onSmsSent }: WaPaymentBtnProps) {
+  const [smsSent, setSmsSent] = useState(false)
+  const handleSendSms = async () => {
+    if (!entityId) return
+    await sendPaymentConfirmedSms(entityId, amount, voucherNo)
+    setSmsSent(true)
+    toast.success('Payment confirmation SMS sent')
+    onSmsSent()
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+      {mobile ? (
+        <a
+          href={buildWhatsAppPaymentUrl(mobile, name ?? 'Payee', amount, voucherNo, companyCode)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.waBtn}
+          title="Open WhatsApp with pre-filled payment confirmation"
+        >
+          WhatsApp
+        </a>
+      ) : (
+        <span className={styles.noMobile}>No payee mobile on file</span>
+      )}
+      {entityId && (
+        <button
+          type="button"
+          className={styles.btnSecondary}
+          style={{ fontSize: '0.8125rem' }}
+          onClick={handleSendSms}
+          disabled={smsSent}
+        >
+          {smsSent ? '✓ SMS Sent' : 'Send SMS Confirmation'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function PersistentOtpPanel({
   voucherId,
   companyId,
@@ -512,20 +593,24 @@ interface DetailPanelProps {
   role:        string | null
   onClose:     () => void
   onRefresh:   () => void
+  onReloadPanel: (voucherId: string) => Promise<void>
 }
 
 function DetailPanel({
   row, detail, loading, attachments,
   companyId, companyCode, userId, role,
-  onClose, onRefresh,
+  onClose, onRefresh, onReloadPanel,
 }: DetailPanelProps) {
   const navigate = useNavigate()
   const [actioning,      setActioning]      = useState(false)
   const [confirmDelete,  setConfirmDelete]  = useState(false)
   const [confirmDeletePending, setConfirmDeletePending] = useState(false)
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const receiptInputRef = useRef<HTMLInputElement | null>(null)
 
   const isAdmin   = role === 'admin' || role === 'super_admin'
   const canManageOtp = role === 'admin' || role === 'accounts' || role === 'super_admin'
+  const canUploadReceipt = role === 'admin' || role === 'accounts' || role === 'super_admin'
   const isAuditor = role === 'auditor'
   const canRecall = row && (row.created_by === userId || isAdmin)
 
@@ -597,6 +682,99 @@ function DetailPanel({
     } finally {
       setActioning(false)
       setConfirmDeletePending(false)
+    }
+  }
+
+  const handlePrintVoucherCopy = () => {
+    if (!row || !detail) return
+    const win = window.open('', '_blank', 'width=900,height=700')
+    if (!win) {
+      toast.error('Please allow pop-ups to open voucher copy')
+      return
+    }
+
+    const entriesHtml = detail.entries.map((e) => `
+      <tr>
+        <td>${escapeHtml(e.ledger_name)}</td>
+        <td>${escapeHtml(e.group_name ?? '—')}</td>
+        <td style="text-align:right;">${e.entry_type === 'Dr' ? formatIndianCurrency(e.amount) : ''}</td>
+        <td style="text-align:right;">${e.entry_type === 'Cr' ? formatIndianCurrency(e.amount) : ''}</td>
+      </tr>
+    `).join('')
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(row.voucher_number)} — Voucher Copy</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
+            h1 { margin: 0 0 8px; font-size: 22px; }
+            h2 { margin: 22px 0 10px; font-size: 16px; }
+            .meta { display:grid; grid-template-columns: 180px 1fr; gap: 8px 12px; }
+            .label { color:#555; font-weight:700; }
+            table { width:100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border:1px solid #ccc; padding:8px; font-size: 13px; }
+            th { background:#f4f4f4; text-align:left; }
+            .topline { display:flex; justify-content:space-between; align-items:flex-start; gap: 16px; }
+            .status { padding:4px 10px; border:1px solid #999; border-radius:999px; font-size:12px; }
+          </style>
+        </head>
+        <body>
+          <div class="topline">
+            <div>
+              <h1>Voucher Copy</h1>
+              <div><strong>${escapeHtml(row.voucher_number)}</strong></div>
+            </div>
+            <div class="status">${escapeHtml(row.status.toUpperCase())}</div>
+          </div>
+          <h2>Voucher Details</h2>
+          <div class="meta">
+            <div class="label">Company</div><div>${escapeHtml(companyCode)}</div>
+            <div class="label">Date</div><div>${escapeHtml(fmtDate(detail.voucher_date))}</div>
+            <div class="label">Type</div><div>${escapeHtml(detail.voucher_type.name)}</div>
+            <div class="label">Party</div><div>${escapeHtml(detail.entity_name ?? '—')}</div>
+            <div class="label">Amount</div><div>${escapeHtml(formatIndianCurrency(detail.amount))}</div>
+            <div class="label">Payment Mode</div><div>${escapeHtml(detail.payment_mode ?? '—')}</div>
+            <div class="label">Reference</div><div>${escapeHtml(detail.ref_document_number ?? detail.utr_number ?? '—')}</div>
+            <div class="label">Narration</div><div>${escapeHtml(detail.narration ?? '—')}</div>
+            <div class="label">Created By</div><div>${escapeHtml(detail.created_by_name)}</div>
+          </div>
+          <h2>Accounting Entries</h2>
+          <table>
+            <thead>
+              <tr><th>Ledger</th><th>Group</th><th>Dr</th><th>Cr</th></tr>
+            </thead>
+            <tbody>${entriesHtml}</tbody>
+          </table>
+        </body>
+      </html>`
+
+    win.document.open()
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+  }
+
+  const handleUploadReceiptFiles = async (files: FileList | null) => {
+    if (!files || !detail?.id) return
+    const list = Array.from(files)
+    if (list.length === 0) return
+
+    setUploadingReceipt(true)
+    try {
+      const result = await uploadVoucherAttachments(detail.id, companyId, userId, list)
+      if (result.ok.length > 0) {
+        toast.success(`${result.ok.length} receipt${result.ok.length === 1 ? '' : 's'} attached`)
+      }
+      if (result.failed.length > 0) {
+        toast.warning(`Failed to attach: ${result.failed.join(', ')}`)
+      }
+      await onReloadPanel(detail.id)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload receipt')
+    } finally {
+      setUploadingReceipt(false)
+      if (receiptInputRef.current) receiptInputRef.current.value = ''
     }
   }
 
@@ -710,6 +888,32 @@ function DetailPanel({
                 <span className={styles.attachCount}>{attachments.length}</span>
               )}
             </div>
+
+            {row?.status === 'completed' && canUploadReceipt && (
+              <div className={styles.receiptUploadBox}>
+                <div className={styles.receiptUploadText}>
+                  Attach bank/UPI transaction receipts after payment completion.
+                </div>
+                <input
+                  ref={receiptInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,application/pdf"
+                  className={styles.hiddenFileInput}
+                  onChange={(e) => void handleUploadReceiptFiles(e.target.files)}
+                />
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={() => receiptInputRef.current?.click()}
+                  disabled={uploadingReceipt}
+                >
+                  {uploadingReceipt ? <Loader2 size={13} className={styles.spin} /> : <Paperclip size={13} />}
+                  Attach Transaction Receipt
+                </button>
+              </div>
+            )}
+
             {attachments.length === 0 ? (
               <div className={styles.attachEmpty}>No attachments</div>
             ) : (
@@ -833,18 +1037,32 @@ function DetailPanel({
                 </>
               )}
 
-              {/* Posted */}
-              {row.status === 'posted' && (
-                <>
-                  <button
-                    className={`${styles.btnSecondary} ${styles.btnDisabled}`}
-                    disabled
-                    title="Reversal coming in Phase 3"
-                  >
-                    <RotateCcw size={13} /> Create Reversal
-                    <span className={styles.comingSoon}>Phase 3</span>
-                  </button>
-                </>
+              {/* Posted / Completed — WhatsApp + SMS confirmation ─────── */}
+              {(row.status === 'posted' || row.status === 'completed' || row.status === 'approved') && (
+                <div className={styles.panelSection} style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>
+                  <div className={styles.sectionHeader} style={{ marginBottom: '0.5rem' }}>Payment Confirmation</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.625rem' }}>
+                    <button
+                      type="button"
+                      className={styles.btnSecondary}
+                      onClick={handlePrintVoucherCopy}
+                    >
+                      <FileText size={13} /> Voucher Copy
+                    </button>
+                    <span className={styles.paymentConfirmNote}>
+                      SMS and WhatsApp can send a message, but cannot auto-attach the voucher PDF/file.
+                    </span>
+                  </div>
+                  <WaPaymentBtn
+                    mobile={detail.entity_mobile ?? null}
+                    name={detail.entity_name ?? null}
+                    amount={detail.amount}
+                    voucherNo={row.voucher_number}
+                    companyCode={companyCode}
+                    entityId={detail.entity_id}
+                    onSmsSent={onRefresh}
+                  />
+                </div>
               )}
 
               {/* Approved (OTP pending) */}
@@ -1006,19 +1224,28 @@ export default function VoucherRegister() {
 
   const selectedRow = allRows.find(r => r.id === selectedId) ?? null
 
+  const loadPanelData = useCallback(async (id: string) => {
+    setPanelLoading(true)
+    try {
+      const [voucherDetail, voucherAttachments] = await Promise.all([
+        fetchVoucherFull(id),
+        fetchVoucherAttachments(id),
+      ])
+      setDetail(voucherDetail)
+      setAttachments(voucherAttachments)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load voucher')
+    } finally {
+      setPanelLoading(false)
+    }
+  }, [])
+
   const openPanel = (id: string) => {
     if (id === selectedId) { closePanel(); return }
     setSelectedId(id)
     setDetail(null)
     setAttachments([])
-    setPanelLoading(true)
-    fetchVoucherFull(id)
-      .then(setDetail)
-      .catch(err => toast.error(err instanceof Error ? err.message : 'Failed to load voucher'))
-      .finally(() => setPanelLoading(false))
-    fetchVoucherAttachments(id)
-      .then(setAttachments)
-      .catch(() => {}) // silent — attachments optional
+    void loadPanelData(id)
   }
 
   const closePanel = () => {
@@ -1233,6 +1460,7 @@ export default function VoucherRegister() {
           role={role}
           onClose={closePanel}
           onRefresh={handleRefresh}
+          onReloadPanel={loadPanelData}
         />
 
       </div>

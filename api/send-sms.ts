@@ -112,7 +112,31 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  // Shorten URL for settlement-link — VAR3 is the settle URL
+  // ── OTP templates: use 2Factor dedicated OTP API endpoint ────────────────
+  // OTP templates registered under "OTP Templates" in 2Factor dashboard
+  // MUST use the /SMS/{phone}/{otp}/{template} URL — NOT the TSMS endpoint.
+  // TSMS returns "Success" silently for OTP templates without delivering.
+  if (template === 'payment-otp') {
+    const otp = (vars as string[])[0] ?? ''
+    const otpUrl = `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/${encodeURIComponent(otp)}/${encodeURIComponent(templateName)}`
+
+    const tfRes = await fetch(otpUrl, { method: 'GET' })
+    const data = await tfRes.json() as { Status: string; Details: string }
+
+    if (data.Status !== 'Success') {
+      console.error('2Factor OTP API error:', data)
+      return new Response(JSON.stringify({ error: data.Details }), {
+        status: 502, headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, sessionId: data.Details }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  // ── Non-OTP transactional templates: use TSMS endpoint ────────────────────
   const finalVars: string[] = [...(vars as string[])]
   if (template === 'settlement-link' && finalVars[2]) {
     finalVars[2] = await shortenUrl(finalVars[2])

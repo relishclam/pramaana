@@ -890,7 +890,8 @@ function DetailPanel({
                   <tr>
                     <th style="width: 56px;">S.No.</th>
                     <th>Description</th>
-                    <th style="width: 110px;" class="right">Amount (₹)</th>
+                    <th style="width: 110px;" class="right">Dr (₹)</th>
+                    <th style="width: 110px;" class="right">Cr (₹)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -898,13 +899,15 @@ function DetailPanel({
                     <tr>
                       <td class="right">${index + 1}</td>
                       <td>${escapeHtml(e.ledger_name)}${e.narration ? ` <span style="color:#777;">(${escapeHtml(e.narration)})</span>` : ''}</td>
-                      <td class="right">${escapeHtml(formatIndianCurrency(e.amount))}</td>
+                      <td class="right">${e.entry_type === 'Dr' ? escapeHtml(formatIndianCurrency(e.amount)) : ''}</td>
+                      <td class="right">${e.entry_type === 'Cr' ? escapeHtml(formatIndianCurrency(e.amount)) : ''}</td>
                     </tr>
                   `).join('')}
                   <tr class="totalRow">
                     <td></td>
                     <td class="right">TOTAL:</td>
-                    <td class="right">${escapeHtml(formatIndianCurrency(drTotal || crTotal))}</td>
+                    <td class="right">${escapeHtml(formatIndianCurrency(drTotal))}</td>
+                    <td class="right">${escapeHtml(formatIndianCurrency(crTotal))}</td>
                   </tr>
                 </tbody>
               </table>

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
-  AlertCircle, Send, RotateCcw, Copy, Check, Wallet, FileText,
+  AlertCircle, Send, RotateCcw, Copy, Check, Wallet, FileText, Lock, Wrench,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -12,7 +12,7 @@ import {
   createOrRefreshSession, buildSettlementUrl,
   approveSuspenseVoucher, rejectSuspenseVoucher,
   approveSettlement, rejectSettlement,
-  addTopUp, submitExpenseEntry,
+  addTopUp, submitExpenseEntry, closeVoucher, fixBalance,
   suspenseStatusLabel, settlementStatusLabel,
   type SuspenseVoucher, type SuspenseSession, type SuspenseSettlement,
 } from '@/lib/suspense'
@@ -80,32 +80,56 @@ function StatusBadge({ status }: { status: string }) {
   }
 }
 
-// ── Balance Bar ───────────────────────────────────────────────────────────────
+// ── Stats Grid ────────────────────────────────────────────────────────────────
 
-function BalanceBar({ advance, balance }: { advance: number; balance: number | null }) {
-  const bal     = balance ?? advance
-  const settled = Math.max(0, advance - bal)
-  const pct     = advance > 0 ? Math.min(100, (settled / advance) * 100) : 0
+function StatsGrid({ row, settlements }: { row: SuspenseVoucher; settlements: SuspenseSettlement[] }) {
+  const topupsTotal = settlements
+    .filter(s => s.entry_type === 'topup' && s.status === 'approved')
+    .reduce((acc, s) => acc + (s.advance_amount ?? 0), 0)
+  const initialAmount = Math.max(0, row.amount - topupsTotal)
+
+  const approvedExpenses = settlements
+    .filter(s => s.entry_type === 'expense' && s.status === 'approved')
+    .reduce((acc, s) => acc + (s.settled_amount ?? 0), 0)
+  const pendingExpenses = settlements
+    .filter(s => s.entry_type === 'expense' && s.status === 'pending')
+    .reduce((acc, s) => acc + (s.settled_amount ?? 0), 0)
+
+  const balance = row.suspense_balance ?? row.amount
+  const pct     = row.amount > 0 ? Math.min(100, ((row.amount - balance) / row.amount) * 100) : 0
 
   return (
-    <div className={styles.balanceBar}>
-      <div className={styles.balanceRow}>
-        <span className={styles.balanceLabel}>Advance</span>
-        <span className={styles.balanceNum}>{formatIndianCurrency(advance)}</span>
+    <div className={styles.statsGrid}>
+      <div className={styles.statCard}>
+        <span className={styles.statLabel}>Advance Issued</span>
+        <span className={styles.statValue}>{formatIndianCurrency(row.amount)}</span>
+        {topupsTotal > 0 && (
+          <span className={styles.statBreakdown}>
+            Initial {formatIndianCurrency(initialAmount)} + Top-ups {formatIndianCurrency(topupsTotal)}
+          </span>
+        )}
       </div>
-      <div className={styles.balanceRow}>
-        <span className={styles.balanceLabel}>Settled</span>
-        <span className={styles.balanceNum}>{formatIndianCurrency(settled)}</span>
+      <div className={`${styles.statCard} ${styles.statCardApproved}`}>
+        <span className={styles.statLabel}>Expenses Approved</span>
+        <span className={`${styles.statValue} ${styles.statValueApproved}`}>
+          {formatIndianCurrency(approvedExpenses)}
+        </span>
       </div>
-      <div className={styles.balanceTrack}>
-        <div
-          className={`${styles.balanceFill} ${pct >= 100 ? styles.balanceFull : ''}`}
-          style={{ width: `${pct}%` }}
-        />
+      <div className={`${styles.statCard} ${styles.statCardPending}`}>
+        <span className={styles.statLabel}>Expenses Pending</span>
+        <span className={`${styles.statValue} ${styles.statValuePending}`}>
+          {formatIndianCurrency(pendingExpenses)}
+        </span>
+        {pendingExpenses > 0 && <span className={styles.statSubNote}>awaiting review</span>}
       </div>
-      <div className={styles.balanceRow}>
-        <span className={styles.balanceLabelBold}>Remaining Balance</span>
-        <span className={`${styles.balanceNum} ${styles.balanceBig}`}>{formatIndianCurrency(bal)}</span>
+      <div className={`${styles.statCard} ${styles.statCardBalance}`}>
+        <span className={styles.statLabel}>Remaining Balance</span>
+        <span className={`${styles.statValue} ${balance === 0 ? styles.statValueZero : styles.statValueBalance}`}>
+          {formatIndianCurrency(balance)}
+        </span>
+      </div>
+      <div className={styles.statsProgressWrap}>
+        <div className={styles.statsProgressFill} style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
@@ -134,6 +158,8 @@ function SettlementsTable({
           <tr>
             <th>Description</th>
             <th>Type</th>
+            <th>Date</th>
+            <th>By</th>
             <th className={styles.right}>Amount</th>
             <th>Status</th>
             {canAct && <th />}
@@ -151,6 +177,14 @@ function SettlementsTable({
                 <span className={`${styles.entryTypeBadge} ${styles[`type_${s.entry_type}`]}`}>
                   {s.entry_type}
                 </span>
+              </td>
+              <td className={styles.settlementDate}>{fmtDateTime(s.created_at)}</td>
+              <td className={styles.settlementBy}>
+                {s.submitted_by_name
+                  ? s.submitted_by_name
+                  : s.settlement_session_id
+                    ? 'Staff (link)'
+                    : 'Accounts'}
               </td>
               <td className={`${styles.right} ${styles.settlementAmt}`}>
                 {formatIndianCurrency(s.settled_amount ?? 0)}
@@ -231,6 +265,7 @@ function DetailPanel({
   const [topUpAmount,   setTopUpAmount]   = useState('')
   const [topUpDesc,     setTopUpDesc]     = useState('')
   const [topUpSubmitting, setTopUpSubmitting] = useState(false)
+  const [showClose,     setShowClose]     = useState(false)
 
   // Reset panel state when row changes
   useEffect(() => {
@@ -239,6 +274,7 @@ function DetailPanel({
     setRejectEntryId(null)
     setShowAddEntry(false)
     setShowTopUp(false)
+    setShowClose(false)
     setSettlementUrl(session ? buildSettlementUrl(session.token) : null)
   }, [row?.id, session])
 
@@ -353,6 +389,7 @@ function DetailPanel({
         reference_number:   entryRef.trim() || null,
         invoice_available:  entryInvoice,
         attachment_path:    null,
+        submitted_by:       userId,
       })
       toast.success('Settlement entry added')
       setShowAddEntry(false)
@@ -361,6 +398,33 @@ function DetailPanel({
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to add entry')
     } finally { setEntrySubmitting(false) }
+  }
+
+  // ── Close voucher
+  const handleCloseVoucher = async () => {
+    if (!row) return
+    setActioning(true)
+    try {
+      await closeVoucher(row.id, userId)
+      toast.success('Voucher closed')
+      setShowClose(false)
+      onRefresh(); onClose()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to close voucher')
+    } finally { setActioning(false) }
+  }
+
+  // ── Fix balance
+  const handleFixBalance = async () => {
+    if (!row) return
+    setActioning(true)
+    try {
+      await fixBalance(row.id)
+      toast.success('Balance recalculated from approved entries')
+      onRefresh()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to fix balance')
+    } finally { setActioning(false) }
   }
 
   // ── Top-up
@@ -378,13 +442,26 @@ function DetailPanel({
     } finally { setTopUpSubmitting(false) }
   }
 
+  // ── Derived stats for header + grid
+  const topupsTotal  = settlements
+    .filter(s => s.entry_type === 'topup' && s.status === 'approved')
+    .reduce((acc, s) => acc + (s.advance_amount ?? 0), 0)
+  const initialAmount = Math.max(0, (row?.amount ?? 0) - topupsTotal)
+
   return (
     <aside className={`${styles.panel} ${row ? styles.panelOpen : ''}`}>
       {/* Header */}
       <div className={styles.panelHeader}>
-        <div className={styles.panelHeaderLeft}>
-          <span className={styles.panelVoucherNo}>{row?.voucher_number ?? '—'}</span>
-          {row && <StatusBadge status={row.status} />}
+        <div className={styles.panelHeaderMeta}>
+          <div className={styles.panelHeaderLeft}>
+            <span className={styles.panelVoucherNo}>{row?.voucher_number ?? '—'}</span>
+            {row && <StatusBadge status={row.status} />}
+          </div>
+          {topupsTotal > 0 && (
+            <span className={styles.panelTopupSub}>
+              Initial {formatIndianCurrency(initialAmount)} + Top-ups {formatIndianCurrency(topupsTotal)}
+            </span>
+          )}
         </div>
         <button className={styles.panelClose} onClick={onClose} aria-label="Close">
           <X size={16} />
@@ -396,7 +473,208 @@ function DetailPanel({
       ) : !row ? null : (
         <div className={styles.panelBody}>
 
-          {/* ── Meta ─────────────────────────────────────────────────── */}
+          {/* ── Primary Actions ──────────────────────────────────────── */}
+          {!isAuditor && (
+            <div className={`${styles.panelSection} ${styles.actionsSection}`}>
+
+              {/* pending_approval — admin approve/reject */}
+              {row.status === 'pending_approval' && isAdmin && (
+                <>
+                  <button className={styles.btnPrimary} onClick={handleApproveAdvance} disabled={actioning}>
+                    {actioning ? <Loader2 size={13} className={styles.spin} /> : <CheckCircle size={13} />}
+                    Approve Advance
+                  </button>
+                  {!showReject ? (
+                    <button className={styles.btnDanger} onClick={() => setShowReject(true)}>
+                      <XCircle size={13} /> Reject
+                    </button>
+                  ) : (
+                    <div className={styles.rejectBox}>
+                      <span className={styles.rejectLabel}>Reason for rejection</span>
+                      <input
+                        className={styles.rejectInput}
+                        placeholder="Required"
+                        value={rejectReason}
+                        onChange={e => setRejectReason(e.target.value)}
+                        autoFocus
+                      />
+                      <div className={styles.rejectBtns}>
+                        <button className={styles.btnDanger} onClick={handleRejectAdvance} disabled={!rejectReason.trim() || actioning}>
+                          Confirm Reject
+                        </button>
+                        <button className={styles.btnSecondary} onClick={() => setShowReject(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* pending_approval — accounts user (read-only) */}
+              {row.status === 'pending_approval' && !isAdmin && (
+                <div className={styles.waitingNote}>
+                  <Clock size={14} />
+                  Waiting for admin approval
+                </div>
+              )}
+
+              {/* open / partial */}
+              {(row.status === 'open' || row.status === 'partial') && (
+                <>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => { setShowAddEntry(!showAddEntry); setShowTopUp(false); setShowClose(false) }}
+                  >
+                    <Plus size={13} /> Add Settlement Entry
+                  </button>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => { setShowTopUp(!showTopUp); setShowAddEntry(false); setShowClose(false) }}
+                  >
+                    <RotateCcw size={13} /> Top Up
+                  </button>
+                  <button
+                    className={styles.btnWarning}
+                    onClick={() => { setShowClose(!showClose); setShowAddEntry(false); setShowTopUp(false) }}
+                  >
+                    <Lock size={13} /> Close Voucher
+                  </button>
+                  {isAdmin && (
+                    <button
+                      className={styles.btnGhost}
+                      onClick={handleFixBalance}
+                      disabled={actioning}
+                      title="Recalculate balance from approved entries"
+                    >
+                      <Wrench size={13} /> Fix Balance
+                    </button>
+                  )}
+
+                  {/* Add entry inline form */}
+                  {showAddEntry && (
+                    <div className={styles.inlineForm}>
+                      <div className={styles.inlineRow}>
+                        <button
+                          className={`${styles.typePill} ${entryType === 'expense' ? styles.typePillActive : ''}`}
+                          onClick={() => setEntryType('expense')}
+                        ><Wallet size={11} /> Expense</button>
+                        <button
+                          className={`${styles.typePill} ${entryType === 'refund' ? styles.typePillActive : ''}`}
+                          onClick={() => setEntryType('refund')}
+                        ><RotateCcw size={11} /> Refund</button>
+                      </div>
+                      <input className={styles.inlineInput} placeholder="Description *" value={entryDesc} onChange={e => setEntryDesc(e.target.value)} />
+                      <div className={styles.inlineRow}>
+                        <div className={styles.amountSmallWrap}>
+                          <span className={styles.rupeeSmall}>₹</span>
+                          <input
+                            type="number" className={styles.inlineAmountInput}
+                            placeholder="Amount *" value={entryAmount}
+                            onChange={e => setEntryAmount(e.target.value)} min={0}
+                          />
+                        </div>
+                        <input className={`${styles.inlineInput} ${styles.flex1}`} placeholder="Head of Account" value={entryHoA} onChange={e => setEntryHoA(e.target.value)} />
+                      </div>
+                      <div className={styles.inlineRow}>
+                        <input className={`${styles.inlineInput} ${styles.flex1}`} placeholder="Reference / Receipt No." value={entryRef} onChange={e => setEntryRef(e.target.value)} />
+                        <label className={styles.invoiceToggle}>
+                          <input type="checkbox" checked={entryInvoice} onChange={e => setEntryInvoice(e.target.checked)} />
+                          Invoice available
+                        </label>
+                      </div>
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={handleAddEntry}
+                        disabled={entrySubmitting || !entryDesc.trim() || !parseFloat(entryAmount)}
+                      >
+                        {entrySubmitting ? <Loader2 size={13} className={styles.spin} /> : null}
+                        Add Entry
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Top-up inline form */}
+                  {showTopUp && (
+                    <div className={styles.inlineForm}>
+                      <div className={styles.amountSmallWrap}>
+                        <span className={styles.rupeeSmall}>₹</span>
+                        <input
+                          type="number" className={styles.inlineAmountInput}
+                          placeholder="Top-up amount *" value={topUpAmount}
+                          onChange={e => setTopUpAmount(e.target.value)} min={0}
+                        />
+                      </div>
+                      <input className={styles.inlineInput} placeholder="Description / reason *" value={topUpDesc} onChange={e => setTopUpDesc(e.target.value)} />
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={handleTopUp}
+                        disabled={topUpSubmitting || !parseFloat(topUpAmount) || !topUpDesc.trim()}
+                      >
+                        {topUpSubmitting ? <Loader2 size={13} className={styles.spin} /> : null}
+                        Add Top-Up
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Close voucher confirmation */}
+                  {showClose && (
+                    <div className={styles.closeConfirm}>
+                      <span className={styles.closeConfirmMsg}>
+                        Mark this advance as closed? Settlements will be locked unless reopened via top-up.
+                      </span>
+                      <div className={styles.rejectBtns}>
+                        <button className={styles.btnWarning} onClick={handleCloseVoucher} disabled={actioning}>
+                          {actioning ? <Loader2 size={13} className={styles.spin} /> : <Lock size={13} />}
+                          Confirm Close
+                        </button>
+                        <button className={styles.btnSecondary} onClick={() => setShowClose(false)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* closed — top-up only */}
+              {row.status === 'closed' && (
+                <>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => { setShowTopUp(!showTopUp) }}
+                  >
+                    <RotateCcw size={13} /> Top Up (reopen)
+                  </button>
+                  {showTopUp && (
+                    <div className={styles.inlineForm}>
+                      <div className={styles.amountSmallWrap}>
+                        <span className={styles.rupeeSmall}>₹</span>
+                        <input
+                          type="number" className={styles.inlineAmountInput}
+                          placeholder="Top-up amount *" value={topUpAmount}
+                          onChange={e => setTopUpAmount(e.target.value)} min={0}
+                        />
+                      </div>
+                      <input className={styles.inlineInput} placeholder="Description / reason *" value={topUpDesc} onChange={e => setTopUpDesc(e.target.value)} />
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={handleTopUp}
+                        disabled={topUpSubmitting || !parseFloat(topUpAmount) || !topUpDesc.trim()}
+                      >
+                        {topUpSubmitting ? <Loader2 size={13} className={styles.spin} /> : null}
+                        Add Top-Up
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+            </div>
+          )}
+
+          {/* ── Stats Grid ────────────────────────────────────────────── */}
+          {row.status !== 'pending_approval' && row.status !== 'rejected' && (
+            <div className={styles.panelSection}>
+              <StatsGrid row={row} settlements={settlements} />
+            </div>
+          )}
           <div className={styles.panelSection}>
             <div className={styles.metaGrid}>
               <div className={styles.metaItem}>
@@ -429,14 +707,6 @@ function DetailPanel({
               </div>
             </div>
           </div>
-
-          {/* ── Balance ───────────────────────────────────────────────── */}
-          {row.status !== 'pending_approval' && row.status !== 'rejected' && (
-            <div className={styles.panelSection}>
-              <div className={styles.sectionHeader}>Balance</div>
-              <BalanceBar advance={row.amount} balance={row.suspense_balance} />
-            </div>
-          )}
 
           {/* ── Settlement link ───────────────────────────────────────── */}
           {!isAuditor && (row.status === 'open' || row.status === 'partial') && (
@@ -558,173 +828,6 @@ function DetailPanel({
                   </a>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* ── Action buttons by status ──────────────────────────────── */}
-          {!isAuditor && (
-            <div className={`${styles.panelSection} ${styles.actionsSection}`}>
-
-              {/* pending_approval — admin approve/reject */}
-              {row.status === 'pending_approval' && isAdmin && (
-                <>
-                  <button className={styles.btnPrimary} onClick={handleApproveAdvance} disabled={actioning}>
-                    {actioning ? <Loader2 size={13} className={styles.spin} /> : <CheckCircle size={13} />}
-                    Approve Advance
-                  </button>
-                  {!showReject ? (
-                    <button className={styles.btnDanger} onClick={() => setShowReject(true)}>
-                      <XCircle size={13} /> Reject
-                    </button>
-                  ) : (
-                    <div className={styles.rejectBox}>
-                      <span className={styles.rejectLabel}>Reason for rejection</span>
-                      <input
-                        className={styles.rejectInput}
-                        placeholder="Required"
-                        value={rejectReason}
-                        onChange={e => setRejectReason(e.target.value)}
-                        autoFocus
-                      />
-                      <div className={styles.rejectBtns}>
-                        <button className={styles.btnDanger} onClick={handleRejectAdvance} disabled={!rejectReason.trim() || actioning}>
-                          Confirm Reject
-                        </button>
-                        <button className={styles.btnSecondary} onClick={() => setShowReject(false)}>Cancel</button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* pending_approval — accounts user (read-only, waiting for admin) */}
-              {row.status === 'pending_approval' && !isAdmin && (
-                <div className={styles.waitingNote}>
-                  <Clock size={14} />
-                  Waiting for admin approval
-                </div>
-              )}
-
-              {/* open / partial — accounts actions */}
-              {(row.status === 'open' || row.status === 'partial') && (
-                <>
-                  {/* Add Settlement Entry */}
-                  <button
-                    className={styles.btnSecondary}
-                    onClick={() => { setShowAddEntry(!showAddEntry); setShowTopUp(false) }}
-                  >
-                    <Plus size={13} /> Add Settlement Entry
-                  </button>
-
-                  {/* Top-Up */}
-                  <button
-                    className={styles.btnSecondary}
-                    onClick={() => { setShowTopUp(!showTopUp); setShowAddEntry(false) }}
-                  >
-                    <RotateCcw size={13} /> Top Up
-                  </button>
-
-                  {/* Add entry inline form */}
-                  {showAddEntry && (
-                    <div className={styles.inlineForm}>
-                      <div className={styles.inlineRow}>
-                        <button
-                          className={`${styles.typePill} ${entryType === 'expense' ? styles.typePillActive : ''}`}
-                          onClick={() => setEntryType('expense')}
-                        ><Wallet size={11} /> Expense</button>
-                        <button
-                          className={`${styles.typePill} ${entryType === 'refund' ? styles.typePillActive : ''}`}
-                          onClick={() => setEntryType('refund')}
-                        ><RotateCcw size={11} /> Refund</button>
-                      </div>
-                      <input className={styles.inlineInput} placeholder="Description *" value={entryDesc} onChange={e => setEntryDesc(e.target.value)} />
-                      <div className={styles.inlineRow}>
-                        <div className={styles.amountSmallWrap}>
-                          <span className={styles.rupeeSmall}>₹</span>
-                          <input
-                            type="number" className={styles.inlineAmountInput}
-                            placeholder="Amount *" value={entryAmount}
-                            onChange={e => setEntryAmount(e.target.value)} min={0}
-                          />
-                        </div>
-                        <input className={`${styles.inlineInput} ${styles.flex1}`} placeholder="Head of Account" value={entryHoA} onChange={e => setEntryHoA(e.target.value)} />
-                      </div>
-                      <div className={styles.inlineRow}>
-                        <input className={`${styles.inlineInput} ${styles.flex1}`} placeholder="Reference / Receipt No." value={entryRef} onChange={e => setEntryRef(e.target.value)} />
-                        <label className={styles.invoiceToggle}>
-                          <input type="checkbox" checked={entryInvoice} onChange={e => setEntryInvoice(e.target.checked)} />
-                          Invoice available
-                        </label>
-                      </div>
-                      <button
-                        className={styles.btnPrimary}
-                        onClick={handleAddEntry}
-                        disabled={entrySubmitting || !entryDesc.trim() || !parseFloat(entryAmount)}
-                      >
-                        {entrySubmitting ? <Loader2 size={13} className={styles.spin} /> : null}
-                        Add Entry
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Top-up inline form */}
-                  {showTopUp && (
-                    <div className={styles.inlineForm}>
-                      <div className={styles.amountSmallWrap}>
-                        <span className={styles.rupeeSmall}>₹</span>
-                        <input
-                          type="number" className={styles.inlineAmountInput}
-                          placeholder="Top-up amount *" value={topUpAmount}
-                          onChange={e => setTopUpAmount(e.target.value)} min={0}
-                        />
-                      </div>
-                      <input className={styles.inlineInput} placeholder="Description / reason *" value={topUpDesc} onChange={e => setTopUpDesc(e.target.value)} />
-                      <button
-                        className={styles.btnPrimary}
-                        onClick={handleTopUp}
-                        disabled={topUpSubmitting || !parseFloat(topUpAmount) || !topUpDesc.trim()}
-                      >
-                        {topUpSubmitting ? <Loader2 size={13} className={styles.spin} /> : null}
-                        Add Top-Up
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* closed — top-up only */}
-              {row.status === 'closed' && (
-                <>
-                  <button
-                    className={styles.btnSecondary}
-                    onClick={() => { setShowTopUp(!showTopUp) }}
-                  >
-                    <RotateCcw size={13} /> Top Up (reopen)
-                  </button>
-                  {showTopUp && (
-                    <div className={styles.inlineForm}>
-                      <div className={styles.amountSmallWrap}>
-                        <span className={styles.rupeeSmall}>₹</span>
-                        <input
-                          type="number" className={styles.inlineAmountInput}
-                          placeholder="Top-up amount *" value={topUpAmount}
-                          onChange={e => setTopUpAmount(e.target.value)} min={0}
-                        />
-                      </div>
-                      <input className={styles.inlineInput} placeholder="Description / reason *" value={topUpDesc} onChange={e => setTopUpDesc(e.target.value)} />
-                      <button
-                        className={styles.btnPrimary}
-                        onClick={handleTopUp}
-                        disabled={topUpSubmitting || !parseFloat(topUpAmount) || !topUpDesc.trim()}
-                      >
-                        {topUpSubmitting ? <Loader2 size={13} className={styles.spin} /> : null}
-                        Add Top-Up
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-
             </div>
           )}
 

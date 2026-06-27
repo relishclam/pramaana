@@ -59,6 +59,8 @@ export interface SuspenseSettlement {
   notes:                 string | null
   created_at:            string
   settlement_session_id: string | null
+  submitted_by:          string | null       // auth user ID (null = staff via public link)
+  submitted_by_name:     string | null       // enriched display name
 }
 
 export interface PublicSession {
@@ -108,6 +110,7 @@ export interface SubmitExpensePayload {
   reference_number:   string | null
   invoice_available:  boolean
   attachment_path:    string | null
+  submitted_by?:      string | null  // auth user ID; null for anon/staff submissions
 }
 
 const PAGE_SIZE = 50
@@ -227,7 +230,28 @@ export async function fetchSuspenseSettlements(advanceVoucherId: string): Promis
     .eq('advance_voucher_id', advanceVoucherId)
     .order('created_at', { ascending: true })
   if (error) throw new Error('Failed to load settlements: ' + error.message)
-  return (data ?? []) as SuspenseSettlement[]
+
+  const rows = (data ?? []) as (SuspenseSettlement & { submitted_by: string | null })[]
+
+  // Enrich with submitter names for accounts direct entries
+  const submitterIds = [...new Set(rows.map(r => r.submitted_by).filter(Boolean) as string[])]
+  let nameMap = new Map<string, string>()
+  if (submitterIds.length > 0) {
+    const { data: profiles } = await supabase
+      .schema('registry')
+      .from('profiles')
+      .select('id, full_name')
+      .in('id', submitterIds)
+    nameMap = new Map(
+      ((profiles ?? []) as { id: string; full_name: string | null }[])
+        .map(p => [p.id, p.full_name ?? 'Unknown'])
+    )
+  }
+
+  return rows.map(r => ({
+    ...r,
+    submitted_by_name: r.submitted_by ? (nameMap.get(r.submitted_by) ?? 'Unknown') : null,
+  }))
 }
 
 // ── Create suspense advance voucher (accounts) ────────────────────────────────
@@ -600,6 +624,7 @@ export async function submitExpenseEntry(payload: SubmitExpensePayload): Promise
       reference_number:      payload.reference_number,
       invoice_available:     payload.invoice_available,
       attachment_path:       payload.attachment_path,
+      submitted_by:          payload.submitted_by ?? null,
       status:                'pending',
     })
     .select('id')
@@ -609,6 +634,47 @@ export async function submitExpenseEntry(payload: SubmitExpensePayload): Promise
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// ── Close suspense voucher manually (accounts / admin) ──────────────────────
+
+export async function closeVoucher(voucherId: string, _closedBy: string): Promise<void> {
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .update({ status: 'closed' })
+    .eq('id', voucherId)
+    .in('status', ['open', 'partial'])
+  if (error) throw new Error('Failed to close voucher: ' + error.message)
+}
+
+// ── Fix balance — recalculate suspense_balance from approved settlements ──────
+
+export async function fixBalance(voucherId: string): Promise<void> {
+  const [{ data: v, error: vErr }, { data: setts, error: sErr }] = await Promise.all([
+    supabase.schema('pramaana').from('vouchers').select('amount').eq('id', voucherId).single(),
+    supabase.schema('pramaana').from('suspense_settlements')
+      .select('entry_type, settled_amount, status')
+      .eq('advance_voucher_id', voucherId)
+      .eq('status', 'approved'),
+  ])
+  if (vErr || !v) throw new Error('Voucher not found')
+  if (sErr) throw new Error('Failed to fetch settlements: ' + sErr.message)
+
+  let netExpenses = 0
+  for (const s of (setts ?? [])) {
+    if (s.entry_type === 'expense') netExpenses += (s.settled_amount ?? 0)
+    else if (s.entry_type === 'refund') netExpenses -= (s.settled_amount ?? 0)
+  }
+  const newBalance = Math.max(0, v.amount - netExpenses)
+  const newStatus  = newBalance === 0 ? 'closed' : 'partial'
+
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .update({ suspense_balance: newBalance, status: newStatus })
+    .eq('id', voucherId)
+  if (error) throw new Error('Failed to fix balance: ' + error.message)
+}
 
 export function suspenseStatusLabel(status: string): string {
   const MAP: Record<string, string> = {

@@ -47,6 +47,15 @@ export interface VoucherFull extends PendingVoucher {
   cheque_date: string | null
   utr_number: string | null
   cost_centre_name: string | null
+  posted_at: string | null
+  posted_by: string | null
+  posted_by_name: string | null
+  otp_verified_at: string | null
+  otp_verified_by: string | null
+  otp_verified_by_name: string | null
+  completed_at: string | null
+  completed_by: string | null
+  completed_by_name: string | null
   entries: VoucherEntryDetail[]
   history: ApprovalHistoryItem[]
 }
@@ -146,6 +155,9 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     bank_ledger_id: string | null; cheque_number: string | null
     cheque_date: string | null; utr_number: string | null
     cost_centre_id: string | null
+    posted_at: string | null; posted_by: string | null
+    otp_verified_at: string | null; otp_verified_by: string | null
+    completed_at: string | null; completed_by: string | null
     voucher_type: { id: string; code: string; name: string; nature: string } | null
   }
   type RawEntry = {
@@ -162,7 +174,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   const [vRes, eRes, hRes] = await Promise.all([
     supabase
       .schema('pramaana').from('vouchers')
-      .select('id, voucher_number, voucher_date, amount, status, narration, created_at, entity_id, created_by, ref_document_number, payment_mode, bank_ledger_id, cheque_number, cheque_date, utr_number, cost_centre_id, voucher_type:voucher_types(id, code, name, nature)')
+      .select('id, voucher_number, voucher_date, amount, status, narration, created_at, entity_id, created_by, ref_document_number, payment_mode, bank_ledger_id, cheque_number, cheque_date, utr_number, cost_centre_id, posted_at, posted_by, otp_verified_at, otp_verified_by, completed_at, completed_by, voucher_type:voucher_types(id, code, name, nature)')
       .eq('id', voucherId)
       .single(),
     supabase
@@ -184,7 +196,13 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   const actions = (hRes.data ?? []) as unknown as RawAction[]
 
   // Batch 2: profiles + optional lookups in parallel
-  const profileIds = [...new Set([v.created_by, ...actions.map(a => a.actioned_by)])]
+  const profileIds = [...new Set([
+    v.created_by,
+    v.posted_by,
+    v.otp_verified_by,
+    v.completed_by,
+    ...actions.map(a => a.actioned_by),
+  ].filter(Boolean) as string[])]
 
   const [profilesRes, entityRes, bankRes, costRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', profileIds),
@@ -229,6 +247,15 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     cheque_date:         v.cheque_date,
     utr_number:          v.utr_number,
     cost_centre_name:    costData   ? costData.name   : null,
+    posted_at:           v.posted_at,
+    posted_by:           v.posted_by,
+    posted_by_name:      v.posted_by ? (profileMap.get(v.posted_by) ?? null) : null,
+    otp_verified_at:     v.otp_verified_at,
+    otp_verified_by:     v.otp_verified_by,
+    otp_verified_by_name:v.otp_verified_by ? (profileMap.get(v.otp_verified_by) ?? null) : null,
+    completed_at:        v.completed_at,
+    completed_by:        v.completed_by,
+    completed_by_name:   v.completed_by ? (profileMap.get(v.completed_by) ?? null) : null,
     entries: entries.map(e => ({
       id:           e.id,
       ledger_name:  e.ledger?.name ?? '—',

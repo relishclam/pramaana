@@ -556,8 +556,11 @@ export default function SimplifiedPaymentEntry({
       {/* ════ Step 7 — Attachments ═══════════════════════════════════════ */}
       {show7 && (
         <div className={styles.step}>
-          <StepHead num={7} done={stagedFiles.length > 0} optional label="Attach bills or receipts" />
+          <StepHead num={7} done={stagedFiles.length > 0} optional label="Are there invoices or bills to attach to this voucher?" />
           <div className={styles.body}>
+            <div className={styles.attachPrompt}>
+              Are there Invoices/Bills you want to Attach to this Voucher?
+            </div>
             {/* Upload zone */}
             <div
               className={styles.uploadZone}
@@ -604,6 +607,10 @@ export default function SimplifiedPaymentEntry({
               style={{ display: 'none' }}
               onChange={handleFilePick}
             />
+
+            <div className={styles.attachHelper}>
+              Bills, invoices, or supporting PDFs/photos can be attached now or after the voucher is completed.
+            </div>
 
             {/* Staged file list */}
             {stagedFiles.length > 0 && (

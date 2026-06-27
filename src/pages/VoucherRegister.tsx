@@ -96,6 +96,60 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+function fmtDateTimeLong(iso: string | null | undefined) {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function numberToIndianWords(amount: number) {
+  const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine']
+  const TEENS = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+  const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+
+  const twoDigits = (n: number) => {
+    if (n < 10) return ONES[n]
+    if (n < 20) return TEENS[n - 10]
+    return `${TENS[Math.floor(n / 10)]}${n % 10 ? ` ${ONES[n % 10]}` : ''}`.trim()
+  }
+
+  const threeDigits = (n: number) => {
+    if (n < 100) return twoDigits(n)
+    return `${ONES[Math.floor(n / 100)]} Hundred${n % 100 ? ` ${twoDigits(n % 100)}` : ''}`.trim()
+  }
+
+  const toIndianUnits = (n: number) => {
+    if (n === 0) return 'Zero'
+    const parts: string[] = []
+    const crore = Math.floor(n / 10000000)
+    const lakh = Math.floor((n % 10000000) / 100000)
+    const thousand = Math.floor((n % 100000) / 1000)
+    const hundred = n % 1000
+
+    if (crore) parts.push(`${threeDigits(crore)} Crore`)
+    if (lakh) parts.push(`${threeDigits(lakh)} Lakh`)
+    if (thousand) parts.push(`${threeDigits(thousand)} Thousand`)
+    if (hundred) parts.push(threeDigits(hundred))
+    return parts.join(' ').trim()
+  }
+
+  const rupees = Math.floor(amount)
+  const paise = Math.round((amount - rupees) * 100)
+  const rupeeWords = toIndianUnits(rupees)
+  const paiseWords = paise ? ` and Paise ${toIndianUnits(paise)}` : ''
+  return `Rupees ${rupeeWords}${paiseWords} Only`
+}
+
+function getVoucherBeneficiary(row: RegisterVoucher | null, detail: VoucherFull | null) {
+  return detail?.entity_name ?? row?.entity_name ?? '—'
+}
+
+function getApprovalAction(detail: VoucherFull | null) {
+  return detail?.history.find(item => item.action === 'approved') ?? null
+}
+
 // ── WhatsApp payment confirmation URL builder ────────────────────────────────
 function buildWhatsAppPaymentUrl(
   mobile: string,
@@ -601,6 +655,8 @@ function DetailPanel({
   companyId, companyCode, userId, role,
   onClose, onRefresh, onReloadPanel,
 }: DetailPanelProps) {
+  if (!row) return null
+
   const navigate = useNavigate()
   const [actioning,      setActioning]      = useState(false)
   const [confirmDelete,  setConfirmDelete]  = useState(false)
@@ -613,12 +669,44 @@ function DetailPanel({
   const canUploadReceipt = role === 'admin' || role === 'accounts' || role === 'super_admin'
   const isAuditor = role === 'auditor'
   const canRecall = row && (row.created_by === userId || isAdmin)
+  const beneficiaryName = getVoucherBeneficiary(row, detail)
+  const approvalAction = getApprovalAction(detail)
+
+  const traceabilityStamps = [
+    {
+      label: 'Created by',
+      name: detail?.created_by_name ?? row?.created_by_name ?? '—',
+      time: detail?.created_at ?? row?.created_at ?? null,
+      note: 'Prepared By',
+    },
+    {
+      label: 'Approved by',
+      name: approvalAction?.actioned_by_name ?? detail?.posted_by_name ?? '—',
+      time: approvalAction?.actioned_at ?? detail?.posted_at ?? null,
+      note: 'Approved By',
+    },
+    {
+      label: 'OTP Verified',
+      name: detail?.otp_verified_by_name ?? detail?.completed_by_name ?? '—',
+      time: detail?.otp_verified_at ?? detail?.completed_at ?? null,
+      note: 'Payee Signature',
+    },
+  ].filter(stamp => stamp.time || stamp.name !== '—')
 
   // Reset confirm state when panel changes
   useEffect(() => {
     setConfirmDelete(false)
     setConfirmDeletePending(false)
   }, [row?.id])
+
+  useEffect(() => {
+    if (!row) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [row, onClose])
 
   const handleRecall = async () => {
     if (!row) return
@@ -693,13 +781,16 @@ function DetailPanel({
       return
     }
 
-    const entriesHtml = detail.entries.map((e) => `
-      <tr>
-        <td>${escapeHtml(e.ledger_name)}</td>
-        <td>${escapeHtml(e.group_name ?? '—')}</td>
-        <td style="text-align:right;">${e.entry_type === 'Dr' ? formatIndianCurrency(e.amount) : ''}</td>
-        <td style="text-align:right;">${e.entry_type === 'Cr' ? formatIndianCurrency(e.amount) : ''}</td>
-      </tr>
+    const drTotal = detail.entries.reduce((sum, e) => e.entry_type === 'Dr' ? sum + e.amount : sum, 0)
+    const crTotal = detail.entries.reduce((sum, e) => e.entry_type === 'Cr' ? sum + e.amount : sum, 0)
+
+    const stampCards = traceabilityStamps.map((stamp) => `
+      <div class="stampCard">
+        <div class="stampName">${escapeHtml(stamp.name)}</div>
+        <div class="stampRole">${escapeHtml(stamp.label)}</div>
+        <div class="stampTime">${escapeHtml(fmtDateTimeLong(stamp.time))}</div>
+        <div class="stampNote">${escapeHtml(stamp.note)}</div>
+      </div>
     `).join('')
 
     const html = `<!doctype html>
@@ -707,45 +798,112 @@ function DetailPanel({
         <head>
           <title>${escapeHtml(row.voucher_number)} — Voucher Copy</title>
           <style>
-            body { font-family: Arial, sans-serif; margin: 24px; color: #111; }
-            h1 { margin: 0 0 8px; font-size: 22px; }
-            h2 { margin: 22px 0 10px; font-size: 16px; }
-            .meta { display:grid; grid-template-columns: 180px 1fr; gap: 8px 12px; }
-            .label { color:#555; font-weight:700; }
-            table { width:100%; border-collapse: collapse; margin-top: 10px; }
-            th, td { border:1px solid #ccc; padding:8px; font-size: 13px; }
-            th { background:#f4f4f4; text-align:left; }
-            .topline { display:flex; justify-content:space-between; align-items:flex-start; gap: 16px; }
-            .status { padding:4px 10px; border:1px solid #999; border-radius:999px; font-size:12px; }
+            @page { size: A4; margin: 14mm; }
+            * { box-sizing: border-box; }
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              margin: 0;
+              color: #111;
+              background: #fff;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            .sheet {
+              width: 100%;
+              max-width: 980px;
+              margin: 0 auto;
+              padding: 0;
+            }
+            .headerTitle { text-align: center; margin: 0; font-size: 26px; font-weight: 700; }
+            .headerSub { text-align: center; color: #666; margin: 4px 0 18px; font-size: 12px; }
+            .voucherBox { border: 1px solid #d9d9d9; padding: 14px 16px 16px; }
+            .orgName { text-align: center; color: #6d4aa2; font-size: 18px; font-weight: 700; margin: 0; }
+            .orgAddress { text-align: center; color: #6b6b6b; font-size: 11px; margin: 4px 0 0; }
+            .voucherType {
+              text-align: center;
+              color: #f28c13;
+              font-size: 20px;
+              font-weight: 700;
+              letter-spacing: 0.16em;
+              margin: 16px 0 12px;
+            }
+            .rule { border-top: 2px solid #333; margin: 10px 0 14px; }
+            .metaGrid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px 24px;
+            }
+            .metaItem { font-size: 13px; line-height: 1.35; }
+            .metaLabel { display: inline-block; width: 140px; font-weight: 700; color: #222; }
+            .sectionTitle { margin: 16px 0 8px; font-size: 14px; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #dedede; padding: 7px 8px; font-size: 12px; vertical-align: top; }
+            th { background: #f8a21a; color: #fff; text-align: left; }
+            .right { text-align: right; }
+            .totalRow td { background: #fff4d9; font-weight: 700; border-top: 2px solid #f0a000; }
+            .amountWords { margin-top: 6px; font-size: 12px; font-style: italic; color: #a85f00; }
+            .stampRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 28px; }
+            .stampCard { text-align: center; border-top: 1px solid #222; padding-top: 10px; min-height: 88px; }
+            .stampName { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+            .stampRole { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+            .stampTime { font-size: 11px; color: #f28c13; margin-bottom: 4px; }
+            .stampNote { font-size: 11px; color: #555; }
           </style>
         </head>
         <body>
-          <div class="topline">
-            <div>
-              <h1>Voucher Copy</h1>
-              <div><strong>${escapeHtml(row.voucher_number)}</strong></div>
+          <div class="sheet">
+            <h1 class="headerTitle">Voucher</h1>
+            <div class="headerSub">Generated on ${escapeHtml(fmtDateTimeLong(new Date().toISOString()))}</div>
+            <div class="rule"></div>
+
+            <div class="voucherBox">
+              <p class="orgName">Relish Hao Hao Chi Foods</p>
+              <p class="orgAddress">26/599, M.O.Ward, Alappuzha 688001. KL, India</p>
+              <div class="voucherType">PAYMENT VOUCHER</div>
+
+              <div class="rule"></div>
+
+              <div class="metaGrid">
+                <div class="metaItem"><span class="metaLabel">Voucher No:</span> ${escapeHtml(row.voucher_number)}</div>
+                <div class="metaItem"><span class="metaLabel">Date:</span> ${escapeHtml(fmtDateTimeLong(detail.voucher_date))}</div>
+                <div class="metaItem"><span class="metaLabel">Payee:</span> ${escapeHtml(beneficiaryName)}</div>
+                <div class="metaItem"><span class="metaLabel">Payment Mode:</span> ${escapeHtml(detail.payment_mode ?? '—')}</div>
+                <div class="metaItem"><span class="metaLabel">Head of Account:</span> ${escapeHtml(detail.entries[0]?.group_name ?? detail.entries[0]?.ledger_name ?? '—')}</div>
+                <div class="metaItem"><span class="metaLabel">Status:</span> ${escapeHtml(row.status.toUpperCase())}</div>
+              </div>
+
+              <div class="sectionTitle">Particulars</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width: 56px;">S.No.</th>
+                    <th>Description</th>
+                    <th style="width: 110px;" class="right">Amount (₹)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${detail.entries.map((e, index) => `
+                    <tr>
+                      <td class="right">${index + 1}</td>
+                      <td>${escapeHtml(e.ledger_name)}${e.narration ? ` <span style="color:#777;">(${escapeHtml(e.narration)})</span>` : ''}</td>
+                      <td class="right">${escapeHtml(formatIndianCurrency(e.amount))}</td>
+                    </tr>
+                  `).join('')}
+                  <tr class="totalRow">
+                    <td></td>
+                    <td class="right">TOTAL:</td>
+                    <td class="right">${escapeHtml(formatIndianCurrency(drTotal || crTotal))}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div class="amountWords"><strong>In Words:</strong> ${escapeHtml(numberToIndianWords(detail.amount))}</div>
+
+              <div class="stampRow">
+                ${stampCards}
+              </div>
             </div>
-            <div class="status">${escapeHtml(row.status.toUpperCase())}</div>
           </div>
-          <h2>Voucher Details</h2>
-          <div class="meta">
-            <div class="label">Company</div><div>${escapeHtml(companyCode)}</div>
-            <div class="label">Date</div><div>${escapeHtml(fmtDate(detail.voucher_date))}</div>
-            <div class="label">Type</div><div>${escapeHtml(detail.voucher_type.name)}</div>
-            <div class="label">Party</div><div>${escapeHtml(detail.entity_name ?? '—')}</div>
-            <div class="label">Amount</div><div>${escapeHtml(formatIndianCurrency(detail.amount))}</div>
-            <div class="label">Payment Mode</div><div>${escapeHtml(detail.payment_mode ?? '—')}</div>
-            <div class="label">Reference</div><div>${escapeHtml(detail.ref_document_number ?? detail.utr_number ?? '—')}</div>
-            <div class="label">Narration</div><div>${escapeHtml(detail.narration ?? '—')}</div>
-            <div class="label">Created By</div><div>${escapeHtml(detail.created_by_name)}</div>
-          </div>
-          <h2>Accounting Entries</h2>
-          <table>
-            <thead>
-              <tr><th>Ledger</th><th>Group</th><th>Dr</th><th>Cr</th></tr>
-            </thead>
-            <tbody>${entriesHtml}</tbody>
-          </table>
         </body>
       </html>`
 
@@ -779,22 +937,33 @@ function DetailPanel({
   }
 
   return (
-    <aside className={`${styles.panel} ${row ? styles.panelOpen : ''}`}>
-      {/* Header */}
-      <div className={styles.panelHeader}>
-        <div className={styles.panelHeaderLeft}>
-          <span className={styles.panelVoucherNo}>{row?.voucher_number ?? '—'}</span>
-          {row && <StatusBadge status={row.status} />}
+    <div className={styles.modalBackdrop} onClick={onClose} role="presentation">
+      <aside className={styles.modalShell} onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className={styles.modalHeader}>
+          <div className={styles.panelHeaderLeft}>
+            <span className={styles.panelVoucherNo}>{row.voucher_number}</span>
+            <StatusBadge status={row.status} />
+          </div>
+          <div className={styles.modalHeaderActions}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={handlePrintVoucherCopy}
+              disabled={loading || !detail}
+            >
+              <FileText size={13} /> Print
+            </button>
+            <button className={styles.panelClose} onClick={onClose} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
         </div>
-        <button className={styles.panelClose} onClick={onClose} aria-label="Close">
-          <X size={16} />
-        </button>
-      </div>
 
-      {loading ? (
-        <div className={styles.panelLoading}><Loader2 size={24} className={styles.spin} /></div>
-      ) : !detail ? null : (
-        <div className={styles.panelBody}>
+        {loading ? (
+          <div className={styles.panelLoading}><Loader2 size={24} className={styles.spin} /></div>
+        ) : !detail ? null : (
+          <div className={styles.panelBody}>
 
           {/* ── Meta ──────────────────────────────────────────────── */}
           <div className={styles.panelSection}>
@@ -807,12 +976,10 @@ function DetailPanel({
                 <span className={styles.metaLabel}>Type</span>
                 <span className={styles.metaValue}>{detail.voucher_type.name}</span>
               </div>
-              {detail.entity_name && (
-                <div className={styles.metaItem}>
-                  <span className={styles.metaLabel}>Party</span>
-                  <span className={styles.metaValue}>{detail.entity_name}</span>
-                </div>
-              )}
+              <div className={styles.metaItem}>
+                <span className={styles.metaLabel}>Payee / Beneficiary</span>
+                <span className={styles.metaValue}>{beneficiaryName}</span>
+              </div>
               <div className={styles.metaItem}>
                 <span className={styles.metaLabel}>Amount</span>
                 <span className={`${styles.metaValue} ${styles.metaAmount}`}>
@@ -862,6 +1029,28 @@ function DetailPanel({
             </div>
           </div>
 
+          {/* ── Traceability ───────────────────────────────────────────── */}
+          <div className={styles.panelSection}>
+            <div className={styles.sectionHeader}>Traceability</div>
+            <div className={styles.traceGrid}>
+              <div className={styles.traceCard}>
+                <div className={styles.traceName}>{detail.created_by_name}</div>
+                <div className={styles.traceRole}>Created by</div>
+                <div className={styles.traceTime}>{fmtDateTimeLong(detail.created_at)}</div>
+              </div>
+              <div className={styles.traceCard}>
+                <div className={styles.traceName}>{approvalAction?.actioned_by_name ?? detail.posted_by_name ?? '—'}</div>
+                <div className={styles.traceRole}>Approved by</div>
+                <div className={styles.traceTime}>{fmtDateTimeLong(approvalAction?.actioned_at ?? detail.posted_at)}</div>
+              </div>
+              <div className={styles.traceCard}>
+                <div className={styles.traceName}>{detail.otp_verified_by_name ?? detail.completed_by_name ?? '—'}</div>
+                <div className={styles.traceRole}>OTP verified</div>
+                <div className={styles.traceTime}>{fmtDateTimeLong(detail.otp_verified_at ?? detail.completed_at)}</div>
+              </div>
+            </div>
+          </div>
+
           {/* ── Entries ─────────────────────────────────────────────── */}
           <div className={styles.panelSection}>
             <div className={styles.sectionHeader}>Accounting Entries</div>
@@ -892,7 +1081,10 @@ function DetailPanel({
             {row?.status === 'completed' && canUploadReceipt && (
               <div className={styles.receiptUploadBox}>
                 <div className={styles.receiptUploadText}>
-                  Attach bank/UPI transaction receipts after payment completion.
+                  Upload Transaction Receipts here.
+                  <span className={styles.receiptUploadSub}>
+                    Payments are made only after successful voucher completion.
+                  </span>
                 </div>
                 <input
                   ref={receiptInputRef}
@@ -935,8 +1127,11 @@ function DetailPanel({
                         <span>{att.file_name.split('.').pop()?.toUpperCase()}</span>
                       </div>
                     )}
-                    <span className={styles.attachName}>{att.file_name}</span>
-                    <span className={styles.attachSize}>{formatFileSize(att.file_size)}</span>
+                    <div className={styles.attachMeta}>
+                      <span className={styles.attachName}>{att.file_name}</span>
+                      <span className={styles.attachSize}>{formatFileSize(att.file_size)}</span>
+                      <span className={styles.attachLinkHint}>Open attachment ↗</span>
+                    </div>
                   </a>
                 ))}
               </div>
@@ -1077,7 +1272,7 @@ function DetailPanel({
                       mobileMasked={maskMobile(detail.entity_mobile)}
                       onVerified={() => {
                         onRefresh()
-                        onClose()
+                        void onReloadPanel(row.id)
                       }}
                     />
                   </div>
@@ -1088,8 +1283,9 @@ function DetailPanel({
           )}
 
         </div>
-      )}
-    </aside>
+          )}
+      </aside>
+    </div>
   )
 }
 
@@ -1381,8 +1577,8 @@ export default function VoucherRegister() {
 
       </div>
 
-      {/* ── Main: table + slide-over panel ──────────────────────────────── */}
-      <div className={`${styles.main} ${selectedId ? styles.mainWithPanel : ''}`}>
+      {/* ── Main: table ─────────────────────────────────────────────────── */}
+      <div className={styles.main}>
 
         {/* Table area */}
         <div className={styles.tableWrap}>
@@ -1448,7 +1644,7 @@ export default function VoucherRegister() {
           )}
         </div>
 
-        {/* Slide-over detail panel */}
+        {/* Detail modal */}
         <DetailPanel
           row={selectedRow}
           detail={detail}

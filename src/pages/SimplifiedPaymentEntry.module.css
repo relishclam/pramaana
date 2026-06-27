@@ -83,6 +83,18 @@
   padding-bottom: 0.25rem;
 }
 
+.attachPrompt {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.attachHelper {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 /* ── Entity search (step 1) ──────────────────────────────────────────────── */
 
 .entityRow {

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { ChevronDown, BarChart2, X, Menu } from 'lucide-react'
 import { Toaster } from 'sonner'
 import css from './App.module.css'
@@ -43,10 +43,13 @@ function fmtRole(role: string | null | undefined): string {
 // ── Shared app shell (sidebar + main) ────────────────────────────────────────
 
 function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, signOut }     = useAuth()
+  const { user, signOut, setActiveCompany } = useAuth()
   const { pendingCount }      = useApprovalCount()
   const location              = useLocation()
   const [navOpen, setNavOpen] = useState(false)
+  const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
+  const desktopCompanyMenuRef = useRef<HTMLDivElement | null>(null)
+  const mobileCompanyMenuRef = useRef<HTMLDivElement | null>(null)
 
   const onReport = location.pathname.startsWith('/reports/')
   const [reportsOpen, setReportsOpen] = useState(onReport)
@@ -96,6 +99,44 @@ function AppShell({ children }: { children: React.ReactNode }) {
     user?.profile.is_super_admin ||
     (user?.activeRole !== null &&
      ['admin', 'accounts', 'auditor'].includes(user?.activeRole ?? ''))
+
+  const availableCompanies = useMemo(() => {
+    if (!user) return []
+    const unique = new Map<string, Exclude<(typeof user.companyUsers)[number]['company'], undefined>>()
+    user.companyUsers.forEach((cu) => {
+      if (!cu.company) return
+      if (!unique.has(cu.company.id)) {
+        unique.set(cu.company.id, cu.company)
+      }
+    })
+    return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [user])
+
+  const canSwitchCompany =
+    !!user &&
+    availableCompanies.length > 1 &&
+    (
+      user.profile.is_super_admin ||
+      ['admin', 'accounts'].includes(user.activeRole ?? '')
+    )
+
+  useEffect(() => {
+    setCompanyMenuOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!companyMenuOpen) return
+    const onClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      const insideDesktop = !!desktopCompanyMenuRef.current?.contains(target)
+      const insideMobile = !!mobileCompanyMenuRef.current?.contains(target)
+      if (!insideDesktop && !insideMobile) {
+        setCompanyMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [companyMenuOpen])
 
   const activePerson = user?.profile.full_name?.trim() || user?.email || '—'
   const activeRole = user?.profile.is_super_admin ? 'super_admin' : (user?.activeRole ?? null)
@@ -248,7 +289,46 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <div className={css.globalHeaderMeta}>
             <span className={css.metaPill}><strong>Login</strong>{activePerson}</span>
             <span className={css.metaPill}><strong>Role</strong>{fmtRole(activeRole)}</span>
-            <span className={css.metaPill}><strong>Company</strong>{activeCompany}</span>
+            {canSwitchCompany ? (
+              <div className={css.companySelectWrap} ref={desktopCompanyMenuRef}>
+                <button
+                  type="button"
+                  className={`${css.metaPill} ${css.metaPillBtn}`}
+                  onClick={() => setCompanyMenuOpen(o => !o)}
+                  aria-haspopup="menu"
+                  aria-expanded={companyMenuOpen}
+                >
+                  <strong>Company</strong>
+                  <span className={css.metaPillValue}>{activeCompany}</span>
+                  <ChevronDown size={14} className={`${css.metaChevron} ${companyMenuOpen ? css.metaChevronOpen : ''}`} />
+                </button>
+                {companyMenuOpen && (
+                  <div className={css.companyMenu} role="menu">
+                    {availableCompanies.map((company) => {
+                      const isActive = company.id === user?.activeCompany?.id
+                      return (
+                        <button
+                          key={company.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={isActive}
+                          className={`${css.companyMenuItem} ${isActive ? css.companyMenuItemActive : ''}`}
+                          onClick={() => {
+                            setActiveCompany(company)
+                            setCompanyMenuOpen(false)
+                          }}
+                        >
+                          <span>{company.name}</span>
+                          <span className={css.companyCode}>{company.code}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <span className={css.metaPill}><strong>Company</strong>{activeCompany}</span>
+            )}
           </div>
         </header>
 
@@ -264,7 +344,47 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <img src="/Logo_3D.png" alt="Pramaana" style={{ height: '28px', width: 'auto' }} />
           <div className={css.topbarMeta}>
             <span className={css.topbarMetaLine}>{activePerson}</span>
-            <span className={css.topbarMetaLine}>{fmtRole(activeRole)} • {activeCompany}</span>
+            <span className={css.topbarMetaLine}>{fmtRole(activeRole)}</span>
+            {canSwitchCompany ? (
+              <div className={`${css.companySelectWrap} ${css.mobileCompanySelectWrap}`} ref={mobileCompanyMenuRef}>
+                <button
+                  type="button"
+                  className={`${css.metaPill} ${css.metaPillBtn} ${css.mobileMetaPillBtn}`}
+                  onClick={() => setCompanyMenuOpen(o => !o)}
+                  aria-haspopup="menu"
+                  aria-expanded={companyMenuOpen}
+                >
+                  <strong>Company</strong>
+                  <span className={css.metaPillValue}>{activeCompany}</span>
+                  <ChevronDown size={14} className={`${css.metaChevron} ${companyMenuOpen ? css.metaChevronOpen : ''}`} />
+                </button>
+                {companyMenuOpen && (
+                  <div className={`${css.companyMenu} ${css.mobileCompanyMenu}`} role="menu">
+                    {availableCompanies.map((company) => {
+                      const isActive = company.id === user?.activeCompany?.id
+                      return (
+                        <button
+                          key={company.id}
+                          type="button"
+                          role="menuitemradio"
+                          aria-checked={isActive}
+                          className={`${css.companyMenuItem} ${isActive ? css.companyMenuItemActive : ''}`}
+                          onClick={() => {
+                            setActiveCompany(company)
+                            setCompanyMenuOpen(false)
+                          }}
+                        >
+                          <span>{company.name}</span>
+                          <span className={css.companyCode}>{company.code}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <span className={css.topbarMetaLine}>{activeCompany}</span>
+            )}
           </div>
         </div>
         <main className={css.main}>{children}</main>

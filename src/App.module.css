@@ -288,6 +288,85 @@
   color: var(--text-dim);
 }
 
+.companySelectWrap {
+  position: relative;
+}
+
+.metaPillBtn {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  font-family: var(--font-sans);
+}
+
+.metaPillBtn:hover {
+  background: var(--surface);
+}
+
+.metaPillValue {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metaChevron {
+  color: var(--text-dim);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.metaChevronOpen {
+  transform: rotate(180deg);
+}
+
+.companyMenu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  min-width: min(320px, 74vw);
+  max-width: 420px;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  padding: 0.4rem;
+  z-index: 120;
+}
+
+.companyMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 0.5rem 0.625rem;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.8125rem;
+}
+
+.companyMenuItem:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.companyMenuItemActive {
+  background: var(--teal-light);
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.companyCode {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 /* ── Mobile topbar ────────────────────────────────────────────────────────── */
 
 .topbar {
@@ -375,5 +454,23 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100%;
+  }
+
+  .mobileCompanySelectWrap {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .mobileMetaPillBtn {
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-end;
+  }
+
+  .mobileCompanyMenu {
+    right: 0;
+    min-width: min(84vw, 360px);
+    max-width: 90vw;
   }
 }

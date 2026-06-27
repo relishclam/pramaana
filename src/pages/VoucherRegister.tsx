@@ -643,6 +643,7 @@ interface DetailPanelProps {
   attachments: AttachmentWithUrl[]
   companyId:   string
   companyCode: string
+  companyName: string
   userId:      string
   role:        string | null
   onClose:     () => void
@@ -652,7 +653,7 @@ interface DetailPanelProps {
 
 function DetailPanel({
   row, detail, loading, attachments,
-  companyId, companyCode, userId, role,
+  companyId, companyCode, companyName, userId, role,
   onClose, onRefresh, onReloadPanel,
 }: DetailPanelProps) {
   if (!row) return null
@@ -775,11 +776,6 @@ function DetailPanel({
 
   const handlePrintVoucherCopy = () => {
     if (!row || !detail) return
-    const win = window.open('', '_blank', 'width=900,height=700')
-    if (!win) {
-      toast.error('Please allow pop-ups to open voucher copy')
-      return
-    }
 
     const drTotal = detail.entries.reduce((sum, e) => e.entry_type === 'Dr' ? sum + e.amount : sum, 0)
     const crTotal = detail.entries.reduce((sum, e) => e.entry_type === 'Cr' ? sum + e.amount : sum, 0)
@@ -792,6 +788,16 @@ function DetailPanel({
         <div class="stampNote">${escapeHtml(stamp.note)}</div>
       </div>
     `).join('')
+
+    const attachmentRows = attachments.length > 0
+      ? attachments.map((att, i) => `
+        <tr>
+          <td class="attachNum">${i + 1}</td>
+          <td class="attachName">${escapeHtml(att.file_name)}</td>
+          <td class="attachSize">${escapeHtml(att.file_size ? formatFileSize(att.file_size) : '—')}</td>
+        </tr>
+      `).join('')
+      : ''
 
     const html = `<!doctype html>
       <html>
@@ -848,6 +854,13 @@ function DetailPanel({
             .stampRole { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
             .stampTime { font-size: 11px; color: #f28c13; margin-bottom: 4px; }
             .stampNote { font-size: 11px; color: #555; }
+            .attachSection { margin-top: 18px; }
+            .attachSection .sectionTitle { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
+            .attachTable { width: 100%; border-collapse: collapse; }
+            .attachTable td { border: 1px solid #e0e0e0; padding: 5px 8px; font-size: 11px; }
+            .attachNum { width: 36px; text-align: center; color: #888; }
+            .attachName { word-break: break-all; }
+            .attachSize { width: 72px; text-align: right; color: #888; white-space: nowrap; }
           </style>
         </head>
         <body>
@@ -857,8 +870,7 @@ function DetailPanel({
             <div class="rule"></div>
 
             <div class="voucherBox">
-              <p class="orgName">Relish Hao Hao Chi Foods</p>
-              <p class="orgAddress">26/599, M.O.Ward, Alappuzha 688001. KL, India</p>
+              <p class="orgName">${escapeHtml(companyName)}</p>
               <div class="voucherType">PAYMENT VOUCHER</div>
 
               <div class="rule"></div>
@@ -899,6 +911,14 @@ function DetailPanel({
 
               <div class="amountWords"><strong>In Words:</strong> ${escapeHtml(numberToIndianWords(detail.amount))}</div>
 
+              ${attachmentRows ? `
+              <div class="attachSection">
+                <div class="sectionTitle">Attachments</div>
+                <table class="attachTable">
+                  <tbody>${attachmentRows}</tbody>
+                </table>
+              </div>` : ''}
+
               <div class="stampRow">
                 ${stampCards}
               </div>
@@ -907,10 +927,18 @@ function DetailPanel({
         </body>
       </html>`
 
-    win.document.open()
-    win.document.write(html)
-    win.document.close()
-    win.focus()
+    const blob = new Blob([html], { type: 'text/html; charset=utf-8' })
+    const blobUrl = URL.createObjectURL(blob)
+    const win = window.open(blobUrl, '_blank', 'width=900,height=700')
+    if (!win) {
+      URL.revokeObjectURL(blobUrl)
+      toast.error('Please allow pop-ups to open voucher copy')
+      return
+    }
+    win.addEventListener('load', () => {
+      win.print()
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    })
   }
 
   const handleUploadReceiptFiles = async (files: FileList | null) => {
@@ -1652,6 +1680,7 @@ export default function VoucherRegister() {
           attachments={attachments}
           companyId={companyId}
           companyCode={companyCode}
+          companyName={user?.activeCompany?.name ?? ''}
           userId={userId}
           role={role}
           onClose={closePanel}

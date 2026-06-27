@@ -1462,7 +1462,7 @@ export default function VoucherRegister() {
           <div ref={exportRef} style={{ position: 'relative' }}>
             <button
               className={styles.newBtn}
-              style={{ background: 'none', border: '1px solid #d9d6cf', color: '#444' }}
+              style={{ background: 'var(--surface)', border: '1px solid var(--border-2)', color: 'var(--text)' }}
               onClick={() => setExportOpen(o => !o)}
               aria-haspopup="true"
               aria-expanded={exportOpen}

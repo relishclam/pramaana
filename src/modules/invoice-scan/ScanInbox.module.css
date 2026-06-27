@@ -24,7 +24,7 @@
   gap: 0.4rem;
   padding: 0.55rem 1.1rem;
   background: var(--teal);
-  color: #0e1117;
+  color: #fff;
   font-weight: 600;
   font-size: 0.875rem;
   border: none;
@@ -34,7 +34,7 @@
   text-decoration: none;
 }
 
-.scanBtn:hover { background: var(--teal-dark); color: var(--text); text-decoration: none; }
+.scanBtn:hover { background: var(--teal-dark); color: #fff; text-decoration: none; }
 
 /* ── Filters bar ───────────────────────────────────────────────────────────── */
 

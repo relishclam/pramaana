@@ -155,7 +155,7 @@
   margin-top: 1.25rem;
   padding: 0.75rem;
   background: var(--teal);
-  color: #0e1117;
+  color: #fff;
   font-weight: 600;
   font-size: 0.9375rem;
   border: none;
@@ -164,7 +164,7 @@
   transition: background 0.15s;
 }
 
-.scanBtn:hover:not(:disabled) { background: var(--teal-dark); color: var(--text); }
+.scanBtn:hover:not(:disabled) { background: var(--teal-dark); color: #fff; }
 
 .scanBtn:disabled {
   opacity: 0.5;

@@ -351,10 +351,10 @@ export default function VoucherEntry() {
           className={styles.scanBtn ?? ''}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-            background: 'none', border: '1px solid #d9d6cf',
+            background: 'var(--surface)', border: '1px solid var(--border-2)',
             borderRadius: '8px', padding: '0.4375rem 0.875rem',
             fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer',
-            color: '#444', fontFamily: 'inherit',
+            color: 'var(--text)', fontFamily: 'inherit',
           }}
           onClick={() => setScanOpen(true)}
         >

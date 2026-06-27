@@ -275,7 +275,7 @@
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
-  color: var(--text-muted);
+  color: var(--text);
   font-size: 0.75rem;
   white-space: nowrap;
   max-width: min(38vw, 360px);
@@ -285,7 +285,7 @@
 
 .metaPill strong {
   font-weight: 700;
-  color: var(--text-dim);
+  color: #f8fbff;
 }
 
 .companySelectWrap {
@@ -309,7 +309,7 @@
 }
 
 .metaChevron {
-  color: var(--text-dim);
+  color: var(--text);
   transition: transform 0.2s ease;
   flex-shrink: 0;
 }
@@ -362,7 +362,7 @@
 }
 
 .companyCode {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 0.75rem;
   white-space: nowrap;
 }
@@ -449,7 +449,7 @@
   .topbarMetaLine {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--text-muted);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

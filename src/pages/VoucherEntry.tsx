@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Plus, Trash2, Check, X, Loader2, Search, AlertTriangle, ScanLine } from 'lucide-react'
+import { Plus, Trash2, Check, X, Loader2, Search, AlertTriangle, ScanLine, Paperclip, FileText } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -17,6 +17,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import SimplifiedPaymentEntry from './SimplifiedPaymentEntry'
 import InvoiceScanModal from '@/components/InvoiceScanModal'
+import { uploadVoucherAttachments, formatFileSize } from '@/lib/attachments'
 import styles from './VoucherEntry.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -105,6 +106,13 @@ export default function VoucherEntry() {
 
   // ── Invoice scan modal ────────────────────────────────────────────────────
   const [scanOpen, setScanOpen] = useState(false)
+
+  // ── Staged attachments ────────────────────────────────────────────────────
+  const [stagedFiles, setStagedFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // ── Preview ───────────────────────────────────────────────────────────────
+  const [showPreview, setShowPreview] = useState(false)
 
   // ── Init: voucher types are global — load once independently ───────────────
   useEffect(() => {
@@ -294,6 +302,19 @@ export default function VoucherEntry() {
     return { voucherBase, entryPayloads }
   }
 
+  // ── File helpers ──────────────────────────────────────────────────────────
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? [])
+    setStagedFiles(prev => {
+      const existing = new Set(prev.map(f => f.name + f.size))
+      return [...prev, ...picked.filter(f => !existing.has(f.name + f.size))]
+    })
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const removeStagedFile = (idx: number) =>
+    setStagedFiles(prev => prev.filter((_, i) => i !== idx))
+
   // ── Save as draft ─────────────────────────────────────────────────────────
   const handleSaveDraft = async () => {
     if (!activeType || entries.some(e => !e.ledger_id)) {
@@ -313,15 +334,24 @@ export default function VoucherEntry() {
     }
   }
 
-  // ── Submit for approval ───────────────────────────────────────────────────
-  const handleSubmit = async () => {
+  // ── Preview gate ──────────────────────────────────────────────────────────
+  const handleSubmitClick = () => {
     if (!validate()) return
+    setShowPreview(true)
+  }
+
+  // ── Confirm submit (from preview modal) ───────────────────────────────────
+  const handleConfirmSubmit = async () => {
     setSaving(true)
     try {
       const { voucherBase, entryPayloads } = buildPayloads()
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { voucher_number: _vn, ...base } = voucherBase
-      await submitVoucher(base, entryPayloads, companyCode, activeType!.prefix)
+      const voucherId = await submitVoucher(base, entryPayloads, companyCode, activeType!.prefix)
+      if (stagedFiles.length > 0) {
+        const { failed } = await uploadVoucherAttachments(voucherId, companyId, userId, stagedFiles)
+        if (failed.length > 0) toast.warning(`Voucher saved — ${failed.length} file(s) failed to upload`)
+      }
       toast.success('Voucher submitted for approval')
       navigate('/vouchers')
     } catch (err: unknown) {
@@ -574,6 +604,55 @@ export default function VoucherEntry() {
               </select>
             </div>
           )}
+
+          {/* Attachments */}
+          <div className={styles.field}>
+            <label className={styles.label}>Attachments <span className={styles.labelOpt}>(optional)</span></label>
+            <div
+              className={styles.attachZone}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => {
+                e.preventDefault()
+                const dropped = Array.from(e.dataTransfer.files)
+                setStagedFiles(prev => {
+                  const existing = new Set(prev.map(f => f.name + f.size))
+                  return [...prev, ...dropped.filter(f => !existing.has(f.name + f.size))]
+                })
+              }}
+            >
+              <Paperclip size={15} className={styles.attachZoneIcon} />
+              <span>Tap to attach invoices, receipts or PDFs</span>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={handleFilePick}
+            />
+            {stagedFiles.length > 0 && (
+              <div className={styles.stagedList}>
+                {stagedFiles.map((file, idx) => (
+                  <div key={idx} className={styles.stagedItem}>
+                    <FileText size={13} className={styles.stagedIcon} />
+                    <span className={styles.stagedName}>{file.name}</span>
+                    <span className={styles.stagedSize}>{formatFileSize(file.size)}</span>
+                    <button
+                      type="button"
+                      className={styles.stagedRemove}
+                      onClick={() => removeStagedFile(idx)}
+                      aria-label="Remove"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── RIGHT COLUMN: Entry rows ────────────────────────────────────── */}
@@ -647,16 +726,94 @@ export default function VoucherEntry() {
             <button
               type="button"
               className={styles.btnSubmit}
-              onClick={handleSubmit}
+              onClick={handleSubmitClick}
               disabled={saving || !balanced}
               title={!balanced ? 'Voucher must be balanced before submitting' : ''}
             >
-              {saving ? <Loader2 size={14} className={styles.spin} /> : <Check size={14} />}
-              Submit for Approval
+              <Check size={14} /> Review &amp; Submit
             </button>
           </div>
         </div>
       </div>
+      )}
+
+      {/* ── Preview modal ─────────────────────────────────────────────────── */}
+      {showPreview && (
+        <div className={styles.previewBackdrop} onClick={() => setShowPreview(false)}>
+          <div className={styles.previewModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.previewHeader}>
+              <h3 className={styles.previewTitle}>Review — {activeType?.name} Voucher</h3>
+              <button type="button" className={styles.previewClose} onClick={() => setShowPreview(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className={styles.previewBody}>
+              <div className={styles.previewMeta}>
+                <div><span className={styles.previewKey}>Date</span>{voucherDate}</div>
+                {refNumber && <div><span className={styles.previewKey}>Reference</span>{refNumber}</div>}
+                {entityId && <div><span className={styles.previewKey}>Party</span>{entityLabel}</div>}
+                {needsPayment && paymentMode && <div><span className={styles.previewKey}>Mode</span>{paymentMode}</div>}
+                {narration && <div className={styles.previewMetaFull}><span className={styles.previewKey}>Narration</span>{narration}</div>}
+              </div>
+              <div>
+                <div className={styles.previewSectionTitle}>Accounting Entries</div>
+                <table className={styles.previewTable}>
+                  <thead>
+                    <tr>
+                      <th>Ledger</th>
+                      <th className={styles.previewRight}>Dr (₹)</th>
+                      <th className={styles.previewRight}>Cr (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {entries.map((e, i) => (
+                      <tr key={i}>
+                        <td>{e.ledger_name}</td>
+                        <td className={styles.previewRight}>{e.entry_type === 'Dr' ? formatIndianCurrency(parseFloat(e.amount)) : ''}</td>
+                        <td className={styles.previewRight}>{e.entry_type === 'Cr' ? formatIndianCurrency(parseFloat(e.amount)) : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td><strong>Total</strong></td>
+                      <td className={styles.previewRight}><strong>{formatIndianCurrency(drTotal)}</strong></td>
+                      <td className={styles.previewRight}><strong>{formatIndianCurrency(crTotal)}</strong></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              {stagedFiles.length > 0 && (
+                <div>
+                  <div className={styles.previewSectionTitle}>Attachments ({stagedFiles.length})</div>
+                  <div className={styles.previewAttachList}>
+                    {stagedFiles.map((f, i) => (
+                      <div key={i} className={styles.previewAttachItem}>
+                        <FileText size={12} />
+                        <span>{f.name}</span>
+                        <span className={styles.previewAttachSize}>{formatFileSize(f.size)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className={styles.previewFooter}>
+              <button type="button" className={styles.btnDraft} onClick={() => setShowPreview(false)}>
+                ← Back to Edit
+              </button>
+              <button
+                type="button"
+                className={styles.btnSubmit}
+                onClick={handleConfirmSubmit}
+                disabled={saving}
+              >
+                {saving ? <Loader2 size={14} className={styles.spin} /> : <Check size={14} />}
+                {saving ? 'Submitting…' : 'Confirm & Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

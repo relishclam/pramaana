@@ -86,6 +86,7 @@ export default function SimplifiedPaymentEntry({
   const step4Ref = useRef<HTMLDivElement>(null)
   const step5Ref = useRef<HTMLDivElement>(null)
   const step6Ref = useRef<HTMLDivElement>(null)
+  const step8Ref = useRef<HTMLDivElement>(null)
 
   // ── Step 5: Payment mode ──────────────────────────────────────────────────
   const [paymentMode,  setPaymentMode]  = useState('')
@@ -104,6 +105,7 @@ export default function SimplifiedPaymentEntry({
   // ── UI ────────────────────────────────────────────────────────────────────
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [saving,       setSaving]       = useState(false)
+  const [showPreview,  setShowPreview]  = useState(false)
 
   // ── Fetch payment accounts ────────────────────────────────────────────────
   useEffect(() => {
@@ -149,6 +151,8 @@ export default function SimplifiedPaymentEntry({
   useEffect(() => { if (show4) step4Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show4])
   useEffect(() => { if (show5) step5Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show5])
   useEffect(() => { if (show6) step6Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show6])
+  useEffect(() => { if (canSubmit) step8Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [canSubmit])
+  useEffect(() => { if (!canSubmit) setShowPreview(false) }, [canSubmit])
 
   // ── Entity search ─────────────────────────────────────────────────────────
   const searchEntities = useCallback(async (q: string) => {
@@ -669,21 +673,82 @@ export default function SimplifiedPaymentEntry({
         </div>
       )}
 
-      {/* ════ Submit ══════════════════════════════════════════════════════ */}
+      {/* ════ Step 8 — Review & Confirm ══════════════════════════════════ */}
       {canSubmit && (
-        <div className={styles.submitWrap}>
-          <button
-            type="button"
-            className={styles.submitBtn}
-            onClick={handleSubmit}
-            disabled={saving}
-          >
-            {saving
-              ? <Loader2 size={15} className={styles.spin} />
-              : <Check size={15} />
-            }
-            {saving ? 'Submitting…' : 'Submit for Approval'}
-          </button>
+        <div ref={step8Ref} className={styles.step}>
+          <StepHead num={8} done={false} label="Review & Confirm" />
+          <div className={styles.body}>
+            {!showPreview ? (
+              <button
+                type="button"
+                className={styles.reviewTriggerBtn}
+                onClick={() => setShowPreview(true)}
+              >
+                <Eye size={15} /> Review before submitting
+              </button>
+            ) : (
+              <div className={styles.reviewCard}>
+                <div className={styles.reviewRow}>
+                  <span className={styles.reviewLabel}>Paying to</span>
+                  <span className={styles.reviewValue}>{entityLabel || 'Not specified'}</span>
+                </div>
+                <div className={styles.reviewRow}>
+                  <span className={styles.reviewLabel}>Amount</span>
+                  <span className={`${styles.reviewValue} ${styles.reviewAmount}`}>{formatIndianCurrency(totalNum)}</span>
+                </div>
+                <div className={styles.reviewRow}>
+                  <span className={styles.reviewLabel}>For</span>
+                  <div className={styles.reviewList}>
+                    {lines.map(l => (
+                      <div key={l.key}>{l.ledger_name} — {formatIndianCurrency(parseFloat(l.amount))}</div>
+                    ))}
+                  </div>
+                </div>
+                <div className={styles.reviewRow}>
+                  <span className={styles.reviewLabel}>From</span>
+                  <span className={styles.reviewValue}>{selectedAccount?.name}{selectedAccount ? ` (${selectedAccount.type === 'bank' ? 'Bank' : 'Cash'})` : ''}</span>
+                </div>
+                {paymentMode && paymentMode !== 'cash' && (
+                  <div className={styles.reviewRow}>
+                    <span className={styles.reviewLabel}>Mode</span>
+                    <span className={styles.reviewValue}>{paymentMode}</span>
+                  </div>
+                )}
+                {refNumber && (
+                  <div className={styles.reviewRow}>
+                    <span className={styles.reviewLabel}>Reference</span>
+                    <span className={styles.reviewValue}>{refNumber}</span>
+                  </div>
+                )}
+                {narration && (
+                  <div className={styles.reviewRow}>
+                    <span className={styles.reviewLabel}>Narration</span>
+                    <span className={styles.reviewValue}>{narration}</span>
+                  </div>
+                )}
+                <div className={styles.reviewRow}>
+                  <span className={styles.reviewLabel}>Attachments</span>
+                  <span className={styles.reviewValue}>
+                    {stagedFiles.length === 0 ? 'None' : `${stagedFiles.length} file${stagedFiles.length > 1 ? 's' : ''}`}
+                  </span>
+                </div>
+                <div className={styles.reviewActions}>
+                  <button type="button" className={styles.reviewEditBtn} onClick={() => setShowPreview(false)}>
+                    ← Edit
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.reviewConfirmBtn}
+                    onClick={handleSubmit}
+                    disabled={saving}
+                  >
+                    {saving ? <Loader2 size={14} className={styles.spin} /> : <Check size={14} />}
+                    {saving ? 'Submitting…' : 'Confirm & Submit'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

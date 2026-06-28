@@ -149,12 +149,12 @@ export default function AwaitingPayments() {
         </div>
       </div>
 
-      <div className={styles.main}>
-        {/* WhatsApp summary bar — only shown when there are pending payments */}
-        {rows.length > 0 && (
+      {/* Summary bar — outside styles.main so it spans full width above the table */}
+      {rows.length > 0 && (
+        <div style={{ padding: '0 1.5rem 0.75rem' }}>
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '0.625rem 1rem', marginBottom: '0.75rem',
+            padding: '0.625rem 1rem',
             background: 'var(--surface-2)', border: '1px solid var(--border)',
             borderRadius: '8px', gap: '1rem', flexWrap: 'wrap',
           }}>
@@ -179,7 +179,10 @@ export default function AwaitingPayments() {
               &#128228; Send to Admin via WhatsApp
             </button>
           </div>
-        )}
+        </div>
+      )}
+
+      <div className={styles.main}>
         <div className={styles.tableWrap}>
           {loading ? (
             <div className={styles.centerState}>
@@ -196,7 +199,6 @@ export default function AwaitingPayments() {
               <thead>
                 <tr className={styles.headerRow}>
                   <th>Voucher No.</th>
-                  <th>Date</th>
                   <th>Party</th>
                   <th>Mode</th>
                   <th className={styles.right}>Amount</th>
@@ -211,22 +213,21 @@ export default function AwaitingPayments() {
                   return (
                     <tr key={row.id} className={styles.row}>
                       <td className={styles.voucherNo}>
-                        {row.voucher_number}
+                        <div>{row.voucher_number}</div>
                         {overdue && (
-                          <span style={{
+                          <div style={{
                             display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
-                            marginLeft: '0.5rem', fontSize: '0.6875rem', fontWeight: 600,
+                            marginTop: '0.2rem', fontSize: '0.6875rem', fontWeight: 600,
                             color: '#f59e0b', background: 'rgba(245,158,11,0.12)',
                             border: '1px solid rgba(245,158,11,0.3)',
                             borderRadius: '4px', padding: '1px 5px',
                           }}>
                             <AlertTriangle size={10} /> Pending 2+ days
-                          </span>
+                          </div>
                         )}
                       </td>
-                      <td className={styles.dateCell}>{fmtDate(row.voucher_date)}</td>
                       <td className={styles.partyCell}>{row.entity_name ?? <span className={styles.dim}>—</span>}</td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <span style={{
                           fontSize: '0.75rem', padding: '2px 7px',
                           background: 'var(--surface-2)', border: '1px solid var(--border)',
@@ -235,10 +236,10 @@ export default function AwaitingPayments() {
                           {row.payment_mode ?? '—'}
                         </span>
                       </td>
-                      <td className={`${styles.amountCell} ${styles.right}`}>
+                      <td className={`${styles.amountCell} ${styles.right}`} style={{ whiteSpace: 'nowrap' }}>
                         {formatIndianCurrency(row.amount)}
                       </td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
                           <Clock size={12} />
                           {row.completed_at ? fmtDate(row.completed_at.slice(0, 10)) : '—'}

@@ -4,6 +4,9 @@ export interface Profile {
   id: string
   email: string | null
   full_name: string | null
+  mobile: string | null           // direct mobile — set in AdminPanel or synced from entity
+  mobile_verified: boolean
+  entity_id: string | null        // FK → registry.entities — links this user to a business contact
   is_super_admin: boolean
   is_active: boolean
   created_at: string

@@ -89,33 +89,110 @@ export async function markVoucherPaid(
 }
 
 // ── Fetch Admin mobile for WhatsApp notification ──────────────────────────────
-// Mobile is stored in registry.profiles.mobile for the admin user of the company.
-// If not set, callers should toast: 'Admin mobile number not set — add it in Master Data → Users.'
+//
+// Fallback chain (stops at first non-null result):
+//   1. registry.profiles.mobile        — directly set on the admin’s profile
+//   2. registry.entities.mobile        — via profiles.entity_id (profile linked to an entity)
+//   3. registry.entity_roles + entities — entity with role = 'Management' for this company
+//
+// The schema already has profiles.mobile + profiles.entity_id; they just need populating.
+// Phase 1: set profiles.mobile in AdminPanel → Users.
+// Phase 2: link profiles.entity_id → entities to auto-sync.
 
 export async function fetchAdminMobile(companyId: string): Promise<string | null> {
-  // Step 1: find all admin user_ids for this company
-  const { data: admins, error: adminErr } = await supabase
+  // ─ find admin user IDs for this company ─────────────────────────────
+  const { data: admins } = await supabase
     .schema('registry')
     .from('company_users')
     .select('user_id')
     .eq('company_id', companyId)
     .eq('role', 'admin')
 
-  if (adminErr || !admins?.length) return null
+  const adminIds = (admins as { user_id: string }[] | null)?.map(a => a.user_id) ?? []
 
-  const adminIds = (admins as { user_id: string }[]).map(a => a.user_id)
+  if (adminIds.length) {
+    // ─ 1. profiles.mobile ─────────────────────────────────────────────────
+    const { data: profile } = await supabase
+      .schema('registry')
+      .from('profiles')
+      .select('mobile, entity_id')
+      .in('id', adminIds)
+      .not('mobile', 'is', null)
+      .limit(1)
+      .maybeSingle()
 
-  // Step 2: get the first admin profile that has a mobile number
-  const { data: profile } = await supabase
+    const profileRow = profile as { mobile: string | null; entity_id: string | null } | null
+    if (profileRow?.mobile) return profileRow.mobile
+
+    // ─ 2. profiles.entity_id → entities.mobile ──────────────────────────
+    const { data: linkedProfile } = await supabase
+      .schema('registry')
+      .from('profiles')
+      .select('entity_id')
+      .in('id', adminIds)
+      .not('entity_id', 'is', null)
+      .limit(1)
+      .maybeSingle()
+
+    const entityId = (linkedProfile as { entity_id: string | null } | null)?.entity_id
+    if (entityId) {
+      const { data: entity } = await supabase
+        .schema('registry')
+        .from('entities')
+        .select('mobile')
+        .eq('id', entityId)
+        .not('mobile', 'is', null)
+        .maybeSingle()
+
+      const mob = (entity as { mobile: string | null } | null)?.mobile
+      if (mob) return mob
+    }
+  }
+
+  // ─ 3. Management entity role for this company ───────────────────────
+  // Reaches here when there is no admin profile OR no mobile/entity_id on the profile.
+  // Falls back to the first active Management entity for this company.
+  const { data: mgmtRoles } = await supabase
     .schema('registry')
-    .from('profiles')
-    .select('mobile')
-    .in('id', adminIds)
-    .not('mobile', 'is', null)
-    .limit(1)
-    .maybeSingle()
+    .from('entity_roles')
+    .select('entity_id')
+    .eq('company_id', companyId)
+    .eq('role', 'Management')
+    .eq('is_active', true)
+    .limit(5)
 
-  return (profile as { mobile: string | null } | null)?.mobile ?? null
+  const mgmtEntityIds = (mgmtRoles as { entity_id: string }[] | null)?.map(r => r.entity_id) ?? []
+
+  if (mgmtEntityIds.length) {
+    const { data: mgmtEntity } = await supabase
+      .schema('registry')
+      .from('entities')
+      .select('mobile')
+      .in('id', mgmtEntityIds)
+      .not('mobile', 'is', null)
+      .limit(1)
+      .maybeSingle()
+
+    const mob = (mgmtEntity as { mobile: string | null } | null)?.mobile
+    if (mob) return mob
+  }
+
+  // Step 4: public.profiles.phone (Relish Suite shared auth.users UUID)
+  // Most reliable fallback until registry.profiles.mobile is seeded.
+  if (adminIds.length) {
+    const { data: pubProfile } = await supabase
+      .from('profiles')          // no .schema() -> defaults to public
+      .select('phone')
+      .in('id', adminIds)
+      .not('phone', 'is', null)
+      .limit(1)
+      .maybeSingle()
+
+    const pubPhone = (pubProfile as { phone: string | null } | null)?.phone
+    if (pubPhone) return pubPhone
+  }
+
+  return null
 }
 
 // ── Awaiting payment list ─────────────────────────────────────────────────────

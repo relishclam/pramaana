@@ -10,9 +10,11 @@ export interface CompanyPaymentAccount {
 }
 
 export interface MarkPaidPayload {
+  userId:            string          // auth user who marked it paid (→ paid_by audit trail)
   paid_from_account: string | null
   paid_at:           string          // ISO timestamp
-  utr_number:        string | null
+  utr_number:        string | null   // for UPI / NEFT / RTGS / IMPS / Bank modes
+  cheque_number:     string | null   // for Cheque mode only
 }
 
 // ── Company payment accounts ──────────────────────────────────────────────────
@@ -66,12 +68,15 @@ export async function markVoucherPaid(
   payload:   MarkPaidPayload,
 ): Promise<void> {
   const update: Record<string, unknown> = {
+    // Transition to final accounting state — required for financial reports
+    // (Trial Balance, P&L, Balance Sheet all filter status = 'posted')
+    status:            'posted',
     paid_at:           payload.paid_at,
+    paid_by:           payload.userId,    // audit trail: who recorded the payment
     paid_from_account: payload.paid_from_account,
   }
-  if (payload.utr_number?.trim()) {
-    update['utr_number'] = payload.utr_number.trim()
-  }
+  if (payload.utr_number?.trim())    update['utr_number']    = payload.utr_number.trim()
+  if (payload.cheque_number?.trim()) update['cheque_number'] = payload.cheque_number.trim()
 
   const { error } = await supabase
     .schema('pramaana')
@@ -81,6 +86,36 @@ export async function markVoucherPaid(
     .eq('status', 'completed')
 
   if (error) throw new Error('Failed to mark voucher as paid: ' + error.message)
+}
+
+// ── Fetch Admin mobile for WhatsApp notification ──────────────────────────────
+// Mobile is stored in registry.profiles.mobile for the admin user of the company.
+// If not set, callers should toast: 'Admin mobile number not set — add it in Master Data → Users.'
+
+export async function fetchAdminMobile(companyId: string): Promise<string | null> {
+  // Step 1: find all admin user_ids for this company
+  const { data: admins, error: adminErr } = await supabase
+    .schema('registry')
+    .from('company_users')
+    .select('user_id')
+    .eq('company_id', companyId)
+    .eq('role', 'admin')
+
+  if (adminErr || !admins?.length) return null
+
+  const adminIds = (admins as { user_id: string }[]).map(a => a.user_id)
+
+  // Step 2: get the first admin profile that has a mobile number
+  const { data: profile } = await supabase
+    .schema('registry')
+    .from('profiles')
+    .select('mobile')
+    .in('id', adminIds)
+    .not('mobile', 'is', null)
+    .limit(1)
+    .maybeSingle()
+
+  return (profile as { mobile: string | null } | null)?.mobile ?? null
 }
 
 // ── Awaiting payment list ─────────────────────────────────────────────────────

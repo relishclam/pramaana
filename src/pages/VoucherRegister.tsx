@@ -1327,6 +1327,7 @@ function DetailPanel({
                           paid_from_account:   detail.paid_from_account,
                           paid_at:             detail.paid_at,
                           utr_number:          detail.utr_number,
+                          cheque_number:       detail.cheque_number,
                         })}
                         style={{ gap: '0.375rem' }}
                       >
@@ -1755,6 +1756,7 @@ export default function VoucherRegister() {
         <PayNowModal
           voucher={payNowVoucher}
           companyId={companyId}
+          userId={userId}
           onPaid={() => {
             handleRefresh()
             if (selectedId) void loadPanelData(selectedId)

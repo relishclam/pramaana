@@ -134,11 +134,13 @@ export interface PayNowVoucher {
   paid_from_account:   string | null   // already-set value (if any)
   paid_at:             string | null   // already-set value (if any)
   utr_number:          string | null
+  cheque_number:       string | null
 }
 
 interface Props {
   voucher:   PayNowVoucher
   companyId: string
+  userId:    string            // auth user id → written to paid_by on submit
   onPaid:    () => void
   onClose:   () => void
 }
@@ -167,11 +169,12 @@ function CopyFieldBtn({ value, label }: { value: string; label: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function PayNowModal({ voucher, companyId, onPaid, onClose }: Props) {
-  const mobile  = isMobile()
-  const mode    = voucher.payment_mode ?? ''
-  const isUpi   = mode === 'UPI'
-  const isBank  = BANK_TRANSFER_MODES.has(mode)
+export default function PayNowModal({ voucher, companyId, userId, onPaid, onClose }: Props) {
+  const mobile      = isMobile()
+  const mode        = voucher.payment_mode ?? ''
+  const isUpi       = mode === 'UPI'
+  const isBank      = BANK_TRANSFER_MODES.has(mode)
+  const isChequePay = mode === 'Cheque'   // Cheque uses cheque_number, not utr_number
 
   // Payment accounts for datalist
   const [payAccounts, setPayAccounts] = useState<CompanyPaymentAccount[]>([])
@@ -184,7 +187,10 @@ export default function PayNowModal({ voucher, companyId, onPaid, onClose }: Pro
   const [markPaidOpen, setMarkPaidOpen] = useState(false)
   const [paidFrom,     setPaidFrom]     = useState(voucher.paid_from_account ?? '')
   const [paidAt,       setPaidAt]       = useState(todayIso())
-  const [utr,          setUtr]          = useState(voucher.utr_number ?? '')
+  // For Cheque mode pre-fill from cheque_number; all other modes from utr_number
+  const [utr,          setUtr]          = useState(
+    isChequePay ? (voucher.cheque_number ?? '') : (voucher.utr_number ?? '')
+  )
   const [submitting,   setSubmitting]   = useState(false)
   const [fromError,    setFromError]    = useState(false)
 
@@ -245,9 +251,11 @@ export default function PayNowModal({ voucher, companyId, onPaid, onClose }: Pro
     setSubmitting(true)
     try {
       await markVoucherPaid(voucher.id, {
+        userId,
         paid_from_account: paidFrom.trim() || null,
         paid_at:           paidAt ? new Date(paidAt).toISOString() : nowTimestamp(),
-        utr_number:        utr.trim() || null,
+        utr_number:        isChequePay ? null : (utr.trim() || null),
+        cheque_number:     isChequePay ? (utr.trim() || null) : null,
       })
       toast.success('Voucher marked as paid')
       onPaid()
@@ -490,14 +498,16 @@ export default function PayNowModal({ voucher, companyId, onPaid, onClose }: Pro
                 />
               </div>
 
-              {/* UTR Number */}
+              {/* UTR Number / Cheque Number */}
               <div className={styles.fieldGroup}>
-                <label className={styles.fieldLabel}>UTR / Transaction Reference</label>
+                <label className={styles.fieldLabel}>
+                  {isChequePay ? 'Cheque Number' : 'UTR / Transaction Reference'}
+                </label>
                 <div className={styles.fieldWithBtn}>
                   <input
                     type="text"
                     className={styles.fieldInput}
-                    placeholder="UTR / Ref number (optional)"
+                    placeholder={isChequePay ? 'e.g. 012345' : 'UTR / Ref number (optional)'}
                     value={utr}
                     onChange={e => setUtr(e.target.value)}
                   />

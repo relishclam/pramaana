@@ -12,7 +12,7 @@ import { Loader2, Clock, AlertTriangle, CreditCard } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatIndianCurrency } from '@/lib/vouchers'
-import { fetchAwaitingPayments, type AwaitingPaymentRow } from '@/lib/pay-now'
+import { fetchAwaitingPayments, fetchAdminMobile, type AwaitingPaymentRow } from '@/lib/pay-now'
 import { fetchVoucherFull } from '@/lib/approvals'
 import PayNowModal, { type PayNowVoucher } from '@/components/PayNowModal'
 import styles from './VoucherRegister.module.css'   // reuse existing styles
@@ -50,11 +50,13 @@ export default function AwaitingPayments() {
   const companyId    = user?.activeCompany?.id  ?? ''
   const role         = user?.activeRole         ?? null
   const isSuperAdmin = user?.profile.is_super_admin ?? false
+  const userId       = user?.id ?? ''
 
   const [rows,    setRows]    = useState<AwaitingPaymentRow[]>([])
   const [loading, setLoading] = useState(false)
   const [payNowVoucher, setPayNowVoucher] = useState<PayNowVoucher | null>(null)
   const [resolving, setResolving] = useState<string | null>(null)   // voucherId being resolved
+  const [sendingWa, setSendingWa] = useState(false)
 
   const load = useCallback(async () => {
     if (!companyId) return
@@ -92,11 +94,46 @@ export default function AwaitingPayments() {
         paid_from_account:   detail.paid_from_account,
         paid_at:             detail.paid_at,
         utr_number:          detail.utr_number,
+        cheque_number:       detail.cheque_number,
       })
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to load voucher')
     } finally {
       setResolving(null)
+    }
+  }
+
+  // ── WhatsApp "Send to Admin" ─────────────────────────────────────────────
+  const handleSendToAdmin = async () => {
+    if (!rows.length) return
+    setSendingWa(true)
+    try {
+      const mobile = await fetchAdminMobile(companyId)
+      if (!mobile) {
+        toast.error('Admin mobile number not set. Add it in Master Data → Users.')
+        return
+      }
+
+      const lines = rows.map((v, i) =>
+        `${i + 1}. ${v.entity_name ?? 'Unknown payee'} — ` +
+        `₹${v.amount.toLocaleString('en-IN')} (${v.voucher_number})`
+      ).join('\n')
+      const total = rows.reduce((sum, v) => sum + v.amount, 0)
+      const message =
+        `Pramaana — Payments Awaiting Approval\n\n` +
+        `${lines}\n\n` +
+        `Total: ₹${total.toLocaleString('en-IN')} ` +
+        `(${rows.length} payment${rows.length === 1 ? '' : 's'})\n\n` +
+        `Open Pramaana to pay:\nhttps://pramaana-tau.vercel.app/payments`
+
+      // Normalise to E.164 without '+': 10 digits → prepend '91', else use digits as-is
+      const digits = mobile.replace(/\D/g, '')
+      const wa     = digits.length === 10 ? `91${digits}` : digits
+
+      window.open(`https://wa.me/${wa}?text=${encodeURIComponent(message)}`, '_blank')
+      toast.success('✓ WhatsApp opened — send the message to notify Admin.')
+    } finally {
+      setSendingWa(false)
     }
   }
 
@@ -113,6 +150,36 @@ export default function AwaitingPayments() {
       </div>
 
       <div className={styles.main}>
+        {/* WhatsApp summary bar — only shown when there are pending payments */}
+        {rows.length > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '0.625rem 1rem', marginBottom: '0.75rem',
+            background: 'var(--surface-2)', border: '1px solid var(--border)',
+            borderRadius: '8px', gap: '1rem', flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+              <strong style={{ color: 'var(--text)' }}>{rows.length} payment{rows.length !== 1 ? 's' : ''}</strong>{' '}
+              waiting &middot; Total{' '}
+              <strong style={{ color: 'var(--gold)' }}>
+                {formatIndianCurrency(rows.reduce((s, r) => s + r.amount, 0))}
+              </strong>
+            </span>
+            <button
+              onClick={() => { void handleSendToAdmin() }}
+              disabled={sendingWa}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                padding: '0.375rem 0.875rem', fontSize: '0.8125rem', fontWeight: 600,
+                background: '#25d366', color: '#fff', border: 'none',
+                borderRadius: '6px', cursor: sendingWa ? 'not-allowed' : 'pointer',
+                opacity: sendingWa ? 0.7 : 1,
+              }}
+            >
+              &#128228; Send to Admin via WhatsApp
+            </button>
+          </div>
+        )}
         <div className={styles.tableWrap}>
           {loading ? (
             <div className={styles.centerState}>
@@ -125,7 +192,7 @@ export default function AwaitingPayments() {
               <p className={styles.emptySub}>No completed vouchers awaiting payment.</p>
             </div>
           ) : (
-            <table className={styles.table}>
+          <table className={styles.table}>
               <thead>
                 <tr className={styles.headerRow}>
                   <th>Voucher No.</th>
@@ -206,6 +273,7 @@ export default function AwaitingPayments() {
         <PayNowModal
           voucher={payNowVoucher}
           companyId={companyId}
+          userId={userId}
           onPaid={() => { void load() }}
           onClose={() => setPayNowVoucher(null)}
         />

@@ -56,6 +56,14 @@ export interface VoucherFull extends PendingVoucher {
   completed_at: string | null
   completed_by: string | null
   completed_by_name: string | null
+  // Pay Now — entity payment details
+  entity_upi_id:       string | null
+  entity_bank_account: string | null
+  entity_bank_ifsc:    string | null
+  entity_bank_name:    string | null
+  // Pay Now — voucher paid tracking
+  paid_from_account:   string | null
+  paid_at:             string | null
   entries: VoucherEntryDetail[]
   history: ApprovalHistoryItem[]
 }
@@ -158,6 +166,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     posted_at: string | null; posted_by: string | null
     otp_verified_at: string | null; otp_verified_by: string | null
     completed_at: string | null; completed_by: string | null
+    paid_from_account: string | null; paid_at: string | null
     voucher_type: { id: string; code: string; name: string; nature: string } | null
   }
   type RawEntry = {
@@ -174,7 +183,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   const [vRes, eRes, hRes] = await Promise.all([
     supabase
       .schema('pramaana').from('vouchers')
-      .select('id, voucher_number, voucher_date, amount, status, narration, created_at, entity_id, created_by, ref_document_number, payment_mode, bank_ledger_id, cheque_number, cheque_date, utr_number, cost_centre_id, posted_at, posted_by, otp_verified_at, otp_verified_by, completed_at, completed_by, voucher_type:voucher_types(id, code, name, nature)')
+      .select('id, voucher_number, voucher_date, amount, status, narration, created_at, entity_id, created_by, ref_document_number, payment_mode, bank_ledger_id, cheque_number, cheque_date, utr_number, cost_centre_id, posted_at, posted_by, otp_verified_at, otp_verified_by, completed_at, completed_by, paid_from_account, paid_at, voucher_type:voucher_types(id, code, name, nature)')
       .eq('id', voucherId)
       .single(),
     supabase
@@ -207,7 +216,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   const [profilesRes, entityRes, bankRes, costRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', profileIds),
     v.entity_id
-      ? supabase.schema('registry').from('entities').select('id, display_name, mobile').eq('id', v.entity_id).maybeSingle()
+      ? supabase.schema('registry').from('entities').select('id, display_name, mobile, upi_id, bank_name, account_number, ifsc').eq('id', v.entity_id).maybeSingle()
       : Promise.resolve(null),
     v.bank_ledger_id
       ? supabase.schema('pramaana').from('ledgers').select('id, name').eq('id', v.bank_ledger_id).maybeSingle()
@@ -222,7 +231,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
       .map(p => [p.id, p.full_name ?? 'Unknown'])
   )
 
-  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string; mobile: string | null } | null }).data : null
+  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string; mobile: string | null; upi_id: string | null; bank_name: string | null; account_number: string | null; ifsc: string | null } | null }).data : null
   const bankData     = bankRes     ? (bankRes     as { data: { name: string }           | null }).data : null
   const costData     = costRes     ? (costRes     as { data: { name: string }           | null }).data : null
 
@@ -238,8 +247,14 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     created_by: v.created_by,
     voucher_type: v.voucher_type ?? { id: '', code: '?', name: 'Unknown', nature: '' },
     created_by_name: profileMap.get(v.created_by) ?? 'Unknown',
-    entity_name:       entityData ? entityData.display_name : null,
-    entity_mobile:     entityData ? (entityData.mobile ?? null) : null,
+    entity_name:         entityData ? entityData.display_name : null,
+    entity_mobile:       entityData ? (entityData.mobile ?? null) : null,
+    entity_upi_id:       entityData ? (entityData.upi_id ?? null) : null,
+    entity_bank_account: entityData ? (entityData.account_number ?? null) : null,
+    entity_bank_ifsc:    entityData ? (entityData.ifsc ?? null) : null,
+    entity_bank_name:    entityData ? (entityData.bank_name ?? null) : null,
+    paid_from_account:   v.paid_from_account,
+    paid_at:             v.paid_at,
     ref_document_number: v.ref_document_number,
     payment_mode:        v.payment_mode,
     bank_ledger_name:    bankData   ? bankData.name   : null,

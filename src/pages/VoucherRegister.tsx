@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
   AlertCircle, FileText, ExternalLink, Trash2, Edit3, Send, RotateCcw, BookOpen,
-  Download, ChevronDown, Paperclip,
+  Download, ChevronDown, Paperclip, CreditCard,
 } from 'lucide-react'
+import PayNowModal, { type PayNowVoucher } from '@/components/PayNowModal'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -72,6 +73,20 @@ const NATURE_PILLS = [
 
 const OTP_LENGTH = 6
 const OTP_RESEND_COOLDOWN_SECONDS = 60
+
+// Bank transfer modes (these are the "Account Transfer" equivalent in Pramaana)
+const BANK_TRANSFER_MODES = new Set(['Bank', 'Cheque', 'NEFT', 'RTGS', 'IMPS'])
+
+function canSeePayNow(
+  role: string | null,
+  isSuperAdmin: boolean,
+  paymentMode: string | null,
+): boolean {
+  if (!paymentMode || paymentMode === 'Cash') return false
+  if (isSuperAdmin || role === 'admin') return true
+  if (role === 'accounts' && BANK_TRANSFER_MODES.has(paymentMode)) return true
+  return false
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -646,15 +661,17 @@ interface DetailPanelProps {
   companyName: string
   userId:      string
   role:        string | null
+  isSuperAdmin: boolean
   onClose:     () => void
   onRefresh:   () => void
   onReloadPanel: (voucherId: string) => Promise<void>
+  onPayNow:    (v: PayNowVoucher) => void
 }
 
 function DetailPanel({
   row, detail, loading, attachments,
-  companyId, companyCode, companyName, userId, role,
-  onClose, onRefresh, onReloadPanel,
+  companyId, companyCode, companyName, userId, role, isSuperAdmin,
+  onClose, onRefresh, onReloadPanel, onPayNow,
 }: DetailPanelProps) {
   if (!row) return null
 
@@ -1288,6 +1305,40 @@ function DetailPanel({
                     entityId={detail.entity_id}
                     onSmsSent={onRefresh}
                   />
+
+                  {/* Pay Now — visible for completed vouchers, role-gated */}
+                  {row.status === 'completed' &&
+                    detail.payment_mode !== 'Cash' &&
+                    canSeePayNow(role, isSuperAdmin, detail.payment_mode) && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <button
+                        type="button"
+                        className={styles.btnPrimary}
+                        onClick={() => onPayNow({
+                          id:                  row.id,
+                          voucher_number:      row.voucher_number,
+                          amount:              row.amount,
+                          payment_mode:        detail.payment_mode,
+                          entity_name:         detail.entity_name,
+                          entity_upi_id:       detail.entity_upi_id,
+                          entity_bank_account: detail.entity_bank_account,
+                          entity_bank_ifsc:    detail.entity_bank_ifsc,
+                          entity_bank_name:    detail.entity_bank_name,
+                          paid_from_account:   detail.paid_from_account,
+                          paid_at:             detail.paid_at,
+                          utr_number:          detail.utr_number,
+                        })}
+                        style={{ gap: '0.375rem' }}
+                      >
+                        <CreditCard size={13} /> Pay Now
+                      </button>
+                      {detail.paid_at && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--success)', marginLeft: '0.625rem' }}>
+                          ✓ Paid on {new Date(detail.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1329,6 +1380,7 @@ export default function VoucherRegister() {
   const companyCode = user?.activeCompany?.code  ?? ''
   const userId      = user?.id                   ?? ''
   const role        = user?.activeRole           ?? null
+  const isSuperAdmin = user?.profile.is_super_admin ?? false
 
   // Redirect viewer
   useEffect(() => {
@@ -1480,6 +1532,9 @@ export default function VoucherRegister() {
     setDetail(null)
     setAttachments([])
   }
+
+  // ── Pay Now ───────────────────────────────────────────────────────────────
+  const [payNowVoucher, setPayNowVoucher] = useState<PayNowVoucher | null>(null)
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -1686,12 +1741,27 @@ export default function VoucherRegister() {
           companyName={user?.activeCompany?.name ?? ''}
           userId={userId}
           role={role}
+          isSuperAdmin={isSuperAdmin}
           onClose={closePanel}
           onRefresh={handleRefresh}
           onReloadPanel={loadPanelData}
+          onPayNow={setPayNowVoucher}
         />
 
       </div>
+
+      {/* Pay Now Modal */}
+      {payNowVoucher && (
+        <PayNowModal
+          voucher={payNowVoucher}
+          companyId={companyId}
+          onPaid={() => {
+            handleRefresh()
+            if (selectedId) void loadPanelData(selectedId)
+          }}
+          onClose={() => setPayNowVoucher(null)}
+        />
+      )}
     </div>
   )
 }

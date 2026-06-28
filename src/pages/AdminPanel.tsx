@@ -16,6 +16,12 @@ import {
   type LedgerRow,
   type ImportResult,
 } from '@/lib/admin'
+import {
+  fetchCompanyPaymentAccounts,
+  addCompanyPaymentAccount,
+  deleteCompanyPaymentAccount,
+  type CompanyPaymentAccount,
+} from '@/lib/pay-now'
 import css from './AdminPanel.module.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -331,9 +337,162 @@ function ImportSection<T extends { _error?: string; _line: number; name: string 
   )
 }
 
+// ── Payment Accounts Management ───────────────────────────────────────────────
+
+function PaymentAccountsManagement({ companyId }: { companyId: string }) {
+  const [accounts, setAccounts] = useState<CompanyPaymentAccount[]>([])
+  const [loaded,   setLoaded]   = useState(false)
+  const [loading,  setLoading]  = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+  const [adding,   setAdding]   = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      setAccounts(await fetchCompanyPaymentAccounts(companyId))
+      setLoaded(true)
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }, [companyId])
+
+  // Load on first render
+  if (!loaded && !loading) { void load() }
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const label = newLabel.trim()
+    if (!label) return
+    const dup = accounts.some(a => a.label.toLowerCase() === label.toLowerCase())
+    if (dup) { toast.error('Account already exists'); return }
+    setAdding(true)
+    try {
+      const created = await addCompanyPaymentAccount(companyId, label)
+      setAccounts(prev => [...prev, created])
+      setNewLabel('')
+      toast.success('Payment account added')
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteCompanyPaymentAccount(id)
+      setAccounts(prev => prev.filter(a => a.id !== id))
+      setConfirmDeleteId(null)
+      toast.success('Payment account removed')
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.25rem', lineHeight: 1.6 }}>
+        Manage the list of "Pay From" accounts for this company. These appear as autocomplete
+        suggestions in the Pay Now modal and on the voucher entry form. Add accounts like
+        "HDFC Current A/C", "Federal Bank OD A/C", or "Director Ramesh Personal A/C".
+      </p>
+
+      {/* Add form */}
+      <form onSubmit={handleAdd} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+        <input
+          type="text"
+          value={newLabel}
+          onChange={e => setNewLabel(e.target.value)}
+          placeholder="Account label, e.g. HDFC Current A/C"
+          style={{
+            flex: 1,
+            padding: '0.5rem 0.75rem',
+            background: 'var(--surface)',
+            border: '1px solid var(--border-2)',
+            borderRadius: '6px',
+            color: 'var(--text)',
+            fontSize: '0.875rem',
+            fontFamily: 'inherit',
+          }}
+          maxLength={120}
+          autoComplete="off"
+        />
+        <button
+          type="submit"
+          disabled={adding || !newLabel.trim()}
+          className={css.importBtn}
+          style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', margin: 0 }}
+        >
+          {adding ? 'Adding…' : '+ Add'}
+        </button>
+      </form>
+
+      {/* List */}
+      {loading && <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading…</p>}
+      {!loading && accounts.length === 0 && (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+          No payment accounts yet. Add your first account above.
+        </p>
+      )}
+      {accounts.map(a => (
+        <div
+          key={a.id}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.625rem 0.875rem',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            marginBottom: '0.375rem',
+          }}
+        >
+          <span style={{ fontSize: '0.875rem', color: 'var(--text)' }}>{a.label}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {confirmDeleteId === a.id ? (
+              <>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Remove?</span>
+                <button
+                  onClick={() => handleDelete(a.id)}
+                  style={{
+                    padding: '0.25rem 0.625rem', fontSize: '0.75rem',
+                    background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)',
+                    borderRadius: '5px', color: '#ef4444', cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >Yes</button>
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  style={{
+                    padding: '0.25rem 0.625rem', fontSize: '0.75rem',
+                    background: 'none', border: '1px solid var(--border-2)',
+                    borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >Cancel</button>
+              </>
+            ) : (
+              <button
+                onClick={() => setConfirmDeleteId(a.id)}
+                style={{
+                  padding: '0.25rem 0.5rem', fontSize: '0.75rem',
+                  background: 'none', border: '1px solid var(--border)',
+                  borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >Remove</button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'reset' | 'groups' | 'ledgers'
+type Tab = 'reset' | 'groups' | 'ledgers' | 'payments'
 
 export default function AdminPanel() {
   const { user } = useAuth()
@@ -389,6 +548,12 @@ export default function AdminPanel() {
           onClick={() => setTab('ledgers')}
         >
           Import: Ledgers
+        </button>
+        <button
+          className={tab === 'payments' ? css.tabActive : css.tab}
+          onClick={() => setTab('payments')}
+        >
+          Pay-From Accounts
         </button>
       </div>
 
@@ -463,6 +628,10 @@ export default function AdminPanel() {
           )}
           doImport={ledgerImport}
         />
+      )}
+
+      {tab === 'payments' && (
+        <PaymentAccountsManagement companyId={companyId} />
       )}
     </div>
   )

@@ -31,6 +31,7 @@ import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
 import AdminPanel from '@/pages/AdminPanel'
 import DashboardPage from '@/pages/Dashboard'
+import AwaitingPayments from '@/pages/AwaitingPayments'
 import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
 
 function fmtRole(role: string | null | undefined): string {
@@ -68,6 +69,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/vouchers',  label: 'Vouchers',  end: false, badge: 0            },
     { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
     { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount },
+    { to: '/payments',  label: 'Payments',  end: false, badge: 0            },
     { to: '/invoices',  label: 'Invoices',  end: false, badge: 0            },
     { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
   ]
@@ -485,6 +487,16 @@ function InventoryGuard() {
   return <AppShell><Inventory /></AppShell>
 }
 
+function AwaitingPaymentsGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && ['admin', 'accounts'].includes(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><AwaitingPayments /></AppShell>
+}
+
 function AdminGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -607,6 +619,7 @@ function AppRoutes() {
         <Route path="/suspense"       element={<SuspenseRegisterGuard />} />
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
+        <Route path="/payments"        element={<AwaitingPaymentsGuard />} />
         <Route path="/inventory"      element={<InventoryGuard />} />
         <Route path="/invoices/scan"              element={<InvoiceScanUploadGuard />} />
         <Route path="/invoices/inbox"             element={<InvoiceScanInboxGuard />} />

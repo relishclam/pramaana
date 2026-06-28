@@ -293,3 +293,183 @@
   font-size: 0.8125rem;
   margin-top: 0.75rem;
 }
+
+/* ── Alternative source row ────────────────────────────────────────────────── */
+
+.altSources {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.altDivider {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.altDividerText {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.altBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4375rem 0.875rem;
+  background: none;
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.altBtn:hover {
+  border-color: var(--teal-dark);
+  color: var(--teal);
+  background: var(--teal-light);
+}
+
+/* ── Camera / Scanner capture area ────────────────────────────────────────── */
+
+.cameraWrap {
+  margin-top: 1.25rem;
+  border: 1px solid var(--border-2);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+  position: relative;
+}
+
+.cameraHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.cameraTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.deviceSelect {
+  padding: 0.3125rem 0.625rem;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-family: inherit;
+  max-width: 200px;
+  cursor: pointer;
+}
+.deviceSelect:focus { outline: none; border-color: var(--teal); }
+
+.cameraCloseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.cameraCloseBtn:hover { color: var(--error); border-color: var(--error); }
+
+.cameraVideo {
+  width: 100%;
+  max-height: 340px;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+
+.cameraError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  min-height: 200px;
+}
+
+.cameraError strong {
+  display: block;
+  color: var(--error);
+  font-size: 0.9375rem;
+  margin-bottom: 0.25rem;
+}
+
+.cameraFooter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
+
+.captureBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.625rem 1.5rem;
+  background: var(--teal);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+.captureBtn:hover:not(:disabled) { background: var(--teal-dark); }
+.captureBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cameraLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2.5rem;
+  min-height: 200px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.cameraSpinner {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid var(--border);
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+

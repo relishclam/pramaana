@@ -25,14 +25,15 @@ The Pay Now button appears only when **all** of the following are true:
 
 ## Database Schema
 
-### `pramaana.vouchers` (added by `036_pay_now.sql`)
+### `pramaana.vouchers` (added by `025_fix_status_enums_and_payment_columns.sql` + `036_pay_now.sql`)
 
-| Column | Type | Notes |
-|---|---|---|
-| `paid_from_account` | `TEXT` | Which company account the payment was sent from |
-| `paid_at` | `TIMESTAMPTZ` | When the payment was recorded as made |
+| Column | Type | Migration | Notes |
+|---|---|---|---|
+| `paid_from_account` | `TEXT` | 036 | Which company account the payment was sent from |
+| `paid_at` | `TIMESTAMPTZ` | 025 | When the payment was recorded as made |
+| `paid_by` | `UUID → auth.users` | 025 | Who recorded the payment (audit trail) |
 
-Existing columns used by Pay Now: `utr_number`, `payment_mode`, `entity_id`.
+Existing columns used by Pay Now: `utr_number`, `cheque_number`, `payment_mode`, `entity_id`.
 
 ### `registry.entities` (pre-existing columns)
 
@@ -63,7 +64,7 @@ RLS enabled; authenticated users have full access.
 | File | Purpose |
 |---|---|
 | `supabase/migrations/036_pay_now.sql` | DB migration |
-| `src/lib/pay-now.ts` | API layer — payment accounts CRUD, `markVoucherPaid`, `fetchAwaitingPayments` |
+| `src/lib/pay-now.ts` | API layer — payment accounts CRUD, `markVoucherPaid`, `fetchAwaitingPayments`, `fetchAdminMobile` |
 | `src/components/PayNowModal.tsx` | Pay Now modal component |
 | `src/components/PayNowModal.module.css` | Modal styles |
 | `src/pages/AwaitingPayments.tsx` | `/payments` route |
@@ -80,7 +81,7 @@ RLS enabled; authenticated users have full access.
 |---|---|---|
 | `UPI` | UPI | QR code (desktop) / GPay + Any UPI App (mobile) |
 | `Bank` | Account Transfer | Bank details card + Copy All + net banking / bank app |
-| `Cheque` | Account Transfer | Bank details card + Copy All |
+| `Cheque` | Account Transfer | Bank details card + Copy All; Mark Paid uses **Cheque Number** field |
 | `NEFT` | Account Transfer | Bank details card + Copy All + net banking / bank app |
 | `RTGS` | Account Transfer | Bank details card + Copy All + net banking / bank app |
 | `IMPS` | Account Transfer | Bank details card + Copy All + net banking / bank app |
@@ -132,14 +133,18 @@ PayNowModal opens
                                                    paid_from_account (required
                                                    for Account Transfer)
                                                    paid_at (date, default today)
-                                                   utr_number (optional, with
+                                                   cheque_number OR utr_number
+                                                   (label changes based on mode;
                                                    📋 Paste button)
                                                            │
                                                            ▼
                                                [Mark as Paid] → updates
+                                               vouchers.status → 'posted'
                                                vouchers.paid_from_account
                                                vouchers.paid_at
-                                               vouchers.utr_number
+                                               vouchers.paid_by (auth user id)
+                                               vouchers.utr_number  (non-Cheque)
+                                               vouchers.cheque_number  (Cheque)
 ```
 
 ---
@@ -197,12 +202,28 @@ Not shown on desktop.
 
 ---
 
-## Mark Paid — Validation
+## Mark Paid — Validation & Status Transition
 
-- **Account Transfer:** `paid_from_account` is required before submitting. Validation message: *"Please select which account this payment was sent from."*
+- **Account Transfer (non-Cheque):** `paid_from_account` is required. Validation message: *"Please select which account this payment was sent from."*
+- **Cheque:** `paid_from_account` is required. The UTR field is replaced with **Cheque Number** (pre-filled from `voucher.cheque_number`; writes to `cheque_number` on submit).
 - **UPI:** `paid_from_account` is optional.
 - `paid_at` defaults to today; user can change to a past date.
-- `utr_number` is optional; updates the existing `vouchers.utr_number` column if provided.
+- `utr_number` is optional for non-Cheque modes; updates the existing `vouchers.utr_number` column if provided.
+- On successful submit, `vouchers.status` is transitioned to **`'posted'`** — the final, immutable accounting state required by all five financial reports (Trial Balance, P&L, Balance Sheet, Cash Flow, Day Book). `paid_by` is set to the current `auth.users.id`.
+
+---
+
+## Voucher Status Transitions
+
+```
+draft → pending_approval → approved → completed → posted
+                                                     ↑
+                                              Mark as Paid
+                                       (sets paid_at, paid_by, paid_from_account,
+                                        utr_number / cheque_number)
+```
+
+All five financial reports filter `status = 'posted'`. A voucher stays invisible to reports until Mark as Paid is submitted.
 
 ---
 
@@ -211,6 +232,10 @@ Not shown on desktop.
 - Lists all vouchers where `status = 'completed'` AND `payment_mode != 'Cash'` AND `paid_at IS NULL`.
 - Sorted by `completed_at ASC` (oldest first).
 - Vouchers where `completed_at < now() - 48 hours` display an amber ⚠ **Pending 2+ days** badge.
+- **Summary bar** at top (when list is non-empty): *N payments waiting · Total ₹X,XX,XXX* + **📤 Send to Admin via WhatsApp** button.
+  - Fetches admin's mobile from `registry.profiles.mobile` (via `fetchAdminMobile`).
+  - Builds a numbered summary message with total and a deep-link to `/payments`, then opens `wa.me/{mobile}?text=...`.
+  - If admin mobile is not set: toasts *"Admin mobile number not set. Add it in Master Data → Users."*
 - Pay Now button on each row opens PayNowModal with full entity payment data.
 - Accessible to Admin / Super Admin / Accounts roles; Viewer and Auditor are redirected.
 
@@ -244,11 +269,17 @@ Voucher list (status=completed, mode≠Cash, authorised role)
             ├── desktop  → bank details card + net banking URL
             └── mobile   → bank details card + bank app launcher
                            (from paid_from_account field value)
-          → Mark Paid panel → vouchers.paid_from_account / paid_at / utr_number
+          → Mark Paid panel → vouchers.status → 'posted'
+                               vouchers.paid_from_account
+                               vouchers.paid_at / paid_by
+                               vouchers.utr_number (non-Cheque)
+                               vouchers.cheque_number (Cheque mode)
 
 AwaitingPayments (/payments)
   → completed + unpaid vouchers, oldest first
   → ⚠ flag if completed_at > 48h ago
+  → Summary bar: count · total · 📤 Send to Admin via WhatsApp
+      → fetchAdminMobile(companyId) → wa.me deep link
   → Pay Now button per row
 ```
 

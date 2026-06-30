@@ -32,6 +32,7 @@ import {
 } from '@/lib/attachments'
 import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
 import { formatIndianCurrency } from '@/lib/vouchers'
+import { queueForPayment, dequeuePayment } from '@/lib/pay-now'
 import styles from './VoucherRegister.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -53,11 +54,12 @@ const NATURE_COLOR: Record<string, string> = {
 }
 
 const STATUS_PILLS = [
-  { label: 'All',       value: '' },
-  { label: 'Draft',     value: 'draft' },
-  { label: 'Pending',   value: 'pending_approval' },
-  { label: 'Posted',    value: 'posted' },
-  { label: 'Cancelled', value: 'cancelled' },
+  { label: 'All',              value: '' },
+  { label: 'Drafts',           value: 'draft' },
+  { label: 'Pending Approval', value: 'pending_approval' },
+  { label: 'Awaiting OTP',     value: 'approved' },
+  { label: 'OTP Verified',     value: 'completed' },
+  { label: 'Awaiting Payment', value: 'awaiting_payment' },
 ]
 
 const NATURE_PILLS = [
@@ -217,10 +219,23 @@ function StatusBadge({ status }: { status: string }) {
           Pending
         </span>
       )
-    case 'posted':
-      return <span className={`${styles.badge} ${styles.badgePosted}`}>Posted</span>
-    case 'completed':
     case 'approved':
+      return (
+        <span className={`${styles.badge} ${styles.badgePending}`}>
+          <span className={styles.pulseDot} />
+          Awaiting OTP
+        </span>
+      )
+    case 'completed':
+      return <span className={`${styles.badge} ${styles.badgeCompleted}`}>OTP Verified</span>
+    case 'awaiting_payment':
+      return (
+        <span className={`${styles.badge} ${styles.badgePending}`}>
+          <span className={styles.pulseDot} />
+          Awaiting Payment
+        </span>
+      )
+    case 'posted':
       return <span className={`${styles.badge} ${styles.badgePosted}`}>Posted</span>
     case 'cancelled':
       return <span className={`${styles.badge} ${styles.badgeCancelled}`}>Cancelled</span>
@@ -653,6 +668,7 @@ function DetailPanel({
   const [confirmDelete,  setConfirmDelete]  = useState(false)
   const [confirmDeletePending, setConfirmDeletePending] = useState(false)
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const [queueing,       setQueueing]       = useState(false)
   const receiptInputRef = useRef<HTMLInputElement | null>(null)
 
   const isAdmin   = role === 'admin' || role === 'super_admin'
@@ -932,6 +948,32 @@ function DetailPanel({
       win.print()
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
     })
+  }
+
+  const handleQueueForPayment = async () => {
+    if (!row) return
+    setQueueing(true)
+    try {
+      await queueForPayment(row.id, userId)
+      toast.success('Voucher queued for payment')
+      onRefresh()
+      await onReloadPanel(row.id)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to queue voucher')
+    } finally { setQueueing(false) }
+  }
+
+  const handleDequeue = async () => {
+    if (!row) return
+    setQueueing(true)
+    try {
+      await dequeuePayment(row.id)
+      toast.success('Voucher removed from payment queue')
+      onRefresh()
+      await onReloadPanel(row.id)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to dequeue voucher')
+    } finally { setQueueing(false) }
   }
 
   const handleUploadReceiptFiles = async (files: FileList | null) => {
@@ -1267,8 +1309,8 @@ function DetailPanel({
                 </>
               )}
 
-              {/* Posted / Completed — WhatsApp + SMS confirmation ─────── */}
-              {(row.status === 'posted' || row.status === 'completed' || row.status === 'approved') && (
+              {/* Payment Confirmation — approved, completed, awaiting_payment ──── */}
+              {(row.status === 'approved' || row.status === 'completed' || row.status === 'awaiting_payment') && (
                 <div className={styles.panelSection} style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>
                   <div className={styles.sectionHeader} style={{ marginBottom: '0.5rem' }}>Payment Confirmation</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.625rem' }}>
@@ -1291,11 +1333,33 @@ function DetailPanel({
                     companyCode={companyCode}
                   />
 
-                  {/* Pay Now — visible for completed vouchers, role-gated */}
-                  {row.status === 'completed' &&
+                  {/* Queue / Dequeue + Pay Now — completed & awaiting_payment, role-gated */}
+                  {(row.status === 'completed' || row.status === 'awaiting_payment') &&
                     detail.payment_mode !== 'Cash' &&
                     canSeePayNow(role, isSuperAdmin, detail.payment_mode) && (
-                    <div style={{ marginTop: '0.75rem' }}>
+                    <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                      {row.status === 'completed' && (
+                        <button
+                          type="button"
+                          className={styles.btnSecondary}
+                          onClick={() => { void handleQueueForPayment() }}
+                          disabled={queueing}
+                        >
+                          {queueing ? <Loader2 size={13} className={styles.spin} /> : <Clock size={13} />}
+                          Queue for Payment
+                        </button>
+                      )}
+                      {row.status === 'awaiting_payment' && (
+                        <button
+                          type="button"
+                          className={styles.btnSecondary}
+                          onClick={() => { void handleDequeue() }}
+                          disabled={queueing}
+                        >
+                          {queueing ? <Loader2 size={13} className={styles.spin} /> : <RotateCcw size={13} />}
+                          Dequeue
+                        </button>
+                      )}
                       <button
                         type="button"
                         className={styles.btnPrimary}
@@ -1319,12 +1383,37 @@ function DetailPanel({
                         <CreditCard size={13} /> Pay Now
                       </button>
                       {detail.paid_at && (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--success)', marginLeft: '0.625rem' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>
                           ✓ Paid on {new Date(detail.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
                         </span>
                       )}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Posted — paid summary ───────────────────────────────────── */}
+              {row.status === 'posted' && (
+                <div className={styles.panelSection} style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--success)', fontWeight: 600 }}>
+                      ✓ Paid
+                      {detail.paid_at && ` on ${new Date(detail.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                    </span>
+                    {detail.paid_from_account && (
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                        — from {detail.paid_from_account}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    onClick={handlePrintVoucherCopy}
+                    style={{ marginTop: '0.375rem' }}
+                  >
+                    <FileText size={13} /> Voucher Copy
+                  </button>
                 </div>
               )}
 

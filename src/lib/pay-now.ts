@@ -83,9 +83,46 @@ export async function markVoucherPaid(
     .from('vouchers')
     .update(update)
     .eq('id', voucherId)
-    .eq('status', 'completed')
+    .in('status', ['completed', 'awaiting_payment'])
 
   if (error) throw new Error('Failed to mark voucher as paid: ' + error.message)
+}
+
+// ── Queue voucher for payment (→ awaiting_payment) ───────────────────────────────
+
+export async function queueForPayment(
+  voucherId: string,
+  userId:    string,
+): Promise<void> {
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .update({
+      status:                 'awaiting_payment',
+      queued_at:              new Date().toISOString(),
+      queued_for_payment_by:  userId,
+    })
+    .eq('id', voucherId)
+    .eq('status', 'completed')
+
+  if (error) throw new Error('Failed to queue voucher: ' + error.message)
+}
+
+// ── Dequeue voucher (defer payment → back to completed) ──────────────────────
+
+export async function dequeuePayment(voucherId: string): Promise<void> {
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .update({
+      status:                'completed',
+      queued_at:             null,
+      queued_for_payment_by: null,
+    })
+    .eq('id', voucherId)
+    .eq('status', 'awaiting_payment')
+
+  if (error) throw new Error('Failed to dequeue voucher: ' + error.message)
 }
 
 // ── Fetch Admin mobile for WhatsApp notification ──────────────────────────────
@@ -205,6 +242,7 @@ export interface AwaitingPaymentRow {
   payment_mode:     string | null
   entity_name:      string | null
   completed_at:     string | null
+  queued_at:        string | null
   paid_at:          string | null
   paid_from_account: string | null
   voucher_type_code: string
@@ -229,12 +267,10 @@ export async function fetchAwaitingPayments(
   const { data, error } = await supabase
     .schema('pramaana')
     .from('vouchers')
-    .select('id, voucher_number, voucher_date, amount, payment_mode, entity_id, completed_at, paid_at, paid_from_account, voucher_type:voucher_types(code)')
+    .select('id, voucher_number, voucher_date, amount, payment_mode, entity_id, completed_at, queued_at, paid_at, paid_from_account, voucher_type:voucher_types(code)')
     .eq('company_id', companyId)
-    .eq('status', 'completed')
-    .neq('payment_mode', 'Cash')
-    .is('paid_at', null)
-    .order('completed_at', { ascending: true })
+    .eq('status', 'awaiting_payment')
+    .order('queued_at', { ascending: true })
 
   if (error) throw new Error('Failed to load awaiting payments: ' + error.message)
 
@@ -258,6 +294,7 @@ export async function fetchAwaitingPayments(
     payment_mode:      r.payment_mode,
     entity_name:       r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
     completed_at:      r.completed_at,
+    queued_at:         (r as unknown as { queued_at: string | null }).queued_at,
     paid_at:           r.paid_at,
     paid_from_account: r.paid_from_account,
     voucher_type_code: r.voucher_type?.code ?? '?',

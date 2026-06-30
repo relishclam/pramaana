@@ -8,11 +8,11 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Clock, AlertTriangle, CreditCard } from 'lucide-react'
+import { Loader2, Clock, AlertTriangle, CreditCard, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatIndianCurrency } from '@/lib/vouchers'
-import { fetchAwaitingPayments, fetchAdminMobile, type AwaitingPaymentRow } from '@/lib/pay-now'
+import { fetchAwaitingPayments, fetchAdminMobile, dequeuePayment, type AwaitingPaymentRow } from '@/lib/pay-now'
 import { fetchVoucherFull } from '@/lib/approvals'
 import PayNowModal, { type PayNowVoucher } from '@/components/PayNowModal'
 import styles from './VoucherRegister.module.css'   // reuse existing styles
@@ -24,9 +24,9 @@ const OVERDUE_MS = 48 * 60 * 60 * 1000   // 48 hours
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function isOverdue(completedAt: string | null): boolean {
-  if (!completedAt) return false
-  return Date.now() - new Date(completedAt).getTime() > OVERDUE_MS
+function isOverdue(queuedAt: string | null): boolean {
+  if (!queuedAt) return false
+  return Date.now() - new Date(queuedAt).getTime() > OVERDUE_MS
 }
 
 function fmtDate(iso: string) {
@@ -55,7 +55,8 @@ export default function AwaitingPayments() {
   const [rows,    setRows]    = useState<AwaitingPaymentRow[]>([])
   const [loading, setLoading] = useState(false)
   const [payNowVoucher, setPayNowVoucher] = useState<PayNowVoucher | null>(null)
-  const [resolving, setResolving] = useState<string | null>(null)   // voucherId being resolved
+  const [resolving,  setResolving]  = useState<string | null>(null)   // voucherId being Pay-Now resolved
+  const [dequeuing,  setDequeuing]  = useState<string | null>(null)   // voucherId being dequeued
   const [sendingWa, setSendingWa] = useState(false)
 
   const load = useCallback(async () => {
@@ -103,6 +104,20 @@ export default function AwaitingPayments() {
     }
   }
 
+  // ── Dequeue (return to OTP Verified) ────────────────────────────────────
+  const handleDequeue = async (voucherId: string) => {
+    setDequeuing(voucherId)
+    try {
+      await dequeuePayment(voucherId)
+      toast.success('Voucher removed from payment queue')
+      void load()
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to dequeue voucher')
+    } finally {
+      setDequeuing(null)
+    }
+  }
+
   // ── WhatsApp "Send to Admin" ─────────────────────────────────────────────
   const handleSendToAdmin = async () => {
     if (!rows.length) return
@@ -144,7 +159,7 @@ export default function AwaitingPayments() {
         <div>
           <h1 className={styles.pageTitle}>Awaiting Payment</h1>
           <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
-            Completed vouchers not yet marked as paid · sorted oldest first
+            Vouchers queued for payment · sorted oldest first
           </p>
         </div>
       </div>
@@ -191,8 +206,8 @@ export default function AwaitingPayments() {
           ) : rows.length === 0 ? (
             <div className={styles.emptyState}>
               <CreditCard size={44} className={styles.emptyIcon} />
-              <p className={styles.emptyTitle}>All caught up!</p>
-              <p className={styles.emptySub}>No completed vouchers awaiting payment.</p>
+              <p className={styles.emptyTitle}>No payments queued</p>
+              <p className={styles.emptySub}>Accounts queues OTP-verified vouchers here before marking as paid.</p>
             </div>
           ) : (
           <table className={styles.table}>
@@ -202,13 +217,13 @@ export default function AwaitingPayments() {
                   <th>Party</th>
                   <th>Mode</th>
                   <th className={styles.right}>Amount</th>
-                  <th>Completed</th>
+                  <th>Queued</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
                 {rows.map(row => {
-                  const overdue  = isOverdue(row.completed_at)
+                  const overdue  = isOverdue(row.queued_at)
                   const canPay   = canSeePayNow(role, isSuperAdmin, row.payment_mode)
                   return (
                     <tr key={row.id} className={styles.row}>
@@ -242,24 +257,38 @@ export default function AwaitingPayments() {
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
                           <Clock size={12} />
-                          {row.completed_at ? fmtDate(row.completed_at.slice(0, 10)) : '—'}
+                          {row.queued_at ? fmtDate(row.queued_at.slice(0, 10)) : '—'}
                         </span>
                       </td>
                       <td>
-                        {canPay && (
+                        <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
                           <button
-                            className={styles.btnPrimary}
+                            className={styles.btnSecondary}
                             style={{ padding: '0.3125rem 0.75rem', fontSize: '0.8125rem' }}
-                            onClick={() => openPayNow(row)}
-                            disabled={resolving === row.id}
+                            onClick={() => { void handleDequeue(row.id) }}
+                            disabled={dequeuing === row.id || resolving === row.id}
                           >
-                            {resolving === row.id
+                            {dequeuing === row.id
                               ? <Loader2 size={12} className={styles.spin} />
-                              : <CreditCard size={12} />
+                              : <RotateCcw size={12} />
                             }
-                            Pay Now
+                            Dequeue
                           </button>
-                        )}
+                          {canPay && (
+                            <button
+                              className={styles.btnPrimary}
+                              style={{ padding: '0.3125rem 0.75rem', fontSize: '0.8125rem' }}
+                              onClick={() => openPayNow(row)}
+                              disabled={resolving === row.id || dequeuing === row.id}
+                            >
+                              {resolving === row.id
+                                ? <Loader2 size={12} className={styles.spin} />
+                                : <CreditCard size={12} />
+                              }
+                              Pay Now
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )

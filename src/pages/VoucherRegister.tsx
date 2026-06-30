@@ -31,7 +31,6 @@ import {
   uploadVoucherAttachments,
 } from '@/lib/attachments'
 import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
-import { sendPaymentConfirmedSms } from '@/lib/sms'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import styles from './VoucherRegister.module.css'
 
@@ -406,51 +405,25 @@ interface PersistentOtpPanelProps {
 // ── WA send button for completed vouchers ───────────────────────────────────
 
 interface WaPaymentBtnProps {
-  mobile: string | null
-  name: string | null
-  amount: number
-  voucherNo: string
+  mobile:      string | null
+  name:        string | null
+  amount:      number
+  voucherNo:   string
   companyCode: string
-  entityId: string | null
-  onSmsSent: () => void
 }
 
-function WaPaymentBtn({ mobile, name, amount, voucherNo, companyCode, entityId, onSmsSent }: WaPaymentBtnProps) {
-  const [smsSent, setSmsSent] = useState(false)
-  const handleSendSms = async () => {
-    if (!entityId) return
-    await sendPaymentConfirmedSms(entityId, amount, voucherNo)
-    setSmsSent(true)
-    toast.success('Payment confirmation SMS sent')
-    onSmsSent()
-  }
+function WaPaymentBtn({ mobile, name, amount, voucherNo, companyCode }: WaPaymentBtnProps) {
+  if (!mobile) return <span className={styles.noMobile}>No payee mobile on file</span>
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-      {mobile ? (
-        <a
-          href={buildWhatsAppPaymentUrl(mobile, name ?? 'Payee', amount, voucherNo, companyCode)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={styles.waBtn}
-          title="Open WhatsApp with pre-filled payment confirmation"
-        >
-          WhatsApp
-        </a>
-      ) : (
-        <span className={styles.noMobile}>No payee mobile on file</span>
-      )}
-      {entityId && (
-        <button
-          type="button"
-          className={styles.btnSecondary}
-          style={{ fontSize: '0.8125rem' }}
-          onClick={handleSendSms}
-          disabled={smsSent}
-        >
-          {smsSent ? '✓ SMS Sent' : 'Send SMS Confirmation'}
-        </button>
-      )}
-    </div>
+    <a
+      href={buildWhatsAppPaymentUrl(mobile, name ?? 'Payee', amount, voucherNo, companyCode)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={styles.waBtn}
+      title="Open WhatsApp with pre-filled payment confirmation"
+    >
+      WhatsApp
+    </a>
   )
 }
 
@@ -968,9 +941,20 @@ function DetailPanel({
 
     setUploadingReceipt(true)
     try {
-      const result = await uploadVoucherAttachments(detail.id, companyId, userId, list)
+      const result = await uploadVoucherAttachments(detail.id, companyId, userId, list, 'transfer_receipt')
       if (result.ok.length > 0) {
         toast.success(`${result.ok.length} receipt${result.ok.length === 1 ? '' : 's'} attached`)
+        // Auto-open WhatsApp payment confirmation so staff can notify payee immediately
+        if (row && detail.entity_mobile) {
+          const waUrl = buildWhatsAppPaymentUrl(
+            detail.entity_mobile,
+            detail.entity_name ?? 'Payee',
+            detail.amount,
+            row.voucher_number,
+            companyCode,
+          )
+          window.open(waUrl, '_blank', 'noopener,noreferrer')
+        }
       }
       if (result.failed.length > 0) {
         toast.warning(`Failed to attach: ${result.failed.join(', ')}`)
@@ -1178,6 +1162,9 @@ function DetailPanel({
                     <div className={styles.attachMeta}>
                       <span className={styles.attachName}>{att.file_name}</span>
                       <span className={styles.attachSize}>{formatFileSize(att.file_size)}</span>
+                      {att.attachment_type === 'transfer_receipt' && (
+                        <span className={styles.attachTypeBadge}>Receipt</span>
+                      )}
                       <span className={styles.attachLinkHint}>Open attachment ↗</span>
                     </div>
                   </a>
@@ -1293,7 +1280,7 @@ function DetailPanel({
                       <FileText size={13} /> Voucher Copy
                     </button>
                     <span className={styles.paymentConfirmNote}>
-                      SMS and WhatsApp can send a message, but cannot auto-attach the voucher PDF/file.
+                      WhatsApp opens automatically after uploading a transfer receipt, or click below to send manually.
                     </span>
                   </div>
                   <WaPaymentBtn
@@ -1302,8 +1289,6 @@ function DetailPanel({
                     amount={detail.amount}
                     voucherNo={row.voucher_number}
                     companyCode={companyCode}
-                    entityId={detail.entity_id}
-                    onSmsSent={onRefresh}
                   />
 
                   {/* Pay Now — visible for completed vouchers, role-gated */}

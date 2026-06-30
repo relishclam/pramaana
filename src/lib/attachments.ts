@@ -2,17 +2,20 @@ import { supabase } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export type AttachmentType = 'invoice' | 'transfer_receipt' | 'other'
+
 export interface VoucherAttachment {
-  id:           string
-  voucher_id:   string
-  company_id:   string
-  file_name:    string
-  file_size:    number | null
-  mime_type:    string | null
-  storage_path: string
-  uploaded_by:  string
-  uploaded_at:  string
-  is_deleted:   boolean
+  id:              string
+  voucher_id:      string
+  company_id:      string
+  file_name:       string
+  file_size:       number | null
+  mime_type:       string | null
+  storage_path:    string
+  uploaded_by:     string
+  uploaded_at:     string
+  is_deleted:      boolean
+  attachment_type: AttachmentType
 }
 
 export interface AttachmentWithUrl extends VoucherAttachment {
@@ -26,10 +29,11 @@ const BUCKET = 'voucher-attachments'
 // Fails gracefully per-file — does not throw if one file fails.
 
 export async function uploadVoucherAttachments(
-  voucherId: string,
-  companyId: string,
-  userId:    string,
-  files:     File[],
+  voucherId:      string,
+  companyId:      string,
+  userId:         string,
+  files:          File[],
+  attachmentType: AttachmentType = 'invoice',
 ): Promise<{ ok: string[]; failed: string[] }> {
   const ok: string[]     = []
   const failed: string[] = []
@@ -52,13 +56,14 @@ export async function uploadVoucherAttachments(
         .schema('pramaana')
         .from('voucher_attachments')
         .insert({
-          voucher_id:   voucherId,
-          company_id:   companyId,
-          file_name:    file.name,
-          file_size:    file.size,
-          mime_type:    file.type || null,
-          storage_path: path,
-          uploaded_by:  userId,
+          voucher_id:      voucherId,
+          company_id:      companyId,
+          file_name:       file.name,
+          file_size:       file.size,
+          mime_type:       file.type || null,
+          storage_path:    path,
+          uploaded_by:     userId,
+          attachment_type: attachmentType,
         })
 
       if (dbErr) {

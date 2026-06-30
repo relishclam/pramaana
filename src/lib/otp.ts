@@ -76,12 +76,21 @@ export async function initiatePaymentOtp(
   const { data: entity } = await supabase
     .schema('registry')
     .from('entities')
-    .select('mobile')
+    .select('mobile, display_name')
     .eq('id', entityId)
     .maybeSingle()
 
   if (!entity?.mobile) return { sent: false, reason: 'no_mobile' }
   const mobile = entity.mobile as string
+
+  // Fetch voucher amount for SMS template var2
+  const { data: voucherRow } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .select('amount')
+    .eq('id', voucherId)
+    .maybeSingle()
+  const voucherAmount = (voucherRow?.amount as number) ?? 0
 
   // ── 2. Cancel any existing pending session for this voucher ──────────────
   await supabase
@@ -125,7 +134,7 @@ export async function initiatePaymentOtp(
   }
 
   // ── 5. Send SMS ───────────────────────────────────────────────────────────
-  const smsResult = await sendPaymentOtpSms(mobile, plainOtp)
+  const smsResult = await sendPaymentOtpSms(mobile, plainOtp, (entity.display_name as string) ?? '', voucherAmount)
 
   if (!smsResult.sent) {
     // OTP row inserted but SMS failed — session exists, user can resend

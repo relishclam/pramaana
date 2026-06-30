@@ -21,11 +21,9 @@ const API_BASE  = 'https://2factor.in/API/V1'
 const PROVIDER_TIMEOUT_MS = 12000
 
 function env(name: string): string | undefined {
-  // Works in Vercel edge + local dev shims
-  const procEnv = typeof process !== 'undefined' ? process.env?.[name] : undefined
+  // Works in Vercel edge + local dev shims (no direct `process` reference for edge TS compat)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const globalEnv = (globalThis as any)?.process?.env?.[name] as string | undefined
-  return procEnv ?? globalEnv
+  return (globalThis as any)?.process?.env?.[name] as string | undefined
 }
 
 function normalizeIndianMobile(input: string): string | null {
@@ -79,7 +77,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(null, { status: 405 })
   }
 
-  let body: { template?: string; mobile?: string; vars?: unknown }
+  let body: { template?: string; mobile?: string; vars?: unknown; otp?: string; var1?: string; var2?: string }
   try {
     body = await req.json()
   } catch {
@@ -88,13 +86,19 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  const { template, mobile, vars } = body
+  const { template, mobile, vars, otp: bodyOtp, var1, var2 } = body
 
   if (
     typeof template !== 'string' ||
-    typeof mobile  !== 'string'  ||
-    !Array.isArray(vars)
+    typeof mobile  !== 'string'
   ) {
+    return new Response(JSON.stringify({ error: 'Missing or invalid fields' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  // vars required for non-OTP templates
+  if (template !== 'payment-otp' && !Array.isArray(vars)) {
     return new Response(JSON.stringify({ error: 'Missing or invalid fields' }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
     })
@@ -136,8 +140,12 @@ export default async function handler(req: Request): Promise<Response> {
   // MUST use the /SMS/{phone}/{otp}/{template} URL — NOT the TSMS endpoint.
   // TSMS returns "Success" silently for OTP templates without delivering.
   if (template === 'payment-otp') {
-    const otp = (vars as string[])[0] ?? ''
-    const otpUrl = `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/${encodeURIComponent(otp)}/${encodeURIComponent(templateName)}`
+    const otp     = bodyOtp ?? ''
+    const safeV1  = encodeURIComponent(var1 ?? '')
+    const safeV2  = encodeURIComponent(var2 ?? '')
+    const otpUrl  =
+      `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/${otp}/Pramaana-Payment-OTP2` +
+      `?var1=${safeV1}&var2=${safeV2}`
 
     let tfRes: Response
     try {

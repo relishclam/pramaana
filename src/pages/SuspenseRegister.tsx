@@ -6,7 +6,6 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
-import { sendSettlementLinkSms } from '@/lib/sms'
 import {
   fetchSuspenseVouchers, fetchSuspenseSession, fetchSuspenseSettlements,
   createOrRefreshSession, buildSettlementUrl,
@@ -317,15 +316,8 @@ function DetailPanel({
       )
       const url = buildSettlementUrl(sess.token)
       setSettlementUrl(url)
-      // Send SMS (fire-and-forget — dry-run until DLT approved)
-      if (row.entity_id) {
-        sendSettlementLinkSms(row.entity_id, row.amount, sess.token)
-          .then(r => {
-            if (r.sent) toast.success('SMS sent to staff')
-            else if (!r.sent && r.reason === 'no_mobile') toast.info('No mobile on record — share link manually')
-          })
-      }
-      toast.success('Settlement link ready — copy and send to staff')
+      if (!row.entity_mobile) toast.info('No mobile on file — copy the link and share manually')
+      else toast.success('Settlement link ready — send via WhatsApp below')
       onRefresh()
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to create link')
@@ -747,8 +739,7 @@ function DetailPanel({
                 </button>
               )}
               <p className={styles.smsNote}>
-                Send this link to the staff member via WhatsApp or SMS.
-                {' '}Templates pending DLT approval — auto-send will be enabled once approved.
+                Copy the link or tap WhatsApp to send directly to the staff member.
               </p>
             </div>
           )}

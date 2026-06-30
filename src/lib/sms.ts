@@ -97,12 +97,38 @@ export async function sendPaymentConfirmedSms(
 }
 
 // ── Payment OTP ───────────────────────────────────────────────────────────────
-// Template: Pramaana-Payment Approval (note: space in DLT template name)
-// "Your Pramaana payment OTP is {otp}. Valid 10 minutes. Do not share."
+// Template: Pramaana-Payment-OTP2 (Sender: RHHF)
+// 'Dear #VAR1#, Relish payment of Rs.#VAR2# approved. Your OTP is XXXX.
+//  Valid for 10 minutes. Do not share.'
 
 export async function sendPaymentOtpSms(
-  mobile: string,
-  otp:    string,
+  mobile:    string,
+  otp:       string,
+  payeeName: string,
+  amount:    number,
 ): Promise<SmsResult> {
-  return callApi('payment-otp', mobile, [otp])
+  const safeName  = payeeName.slice(0, 30)
+  const amountStr = Math.round(amount).toString()
+  try {
+    const ctrl  = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+    const res = await fetch('/api/send-sms', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ template: 'payment-otp', mobile, otp, var1: safeName, var2: amountStr }),
+      signal:  ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string }
+      return { sent: false, reason: err.error ?? `HTTP ${res.status}` }
+    }
+    return { sent: true }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      return { sent: false, reason: 'SMS request timed out' }
+    }
+    console.warn('[sms] OTP send failed:', e)
+    return { sent: false, reason: e instanceof Error ? e.message : 'error' }
+  }
 }

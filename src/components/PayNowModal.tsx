@@ -217,14 +217,14 @@ export default function PayNowModal({ voucher, companyId, userId, onPaid, onClos
   }, [onClose])
 
   // ── UPI data ──────────────────────────────────────────────────────────────
-  const upiUrl  = (voucher.entity_upi_id && voucher.entity_name)
-    ? buildUpiUrl(voucher.entity_upi_id, voucher.entity_name, voucher.amount, voucher.voucher_number)
+  const upiUrl  = voucher.entity_upi_id
+    ? buildUpiUrl(voucher.entity_upi_id, voucher.entity_name ?? 'Payee', voucher.amount, voucher.voucher_number)
     : null
   const qrUrl   = upiUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiUrl)}&bgcolor=ffffff&color=1a1a1a&margin=10`
     : null
-  const gpayUrl = (voucher.entity_upi_id && voucher.entity_name)
-    ? buildGpayUrl(voucher.entity_upi_id, voucher.entity_name, voucher.amount, voucher.voucher_number)
+  const gpayUrl = voucher.entity_upi_id
+    ? buildGpayUrl(voucher.entity_upi_id, voucher.entity_name ?? 'Payee', voucher.amount, voucher.voucher_number)
     : null
   const anyUpiUrl = upiUrl
 

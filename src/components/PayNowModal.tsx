@@ -44,8 +44,8 @@ const BANK_APPS: Record<string, string> = {
   'canara bank':  'com.symbiosis.canmobile',
 }
 
-// Bank transfer modes in Pramaana (= "Account Transfer" in spec)
-const BANK_TRANSFER_MODES = new Set(['Bank', 'Cheque', 'NEFT', 'RTGS', 'IMPS'])
+// Bank transfer modes in Pramaana (= "Account Transfer" in spec) — stored lowercase in DB
+const BANK_TRANSFER_MODES = new Set(['bank', 'cheque', 'neft', 'rtgs', 'imps'])
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -104,6 +104,19 @@ function getBankAppPackage(paidFrom: string | null): { pkg: string; label: strin
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
+}
+
+function formatPaymentMode(mode: string): string {
+  const MAP: Record<string, string> = {
+    upi:    'UPI',
+    bank:   'Bank Transfer',
+    neft:   'NEFT',
+    rtgs:   'RTGS',
+    imps:   'IMPS',
+    cheque: 'Cheque',
+    cash:   'Cash',
+  }
+  return MAP[mode.toLowerCase()] ?? mode
 }
 
 function nowTimestamp(): string {
@@ -171,10 +184,10 @@ function CopyFieldBtn({ value, label }: { value: string; label: string }) {
 
 export default function PayNowModal({ voucher, companyId, userId, onPaid, onClose }: Props) {
   const mobile      = isMobile()
-  const mode        = voucher.payment_mode ?? ''
-  const isUpi       = mode === 'UPI'
+  const mode        = (voucher.payment_mode ?? '').toLowerCase()   // normalise — DB stores lowercase
+  const isUpi       = mode === 'upi'
   const isBank      = BANK_TRANSFER_MODES.has(mode)
-  const isChequePay = mode === 'Cheque'   // Cheque uses cheque_number, not utr_number
+  const isChequePay = mode === 'cheque'   // Cheque uses cheque_number, not utr_number
 
   // Payment accounts for datalist
   const [payAccounts, setPayAccounts] = useState<CompanyPaymentAccount[]>([])
@@ -308,7 +321,7 @@ export default function PayNowModal({ voucher, companyId, userId, onPaid, onClos
             </div>
             <div className={styles.summaryItem}>
               <span className={styles.summaryLabel}>Mode</span>
-              <span className={styles.summaryValue}>{mode || '—'}</span>
+              <span className={styles.summaryValue}>{mode ? formatPaymentMode(mode) : '—'}</span>
             </div>
             {voucher.paid_from_account && (
               <div className={styles.summaryItem}>

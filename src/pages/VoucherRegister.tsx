@@ -1467,6 +1467,31 @@ export default function VoucherRegister() {
   const [searchInput, setSearchInput] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [statusDropOpen, setStatusDropOpen] = useState(false)
+  const [natureDropOpen, setNatureDropOpen] = useState(false)
+  const statusDropRef = useRef<HTMLDivElement>(null)
+  const natureDropRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!statusDropOpen) return
+    function onOutside(e: MouseEvent) {
+      if (statusDropRef.current && !statusDropRef.current.contains(e.target as Node))
+        setStatusDropOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [statusDropOpen])
+
+  useEffect(() => {
+    if (!natureDropOpen) return
+    function onOutside(e: MouseEvent) {
+      if (natureDropRef.current && !natureDropRef.current.contains(e.target as Node))
+        setNatureDropOpen(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [natureDropOpen])
+
   const setFilter = useCallback(<K extends keyof RegisterFilters>(key: K, val: RegisterFilters[K]) => {
     setFilters(f => ({ ...f, [key]: val }))
   }, [])
@@ -1670,37 +1695,68 @@ export default function VoucherRegister() {
       {/* ── Filters bar ─────────────────────────────────────────────────── */}
       <div className={styles.filtersBar}>
 
-        {/* Status pills */}
-        <div className={styles.pillGroup}>
-          {STATUS_PILLS.map(p => (
-            <button
-              key={p.value}
-              className={`${styles.pill} ${filters.status === p.value ? styles.pillActive : ''}`}
-              onClick={() => setFilter('status', p.value)}
-            >
-              {p.label}
-            </button>
-          ))}
+        {/* Workflow status dropdown */}
+        <div className={styles.filterDrop} ref={statusDropRef}>
+          <button
+            className={`${styles.filterDropTrigger} ${filters.status ? styles.filterDropTriggerActive : ''}`}
+            onClick={() => setStatusDropOpen(o => !o)}
+          >
+            <span className={styles.filterDropLabel}>Voucher Register</span>
+            <span className={styles.filterDropValue}>
+              {STATUS_PILLS.find(p => p.value === filters.status)?.label ?? 'All Vouchers'}
+            </span>
+            <ChevronDown size={12} className={`${styles.filterDropChevron} ${statusDropOpen ? styles.filterDropChevronOpen : ''}`} />
+          </button>
+          {statusDropOpen && (
+            <div className={styles.filterDropMenu}>
+              {STATUS_PILLS.map(p => (
+                <button
+                  key={p.value}
+                  className={`${styles.filterDropItem} ${filters.status === p.value ? styles.filterDropItemActive : ''}`}
+                  onClick={() => { setFilter('status', p.value); setStatusDropOpen(false) }}
+                >
+                  {p.label === 'All' ? 'All Vouchers' : p.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Nature pills */}
-        <div className={styles.pillGroup}>
-          {NATURE_PILLS.map(p => {
-            const isActive = filters.nature === p.value
-            const color    = p.value ? NATURE_COLOR[p.value] : undefined
-            return (
-              <button
-                key={p.value}
-                className={`${styles.pill} ${isActive ? styles.pillActive : ''}`}
-                style={isActive && color
-                  ? { background: `${color}22`, borderColor: `${color}60`, color }
-                  : {}}
-                onClick={() => setFilter('nature', p.value)}
-              >
-                {p.label}
-              </button>
-            )
-          })}
+        {/* Voucher type dropdown */}
+        <div className={styles.filterDrop} ref={natureDropRef}>
+          <button
+            className={`${styles.filterDropTrigger} ${filters.nature ? styles.filterDropTriggerActive : ''}`}
+            onClick={() => setNatureDropOpen(o => !o)}
+          >
+            <span className={styles.filterDropLabel}>Voucher Type</span>
+            <span className={styles.filterDropValue}>
+              {filters.nature
+                ? <><span className={styles.filterDropDot} style={{ background: NATURE_COLOR[filters.nature] }} />{NATURE_PILLS.find(p => p.value === filters.nature)?.label}</>  
+                : 'All Types'
+              }
+            </span>
+            <ChevronDown size={12} className={`${styles.filterDropChevron} ${natureDropOpen ? styles.filterDropChevronOpen : ''}`} />
+          </button>
+          {natureDropOpen && (
+            <div className={styles.filterDropMenu}>
+              {NATURE_PILLS.map(p => {
+                const color = p.value ? NATURE_COLOR[p.value] : undefined
+                return (
+                  <button
+                    key={p.value}
+                    className={`${styles.filterDropItem} ${filters.nature === p.value ? styles.filterDropItemActive : ''}`}
+                    onClick={() => { setFilter('nature', p.value); setNatureDropOpen(false) }}
+                  >
+                    {color
+                      ? <span className={styles.filterDropDot} style={{ background: color }} />
+                      : <span className={styles.filterDropDotEmpty} />
+                    }
+                    {p.label === 'All' ? 'All Types' : p.label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Date range */}

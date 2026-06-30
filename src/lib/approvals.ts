@@ -216,7 +216,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
   const [profilesRes, entityRes, bankRes, costRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', profileIds),
     v.entity_id
-      ? supabase.schema('registry').from('entities').select('id, display_name, mobile, upi_id, bank_name, account_number, ifsc').eq('id', v.entity_id).maybeSingle()
+      ? supabase.schema('registry').from('entities').select('id, display_name, mobile, upi_id, bank_name, bank_account_number, bank_ifsc').eq('id', v.entity_id).maybeSingle()
       : Promise.resolve(null),
     v.bank_ledger_id
       ? supabase.schema('pramaana').from('ledgers').select('id, name').eq('id', v.bank_ledger_id).maybeSingle()
@@ -231,7 +231,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
       .map(p => [p.id, p.full_name ?? 'Unknown'])
   )
 
-  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string; mobile: string | null; upi_id: string | null; bank_name: string | null; account_number: string | null; ifsc: string | null } | null }).data : null
+  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string; mobile: string | null; upi_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_ifsc: string | null } | null }).data : null
   const bankData     = bankRes     ? (bankRes     as { data: { name: string }           | null }).data : null
   const costData     = costRes     ? (costRes     as { data: { name: string }           | null }).data : null
 
@@ -250,8 +250,8 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     entity_name:         entityData ? entityData.display_name : null,
     entity_mobile:       entityData ? (entityData.mobile ?? null) : null,
     entity_upi_id:       entityData ? (entityData.upi_id ?? null) : null,
-    entity_bank_account: entityData ? (entityData.account_number ?? null) : null,
-    entity_bank_ifsc:    entityData ? (entityData.ifsc ?? null) : null,
+    entity_bank_account: entityData ? (entityData.bank_account_number ?? null) : null,
+    entity_bank_ifsc:    entityData ? (entityData.bank_ifsc ?? null) : null,
     entity_bank_name:    entityData ? (entityData.bank_name ?? null) : null,
     paid_from_account:   v.paid_from_account,
     paid_at:             v.paid_at,

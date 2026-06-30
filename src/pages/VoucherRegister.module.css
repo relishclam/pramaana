@@ -90,6 +90,126 @@
   font-weight: 600;
 }
 
+/* ── Filter dropdowns ────────────────────────────────────────────────────── */
+
+.filterDrop {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.filterDropTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem 0.3125rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  transition: border-color 0.15s, background 0.15s;
+  white-space: nowrap;
+  min-width: 160px;
+}
+
+.filterDropTrigger:hover {
+  border-color: var(--teal);
+  background: var(--surface-2);
+}
+
+.filterDropTriggerActive {
+  border-color: var(--teal);
+}
+
+.filterDropLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.filterDropValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+.filterDropChevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.filterDropChevronOpen {
+  transform: rotate(180deg);
+}
+
+.filterDropMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 120;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  overflow: hidden;
+  padding: 0.25rem 0;
+}
+
+.filterDropItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.filterDropItem:hover {
+  background: var(--surface-2);
+}
+
+.filterDropItemActive {
+  background: color-mix(in srgb, var(--teal) 12%, transparent);
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.filterDropDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.filterDropDotEmpty {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+  opacity: 0.3;
+}
+
 /* ── Date range ──────────────────────────────────────────────────────────── */
 
 .dateRange {

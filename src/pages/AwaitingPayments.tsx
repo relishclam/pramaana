@@ -19,7 +19,7 @@ import styles from './VoucherRegister.module.css'   // reuse existing styles
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const BANK_TRANSFER_MODES = new Set(['Bank', 'Cheque', 'NEFT', 'RTGS', 'IMPS'])
+const BANK_TRANSFER_MODES = new Set(['bank', 'cheque', 'neft', 'rtgs', 'imps'])
 const OVERDUE_MS = 48 * 60 * 60 * 1000   // 48 hours
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,6 +29,20 @@ function isOverdue(queuedAt: string | null): boolean {
   return Date.now() - new Date(queuedAt).getTime() > OVERDUE_MS
 }
 
+function formatPaymentMode(mode: string | null): string {
+  if (!mode) return '—'
+  const MAP: Record<string, string> = {
+    upi:    'UPI',
+    bank:   'Bank Transfer',
+    neft:   'NEFT',
+    rtgs:   'RTGS',
+    imps:   'IMPS',
+    cheque: 'Cheque',
+    cash:   'Cash',
+  }
+  return MAP[mode.toLowerCase()] ?? mode
+}
+
 function fmtDate(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',
@@ -36,9 +50,9 @@ function fmtDate(iso: string) {
 }
 
 function canSeePayNow(role: string | null, isSuperAdmin: boolean, paymentMode: string | null): boolean {
-  if (!paymentMode || paymentMode === 'Cash') return false
+  if (!paymentMode || paymentMode.toLowerCase() === 'cash') return false
   if (isSuperAdmin || role === 'admin') return true
-  if (role === 'accounts' && BANK_TRANSFER_MODES.has(paymentMode)) return true
+  if (role === 'accounts' && BANK_TRANSFER_MODES.has(paymentMode.toLowerCase())) return true
   return false
 }
 
@@ -87,7 +101,7 @@ export default function AwaitingPayments() {
         voucher_number:      row.voucher_number,
         amount:              row.amount,
         payment_mode:        row.payment_mode,
-        entity_name:         detail.entity_name,
+        entity_name:         detail.entity_name ?? row.entity_name,
         entity_upi_id:       detail.entity_upi_id,
         entity_bank_account: detail.entity_bank_account,
         entity_bank_ifsc:    detail.entity_bank_ifsc,
@@ -248,7 +262,7 @@ export default function AwaitingPayments() {
                           background: 'var(--surface-2)', border: '1px solid var(--border)',
                           borderRadius: '4px', color: 'var(--text-muted)',
                         }}>
-                          {row.payment_mode ?? '—'}
+                          {formatPaymentMode(row.payment_mode)}
                         </span>
                       </td>
                       <td className={`${styles.amountCell} ${styles.right}`} style={{ whiteSpace: 'nowrap' }}>

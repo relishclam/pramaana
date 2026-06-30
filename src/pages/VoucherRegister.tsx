@@ -209,39 +209,54 @@ function defaultFilters(): RegisterFilters {
 // ── StatusBadge ───────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
+  const IN_BOOKS = new Set(['approved', 'completed', 'awaiting_payment', 'posted'])
+  let badge: React.ReactNode
   switch (status) {
     case 'draft':
-      return <span className={`${styles.badge} ${styles.badgeDraft}`}>Draft</span>
+      badge = <span className={`${styles.badge} ${styles.badgeDraft}`}>Draft</span>
+      break
     case 'pending_approval':
-      return (
+      badge = (
         <span className={`${styles.badge} ${styles.badgePending}`}>
           <span className={styles.pulseDot} />
           Pending
         </span>
       )
+      break
     case 'approved':
-      return (
+      badge = (
         <span className={`${styles.badge} ${styles.badgePending}`}>
           <span className={styles.pulseDot} />
           Awaiting OTP
         </span>
       )
+      break
     case 'completed':
-      return <span className={`${styles.badge} ${styles.badgeCompleted}`}>OTP Verified</span>
+      badge = <span className={`${styles.badge} ${styles.badgeCompleted}`}>OTP Verified</span>
+      break
     case 'awaiting_payment':
-      return (
+      badge = (
         <span className={`${styles.badge} ${styles.badgePending}`}>
           <span className={styles.pulseDot} />
           Awaiting Payment
         </span>
       )
+      break
     case 'posted':
-      return <span className={`${styles.badge} ${styles.badgePosted}`}>Posted</span>
+      badge = <span className={`${styles.badge} ${styles.badgePosted}`}>Posted</span>
+      break
     case 'cancelled':
-      return <span className={`${styles.badge} ${styles.badgeCancelled}`}>Cancelled</span>
+      badge = <span className={`${styles.badge} ${styles.badgeCancelled}`}>Cancelled</span>
+      break
     default:
-      return <span className={`${styles.badge} ${styles.badgeDraft}`}>{status}</span>
+      badge = <span className={`${styles.badge} ${styles.badgeDraft}`}>{status}</span>
   }
+  return (
+    <span className={styles.statusWrap}>
+      {badge}
+      {IN_BOOKS.has(status) && <span className={styles.inBooksTag}>in books</span>}
+    </span>
+  )
 }
 
 // ── TypeBadge ─────────────────────────────────────────────────────────────────

@@ -49,7 +49,7 @@ export async function fetchDayBook(
     .from('vouchers')
     .select('id, voucher_number, voucher_date, narration, amount, entity_id, voucher_types(name)')
     .eq('company_id', companyId)
-    .in('status', ['approved', 'completed'])
+    .in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
     .gte('voucher_date', from)
     .lte('voucher_date', to)
     .order('voucher_date', { ascending: true })
@@ -144,11 +144,11 @@ export async function fetchLedgerStatement(
     ? (ledger.opening_balance as number)
     : -(ledger.opening_balance as number)
 
-  // Fetch posted vouchers for this company within date range
+  // Fetch accounting-visible vouchers (approved → posted) for this company within date range
   const { data: vouchers, error: vErr } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id, voucher_date, voucher_number, entity_id, voucher_types(name)')
-    .eq('company_id', companyId).in('status', ['approved', 'completed'])
+    .eq('company_id', companyId).in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
     .gte('voucher_date', from).lte('voucher_date', to)
     .order('voucher_date', { ascending: true })
     .order('voucher_number', { ascending: true })
@@ -262,11 +262,11 @@ export async function fetchTrialBalance(
   if (lErr) throw new Error(lErr.message)
   if (!ledgers?.length) return { rows: [], total_dr: 0, total_cr: 0, balanced: true }
 
-  // Get IDs of all posted vouchers up to toDate for this company
+  // Get IDs of all accounting-visible vouchers (approved → posted) up to toDate for this company
   const { data: voucherRows, error: vErr } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id')
-    .eq('company_id', companyId).in('status', ['approved', 'completed'])
+    .eq('company_id', companyId).in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
     .lte('voucher_date', toDate)
 
   if (vErr) throw new Error(vErr.message)
@@ -432,7 +432,7 @@ export async function fetchOutstandingLedgers(
   const { data: vs, error: vErr } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id, voucher_date')
-    .eq('company_id', companyId).in('status', ['approved', 'completed'])
+    .eq('company_id', companyId).in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
     .lte('voucher_date', asAtDate)
   if (vErr) throw new Error(vErr.message)
 
@@ -507,7 +507,7 @@ export async function fetchGSTVouchers(
   const { data, error } = await supabase
     .schema('pramaana').from('vouchers')
     .select('id, voucher_number, voucher_date, amount, entity_id')
-    .eq('company_id', companyId).in('status', ['approved', 'completed'])
+    .eq('company_id', companyId).in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
     .gte('voucher_date', from).lte('voucher_date', to)
     .in('voucher_type_id', typeIds)
     .order('voucher_date', { ascending: true })

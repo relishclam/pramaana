@@ -415,6 +415,25 @@
   text-decoration: line-through;
 }
 
+/* ── Accounting state indicator ─────────────────────────────────────────── */
+
+.statusWrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.inBooksTag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #22c55e;
+  line-height: 1;
+  opacity: 0.9;
+}
+
 /* ── Pulse dot (pending) ─────────────────────────────────────────────────── */
 
 .pulseDot {

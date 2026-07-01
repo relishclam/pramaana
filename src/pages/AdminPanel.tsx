@@ -18,7 +18,6 @@ import {
 } from '@/lib/admin'
 import {
   fetchCompanyPaymentAccounts,
-  deleteCompanyPaymentAccount,
   type CompanyPaymentAccount,
 } from '@/lib/pay-now'
 import css from './AdminPanel.module.css'
@@ -338,24 +337,10 @@ function ImportSection<T extends { _error?: string; _line: number; name: string 
 
 // ── Payment Accounts Management ───────────────────────────────────────────────
 
-// ── blank form factory ────────────────────────────────────────────────────────
-function blankAccountForm(companyId: string): Partial<CompanyPaymentAccount> {
-  return { company_id: companyId, label: '', account_holder_name: null, bank_name: null,
-           bank_account_number: null, bank_ifsc: null, upi_id: null, is_primary: false }
-}
-
 function PaymentAccountsManagement({ companyId }: { companyId: string }) {
-  const [accounts,        setAccounts]        = useState<CompanyPaymentAccount[]>([])
-  const [loaded,          setLoaded]          = useState(false)
-  const [loading,         setLoading]         = useState(false)
-  const [formOpen,        setFormOpen]        = useState(false)
-  const [editingId,       setEditingId]       = useState<string | null>(null)
-  const [form,            setForm]            = useState<Partial<CompanyPaymentAccount>>(() => blankAccountForm(companyId))
-  const [saving,          setSaving]          = useState(false)
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-
-  const setField = (k: keyof CompanyPaymentAccount, v: unknown) =>
-    setForm(prev => ({ ...prev, [k]: v }))
+  const [accounts, setAccounts] = useState<CompanyPaymentAccount[]>([])
+  const [loaded,   setLoaded]   = useState(false)
+  const [loading,  setLoading]  = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -371,170 +356,35 @@ function PaymentAccountsManagement({ companyId }: { companyId: string }) {
 
   if (!loaded && !loading) { void load() }
 
-  const openNew = () => {
-    setEditingId(null)
-    setForm(blankAccountForm(companyId))
-    setFormOpen(true)
-  }
-
-  const openEdit = (acct: CompanyPaymentAccount) => {
-    setEditingId(acct.id)
-    setForm({ ...acct })
-    setFormOpen(true)
-  }
-
-  const closeForm = () => { setFormOpen(false); setEditingId(null); setForm(blankAccountForm(companyId)) }
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const label = (form.label ?? '').trim()
-    if (!label) { toast.error('Label is required'); return }
-    setSaving(true)
-    try {
-      const { supabase: sb } = await import('@/lib/supabase')
-      const payload = Object.fromEntries(
-        Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])
-      )
-      if (editingId) {
-        const { error } = await sb
-          .schema('registry').from('company_bank_accounts').update(payload).eq('id', editingId)
-        if (error) throw new Error(error.message)
-        toast.success('Account updated')
-      } else {
-        const { data, error } = await sb
-          .schema('registry').from('company_bank_accounts').insert(payload).select().single()
-        if (error) throw new Error(error.message)
-        setAccounts(prev => [...prev, data as CompanyPaymentAccount])
-        closeForm()
-        toast.success('Account added')
-        setSaving(false)
-        return
-      }
-      setAccounts(await fetchCompanyPaymentAccounts(companyId))
-      closeForm()
-    } catch (e: unknown) {
-      toast.error((e as Error).message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteCompanyPaymentAccount(id)
-      setAccounts(prev => prev.filter(a => a.id !== id))
-      setConfirmDeleteId(null)
-      toast.success('Account removed')
-    } catch (e: unknown) {
-      toast.error((e as Error).message)
-    }
-  }
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.75rem', background: 'var(--surface)',
-    border: '1px solid var(--border-2)', borderRadius: '6px', color: 'var(--text)',
-    fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box',
-  }
-  const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem',
-  }
-
   return (
-    <div style={{ maxWidth: 640 }}>
-      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.25rem', lineHeight: 1.6 }}>
-        Manage "Pay From" bank accounts for this company. These appear in the Pay Now modal
-        and voucher entry. Bank details (account number, IFSC, UPI) are stored in the shared
-        registry so all Relish apps can use them.
-      </p>
+    <div style={{ maxWidth: 600 }}>
+      {/* Source notice */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.875rem 1rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '8px', marginBottom: '1.5rem' }}>
+        <span style={{ fontSize: '1rem', flexShrink: 0 }}>ℹ️</span>
+        <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          These accounts are managed in{' '}
+          <strong style={{ color: 'var(--text)' }}>Relish Suite → Master Data → Company Profiles</strong>.
+          Click a company row, then use the <em>Bank Accounts</em> section to add, edit, or remove accounts.
+          Changes appear here immediately.
+        </p>
+      </div>
 
-      {!formOpen && (
-        <button onClick={openNew} className={css.importBtn} style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', margin: '0 0 1.25rem' }}>
-          + Add Account
-        </button>
-      )}
-
-      {/* Add / Edit form */}
-      {formOpen && (
-        <form onSubmit={handleSave} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem' }}>
-          <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>
-            {editingId ? 'Edit Account' : 'New Account'}
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={labelStyle}>Label *</label>
-              <input style={inputStyle} value={form.label ?? ''} onChange={e => setField('label', e.target.value)} placeholder="e.g. RHHF HDFC Current A/C" maxLength={120} autoFocus />
-            </div>
-            <div>
-              <label style={labelStyle}>Account Holder Name</label>
-              <input style={inputStyle} value={form.account_holder_name ?? ''} onChange={e => setField('account_holder_name', e.target.value)} placeholder="As per bank records" />
-            </div>
-            <div>
-              <label style={labelStyle}>Bank Name</label>
-              <input style={inputStyle} value={form.bank_name ?? ''} onChange={e => setField('bank_name', e.target.value)} placeholder="e.g. HDFC Bank" />
-            </div>
-            <div>
-              <label style={labelStyle}>Account Number</label>
-              <input style={inputStyle} value={form.bank_account_number ?? ''} onChange={e => setField('bank_account_number', e.target.value)} placeholder="Account number" />
-            </div>
-            <div>
-              <label style={labelStyle}>IFSC Code</label>
-              <input style={inputStyle} value={form.bank_ifsc ?? ''} onChange={e => setField('bank_ifsc', e.target.value.toUpperCase())} placeholder="e.g. HDFC0001234" maxLength={11} />
-            </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label style={labelStyle}>UPI ID</label>
-              <input style={inputStyle} value={form.upi_id ?? ''} onChange={e => setField('upi_id', e.target.value)} placeholder="e.g. relishfoods@hdfcbank" />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={!!form.is_primary} onChange={e => setField('is_primary', e.target.checked)} />
-                Set as primary
-              </label>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-            <button type="submit" disabled={saving || !form.label?.trim()} className={css.importBtn} style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem', margin: 0 }}>
-              {saving ? 'Saving…' : (editingId ? 'Update' : 'Add Account')}
-            </button>
-            <button type="button" onClick={closeForm} style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', background: 'none', border: '1px solid var(--border-2)', borderRadius: '6px', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'inherit' }}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* List */}
       {loading && <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Loading…</p>}
-      {!loading && accounts.length === 0 && !formOpen && (
-        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No accounts added yet.</p>
+      {!loading && accounts.length === 0 && (
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No bank accounts found. Add them in Relish Suite → Company Profiles.</p>
       )}
       {accounts.map(a => (
-        <div key={a.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', padding: '0.75rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '0.5rem' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
-              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>{a.label}</span>
-              {a.is_primary && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', borderRadius: '4px', color: '#22c55e' }}>Primary</span>}
-            </div>
-            <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              {a.bank_name && <span>{a.bank_name}</span>}
-              {a.bank_account_number && <span> · A/C {a.bank_account_number}</span>}
-              {a.bank_ifsc && <span> · IFSC {a.bank_ifsc}</span>}
-              {a.upi_id && <div>UPI: {a.upi_id}</div>}
-              {a.account_holder_name && <div>{a.account_holder_name}</div>}
-            </div>
+        <div key={a.id} style={{ padding: '0.75rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text)' }}>{a.label}</span>
+            {a.is_primary && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.4)', borderRadius: '4px', color: '#22c55e' }}>Primary</span>}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
-            {confirmDeleteId === a.id ? (
-              <>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Remove?</span>
-                <button onClick={() => handleDelete(a.id)} style={{ padding: '0.25rem 0.625rem', fontSize: '0.75rem', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '5px', color: '#ef4444', cursor: 'pointer', fontFamily: 'inherit' }}>Yes</button>
-                <button onClick={() => setConfirmDeleteId(null)} style={{ padding: '0.25rem 0.625rem', fontSize: '0.75rem', background: 'none', border: '1px solid var(--border-2)', borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => openEdit(a)} style={{ padding: '0.25rem 0.625rem', fontSize: '0.75rem', background: 'none', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>
-                <button onClick={() => setConfirmDeleteId(a.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'none', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'inherit' }}>Remove</button>
-              </>
-            )}
+          <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            {a.bank_name && <span>{a.bank_name}</span>}
+            {a.bank_account_number && <span> · A/C {a.bank_account_number}</span>}
+            {a.bank_ifsc && <span> · IFSC {a.bank_ifsc}</span>}
+            {a.upi_id && <div>UPI: {a.upi_id}</div>}
+            {a.account_holder_name && <div>{a.account_holder_name}</div>}
           </div>
         </div>
       ))}

@@ -134,6 +134,21 @@ export async function dequeuePayment(voucherId: string): Promise<void> {
   if (error) throw new Error('Failed to dequeue voucher: ' + error.message)
 }
 
+// ── Set payment mode on an existing voucher (inline fix for queued vouchers) ──
+
+export async function updateVoucherPaymentMode(
+  voucherId: string,
+  paymentMode: string,
+): Promise<void> {
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .update({ payment_mode: paymentMode.toLowerCase() })
+    .eq('id', voucherId)
+
+  if (error) throw new Error('Failed to update payment mode: ' + error.message)
+}
+
 // ── Fetch Admin mobile for WhatsApp notification ──────────────────────────────
 //
 // Fallback chain (stops at first non-null result):

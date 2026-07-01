@@ -32,7 +32,7 @@ import {
 } from '@/lib/attachments'
 import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
 import { formatIndianCurrency } from '@/lib/vouchers'
-import { queueForPayment, dequeuePayment } from '@/lib/pay-now'
+import { queueForPayment, dequeuePayment, updateVoucherPaymentMode } from '@/lib/pay-now'
 import {
   fetchAllocationsForPayment,
   fetchAllocationsForBill,
@@ -691,6 +691,8 @@ function DetailPanel({
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const [uploadingDoc,     setUploadingDoc]     = useState(false)
   const [queueing,       setQueueing]       = useState(false)
+  const [settingMode,    setSettingMode]    = useState(false)
+  const [pendingMode,    setPendingMode]    = useState('')
   const receiptInputRef = useRef<HTMLInputElement | null>(null)
   const docInputRef     = useRef<HTMLInputElement | null>(null)
 
@@ -1071,6 +1073,20 @@ function DetailPanel({
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to dequeue voucher')
     } finally { setQueueing(false) }
+  }
+
+  const handleSetPaymentMode = async () => {
+    if (!row || !pendingMode) return
+    setSettingMode(true)
+    try {
+      await updateVoucherPaymentMode(row.id, pendingMode)
+      toast.success('Payment mode set')
+      setPendingMode('')
+      onRefresh()
+      await onReloadPanel(row.id)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to set payment mode')
+    } finally { setSettingMode(false) }
   }
 
   const handleUploadReceiptFiles = async (files: FileList | null) => {
@@ -1575,6 +1591,34 @@ function DetailPanel({
                           {queueing ? <Loader2 size={13} className={styles.spin} /> : <RotateCcw size={13} />}
                           Dequeue
                         </button>
+                      )}
+                      {/* Set Payment Mode — shown when queued but payment_mode not yet set */}
+                      {row.status === 'awaiting_payment' && !detail.payment_mode &&
+                        (isSuperAdmin || role === 'admin' || role === 'accounts') && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+                          <select
+                            className={styles.select}
+                            value={pendingMode}
+                            onChange={e => setPendingMode(e.target.value)}
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', height: 'auto' }}
+                            aria-label="Set payment mode"
+                          >
+                            <option value="">Set Payment Mode…</option>
+                            {['Cash', 'Bank', 'UPI', 'Cheque', 'NEFT', 'RTGS', 'IMPS'].map(m => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            className={styles.btnSecondary}
+                            onClick={() => { void handleSetPaymentMode() }}
+                            disabled={!pendingMode || settingMode}
+                            style={{ fontSize: '0.75rem' }}
+                          >
+                            {settingMode ? <Loader2 size={13} className={styles.spin} /> : null}
+                            Confirm
+                          </button>
+                        </div>
                       )}
                       {/* Pay Now — only when payment_mode is known */}
                       {canSeePayNow(role, isSuperAdmin, detail.payment_mode) && (

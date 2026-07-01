@@ -27,8 +27,9 @@ import styles from './VoucherEntry.module.css'
 const PAYMENT_MODES = ['Cash', 'Bank', 'UPI', 'Cheque', 'NEFT', 'RTGS', 'IMPS']
 const BANK_MODES    = new Set(['Bank', 'Cheque', 'NEFT', 'RTGS', 'IMPS'])
 const UTR_MODES     = new Set(['NEFT', 'RTGS', 'IMPS', 'UPI'])
-const NEEDS_ENTITY  = new Set(['payment', 'receipt'])
-const NEEDS_PAYMENT = new Set(['payment', 'receipt', 'contra'])
+const NEEDS_ENTITY   = new Set(['payment', 'receipt'])
+const NEEDS_PAYMENT  = new Set(['payment', 'receipt', 'contra'])         // payment mode required
+const SHOWS_PAYMENT  = new Set(['payment', 'receipt', 'contra', 'purchase', 'sales']) // field visible
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -161,7 +162,8 @@ export default function VoucherEntry() {
 
   // ── Derived flags ─────────────────────────────────────────────────────────
   const needsEntity  = activeType ? NEEDS_ENTITY.has(activeType.nature)  : false
-  const needsPayment = activeType ? NEEDS_PAYMENT.has(activeType.nature) : false
+  const needsPayment    = activeType ? SHOWS_PAYMENT.has(activeType.nature) : false
+  const requiresPayment = activeType ? NEEDS_PAYMENT.has(activeType.nature) : false
   const needsBank    = needsPayment && BANK_MODES.has(paymentMode)
   const needsUtr     = needsPayment && UTR_MODES.has(paymentMode)
   const needsCheque  = needsPayment && paymentMode === 'Cheque'
@@ -341,7 +343,7 @@ export default function VoucherEntry() {
     if (!activeType)                              { toast.error('Select a voucher type');               return false }
     if (!voucherDate)                             { toast.error('Voucher date is required');            return false }
     if (needsEntity && !entityId)                 { toast.error('Party is required for this voucher type'); return false }
-    if (needsPayment && !paymentMode)             { toast.error('Payment mode is required');            return false }
+    if (requiresPayment && !paymentMode)           { toast.error('Payment mode is required');            return false }
     if (needsBank && !bankLedgerId)               { toast.error('Bank ledger is required');             return false }
     if (entries.length < 2)                       { toast.error('At least 2 entry rows required');      return false }
     if (entries.some(e => !e.ledger_id))          { toast.error('All entry rows must have a ledger');   return false }
@@ -601,7 +603,11 @@ export default function VoucherEntry() {
           {/* Payment Mode */}
           {needsPayment && (
             <div className={styles.field}>
-              <label className={styles.label}>Payment Mode <span className={styles.req}>*</span></label>
+              <label className={styles.label}>
+                Payment Mode{requiresPayment
+                  ? <span className={styles.req}> *</span>
+                  : <span style={{ fontWeight: 400, opacity: 0.6 }}> (optional — blank = credit)</span>}
+              </label>
               <div className={styles.modeGrid}>
                 {PAYMENT_MODES.map(m => (
                   <button

@@ -600,11 +600,12 @@ export default function VoucherEntry() {
             </div>
           )}
 
-          {/* Payment Mode */}
+          {/* Payment Mode / Received Via */}
           {needsPayment && (
             <div className={styles.field}>
               <label className={styles.label}>
-                Payment Mode{requiresPayment
+                {activeType?.nature === 'receipt' ? 'Received Via' : 'Payment Mode'}
+                {requiresPayment
                   ? <span className={styles.req}> *</span>
                   : <span style={{ fontWeight: 400, opacity: 0.6 }}> (optional — blank = credit)</span>}
               </label>

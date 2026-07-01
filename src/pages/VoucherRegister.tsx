@@ -689,8 +689,10 @@ function DetailPanel({
   const [confirmDelete,  setConfirmDelete]  = useState(false)
   const [confirmDeletePending, setConfirmDeletePending] = useState(false)
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const [uploadingDoc,     setUploadingDoc]     = useState(false)
   const [queueing,       setQueueing]       = useState(false)
   const receiptInputRef = useRef<HTMLInputElement | null>(null)
+  const docInputRef     = useRef<HTMLInputElement | null>(null)
 
   const isAdmin   = role === 'admin' || role === 'super_admin'
   const canManageOtp = role === 'admin' || role === 'accounts' || role === 'super_admin'
@@ -1105,6 +1107,29 @@ function DetailPanel({
     }
   }
 
+  const handleUploadDocFiles = async (files: FileList | null) => {
+    if (!files || !detail?.id) return
+    const list = Array.from(files)
+    if (list.length === 0) return
+
+    setUploadingDoc(true)
+    try {
+      const result = await uploadVoucherAttachments(detail.id, companyId, userId, list, 'invoice')
+      if (result.ok.length > 0) {
+        toast.success(`${result.ok.length} document${result.ok.length === 1 ? '' : 's'} attached`)
+      }
+      if (result.failed.length > 0) {
+        toast.warning(`Failed to attach: ${result.failed.join(', ')}`)
+      }
+      await onReloadPanel(detail.id)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload document')
+    } finally {
+      setUploadingDoc(false)
+      if (docInputRef.current) docInputRef.current.value = ''
+    }
+  }
+
   return (
     <div className={styles.modalBackdrop} onClick={onClose} role="presentation">
       <aside className={styles.modalShell} onClick={(e) => e.stopPropagation()}>
@@ -1317,6 +1342,32 @@ function DetailPanel({
               )}
             </div>
 
+            {/* Supporting document upload — available on any submitted voucher */}
+            {row && row.status !== 'draft' && row.status !== 'cancelled' && canUploadReceipt && (
+              <div className={styles.receiptUploadBox}>
+                <div className={styles.receiptUploadText}>
+                  Attach supporting documents (invoices, bills, approvals).
+                </div>
+                <input
+                  ref={docInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,application/pdf"
+                  className={styles.hiddenFileInput}
+                  onChange={(e) => void handleUploadDocFiles(e.target.files)}
+                />
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={() => docInputRef.current?.click()}
+                  disabled={uploadingDoc}
+                >
+                  {uploadingDoc ? <Loader2 size={13} className={styles.spin} /> : <Paperclip size={13} />}
+                  Attach Supporting Document
+                </button>
+              </div>
+            )}
+
             {row?.status === 'completed' && canUploadReceipt && (
               <div className={styles.receiptUploadBox}>
                 <div className={styles.receiptUploadText}>
@@ -1498,10 +1549,10 @@ function DetailPanel({
                     companyCode={companyCode}
                   />
 
-                  {/* Queue / Dequeue + Pay Now — completed & awaiting_payment, role-gated */}
+                  {/* Queue / Dequeue — role-gated; does NOT require payment_mode */}
                   {(row.status === 'completed' || row.status === 'awaiting_payment') &&
                     detail.payment_mode !== 'Cash' &&
-                    canSeePayNow(role, isSuperAdmin, detail.payment_mode) && (
+                    (isSuperAdmin || role === 'admin' || role === 'accounts') && (
                     <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
                       {row.status === 'completed' && (
                         <button
@@ -1525,28 +1576,31 @@ function DetailPanel({
                           Dequeue
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className={styles.btnPrimary}
-                        onClick={() => onPayNow({
-                          id:                  row.id,
-                          voucher_number:      row.voucher_number,
-                          amount:              row.amount,
-                          payment_mode:        detail.payment_mode,
-                          entity_name:         detail.entity_name,
-                          entity_upi_id:       detail.entity_upi_id,
-                          entity_bank_account: detail.entity_bank_account,
-                          entity_bank_ifsc:    detail.entity_bank_ifsc,
-                          entity_bank_name:    detail.entity_bank_name,
-                          paid_from_account:   detail.paid_from_account,
-                          paid_at:             detail.paid_at,
-                          utr_number:          detail.utr_number,
-                          cheque_number:       detail.cheque_number,
-                        })}
-                        style={{ gap: '0.375rem' }}
-                      >
-                        <CreditCard size={13} /> Pay Now
-                      </button>
+                      {/* Pay Now — only when payment_mode is known */}
+                      {canSeePayNow(role, isSuperAdmin, detail.payment_mode) && (
+                        <button
+                          type="button"
+                          className={styles.btnPrimary}
+                          onClick={() => onPayNow({
+                            id:                  row.id,
+                            voucher_number:      row.voucher_number,
+                            amount:              row.amount,
+                            payment_mode:        detail.payment_mode,
+                            entity_name:         detail.entity_name,
+                            entity_upi_id:       detail.entity_upi_id,
+                            entity_bank_account: detail.entity_bank_account,
+                            entity_bank_ifsc:    detail.entity_bank_ifsc,
+                            entity_bank_name:    detail.entity_bank_name,
+                            paid_from_account:   detail.paid_from_account,
+                            paid_at:             detail.paid_at,
+                            utr_number:          detail.utr_number,
+                            cheque_number:       detail.cheque_number,
+                          })}
+                          style={{ gap: '0.375rem' }}
+                        >
+                          <CreditCard size={13} /> Pay Now
+                        </button>
+                      )}
                       {detail.paid_at && (
                         <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>
                           ✓ Paid on {new Date(detail.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}

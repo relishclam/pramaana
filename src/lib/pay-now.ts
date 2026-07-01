@@ -3,10 +3,17 @@ import { supabase } from '@/lib/supabase'
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface CompanyPaymentAccount {
-  id:         string
-  company_id: string
-  label:      string
-  created_at: string
+  id:                  string
+  company_id:          string
+  label:               string
+  account_holder_name: string | null
+  bank_name:           string | null
+  bank_account_number: string | null
+  bank_ifsc:           string | null
+  upi_id:              string | null
+  is_primary:          boolean
+  is_active:           boolean
+  created_at:          string
 }
 
 export interface MarkPaidPayload {
@@ -17,16 +24,18 @@ export interface MarkPaidPayload {
   cheque_number:     string | null   // for Cheque mode only
 }
 
-// ── Company payment accounts ──────────────────────────────────────────────────
+// ── Company payment accounts — reads from registry.company_bank_accounts ─────
 
 export async function fetchCompanyPaymentAccounts(
   companyId: string,
 ): Promise<CompanyPaymentAccount[]> {
   const { data, error } = await supabase
-    .schema('pramaana')
-    .from('company_payment_accounts')
+    .schema('registry')
+    .from('company_bank_accounts')
     .select('*')
     .eq('company_id', companyId)
+    .eq('is_active', true)
+    .order('is_primary', { ascending: false })
     .order('created_at', { ascending: true })
 
   if (error) throw new Error('Failed to load payment accounts: ' + error.message)
@@ -41,8 +50,8 @@ export async function addCompanyPaymentAccount(
   if (!trimmed) throw new Error('Account label is required')
 
   const { data, error } = await supabase
-    .schema('pramaana')
-    .from('company_payment_accounts')
+    .schema('registry')
+    .from('company_bank_accounts')
     .insert({ company_id: companyId, label: trimmed })
     .select()
     .single()
@@ -53,8 +62,8 @@ export async function addCompanyPaymentAccount(
 
 export async function deleteCompanyPaymentAccount(id: string): Promise<void> {
   const { error } = await supabase
-    .schema('pramaana')
-    .from('company_payment_accounts')
+    .schema('registry')
+    .from('company_bank_accounts')
     .delete()
     .eq('id', id)
 

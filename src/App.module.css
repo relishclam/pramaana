@@ -140,6 +140,7 @@
 .sectionBody {
   overflow: hidden;
   max-height: 0;
+  flex-shrink: 0;            /* prevent flex-column from compressing the list */
   transition: max-height 0.25s ease;
 }
 
@@ -185,13 +186,13 @@
 /* ── Nav footer ───────────────────────────────────────────────────────────── */
 
 .navFooter {
-  margin-top: auto;
+  margin-top: auto;          /* push footer to bottom of flex column */
   padding: 0.75rem 0.5rem 0;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  margin-top: 0.75rem;
+  flex-shrink: 0;            /* never compress the footer links */
 }
 
 .adminLink {

@@ -512,9 +512,9 @@ function StepReview({
                   ))}
                 </select>
               </Field>
-              {/* Payment Mode — required when voucher type needs a payment method */}
-              {(form.voucherType === 'payment' || form.voucherType === 'receipt') && (
-                <Field label="Payment Mode *">
+              {/* Payment Mode — required for payment/receipt; optional for purchase (blank = credit) */}
+              {form.voucherType !== 'journal' && form.voucherType !== 'sales' && (
+                <Field label={`Payment Mode${form.voucherType === 'purchase' ? ' (blank = credit)' : ' *'}`}>
                   <select
                     className={styles.select}
                     value={form.paymentMode}

@@ -16,6 +16,8 @@ import {
   formatFileSize,
 } from '@/lib/attachments'
 import { supabase } from '@/lib/supabase'
+import { fetchOpenBills, saveAllocations, type OpenBill, type AllocRow } from '@/lib/allocations'
+import BillAllocPanel from '@/components/BillAllocPanel'
 import QRRelayModal from '@/components/QRRelayModal'
 import styles from './SimplifiedPaymentEntry.module.css'
 
@@ -98,6 +100,15 @@ export default function SimplifiedPaymentEntry({
   const [refNumber, setRefNumber] = useState('')
   const [narration, setNarration] = useState('')
 
+  // ── Bill allocation (between step 1 and step 2) ───────────────────────────
+  const [openBills,        setOpenBills]        = useState<OpenBill[]>([])
+  const [openBillsLoading, setOpenBillsLoading] = useState(false)
+  const [openBillsLoaded,  setOpenBillsLoaded]  = useState(false)
+  const [billAllocs,       setBillAllocs]       = useState<AllocRow[]>([])
+  const [billStepSkipped,  setBillStepSkipped]  = useState(false)
+  const [billStepDone,     setBillStepDone]     = useState(false)
+  const step2BillRef = useRef<HTMLDivElement>(null)
+
   // ── Step 7: Attachments ──────────────────────────────────────────────────
   const [stagedFiles,  setStagedFiles]  = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -117,6 +128,16 @@ export default function SimplifiedPaymentEntry({
       .finally(() => setAccountsLoading(false))
   }, [companyId])
 
+  // ── Bill allocation derived flags ─────────────────────────────────────────
+  const billNature: 'purchase' | 'sales' | null =
+    voucherType.nature === 'payment' ? 'purchase' :
+    voucherType.nature === 'receipt' ? 'sales' : null
+  const showBillStep    = !!(entityId && billNature)
+  const billStepComplete = !showBillStep || billStepDone || billStepSkipped
+
+  // ── Load open bills when entity is selected for payment/receipt ───────────
+  // (effect runs on entityId + billNature changes; clearEntity resets state)
+
   // ── Derived step completion ───────────────────────────────────────────────
   const step1Done = entityId !== null || entitySkipped
   const totalNum  = parseFloat(totalAmount) || 0
@@ -132,7 +153,7 @@ export default function SimplifiedPaymentEntry({
   const step5Done       = !isBankAccount || !!paymentMode  // cash = no mode choice needed
 
   // ── Step visibility ───────────────────────────────────────────────────────
-  const show2     = step1Done
+  const show2     = step1Done && billStepComplete
   const show3     = show2 && step2Done && step2Committed
   const show4     = show3 && step3Done
   const show5     = show4 && step4Done && isBankAccount
@@ -147,6 +168,31 @@ export default function SimplifiedPaymentEntry({
   }, [selectedAccountId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll to newly revealed steps ───────────────────────────────────
+  useEffect(() => {
+    if (showBillStep) step2BillRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [showBillStep]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!entityId || !billNature || !companyId) {
+      setOpenBills([])
+      setOpenBillsLoaded(false)
+      setBillAllocs([])
+      setBillStepDone(false)
+      setBillStepSkipped(false)
+      return
+    }
+    setOpenBillsLoading(true)
+    setOpenBillsLoaded(false)
+    fetchOpenBills(companyId, entityId, billNature)
+      .then(bills => {
+        setOpenBills(bills)
+        setOpenBillsLoaded(true)
+        if (bills.length === 0) setBillStepSkipped(true)
+      })
+      .catch(() => { setOpenBillsLoaded(true); setBillStepSkipped(true) })
+      .finally(() => setOpenBillsLoading(false))
+  }, [entityId, billNature, companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => { if (show3) step3Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show3])
   useEffect(() => { if (show4) step4Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show4])
   useEffect(() => { if (show5) step5Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [show5])
@@ -211,9 +257,22 @@ export default function SimplifiedPaymentEntry({
     setEntitySearch('')
     setEntityOptions([])
     setEntitySkipped(false)
+    // Reset bill state when entity changes
+    setBillAllocs([])
+    setBillStepDone(false)
+    setBillStepSkipped(false)
   }
 
-  const clearEntity = () => { setEntityId(null); setEntityLabel(''); setEntitySkipped(false) }
+  const clearEntity = () => {
+    setEntityId(null)
+    setEntityLabel('')
+    setEntitySkipped(false)
+    setOpenBills([])
+    setOpenBillsLoaded(false)
+    setBillAllocs([])
+    setBillStepDone(false)
+    setBillStepSkipped(false)
+  }
 
   // ── Expense line helpers ──────────────────────────────────────────────────
   const updateLine = (key: string, field: keyof Omit<ExpenseLine, 'key'>, val: string) =>
@@ -313,6 +372,12 @@ export default function SimplifiedPaymentEntry({
       // Create the voucher first (so we have an ID to attach files to)
       const voucherId = await submitVoucher(payload, entries, companyCode, voucherType.prefix)
 
+      // Save bill allocations (fire-and-forget — don't fail the submission)
+      if (billAllocs.length > 0) {
+        saveAllocations(companyId, entityId, voucherId, userId, billAllocs)
+          .catch(err => toast.warning('Voucher saved — bill allocations not recorded: ' + (err as Error).message))
+      }
+
       // Upload staged files (non-blocking failures)
       if (stagedFiles.length > 0) {
         const { failed } = await uploadVoucherAttachments(voucherId, companyId, userId, stagedFiles)
@@ -388,6 +453,62 @@ export default function SimplifiedPaymentEntry({
           )}
         </div>
       </div>
+
+      {/* ════ Bill Allocation — Open Bills ═══════════════════════════════ */}
+      {showBillStep && (
+        <div ref={step2BillRef} className={styles.step}>
+          <div className={styles.stepHead}>
+            <span className={styles.stepLabel}>
+              Open Bills
+              <span className={styles.optionalTag}> · allocate this payment</span>
+            </span>
+          </div>
+          <div className={styles.body}>
+            {billStepDone ? (
+              <div className={styles.selectedChip}>
+                <span>
+                  {billAllocs.length} bill{billAllocs.length > 1 ? 's' : ''} selected
+                  {' \u2014 '}{formatIndianCurrency(billAllocs.reduce((s, r) => s + r.amount_allocated, 0))}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setBillStepDone(false); setBillStepSkipped(false) }}
+                  aria-label="Edit allocation"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : billStepSkipped ? (
+              <div className={styles.skippedChip}>
+                <span>Advance / No allocation</span>
+                <button
+                  type="button"
+                  onClick={() => { setBillStepSkipped(false); setBillStepDone(false) }}
+                  aria-label="Edit"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <BillAllocPanel
+                bills={openBills}
+                loading={openBillsLoading || !openBillsLoaded}
+                onConfirm={(rows, total) => {
+                  setBillAllocs(rows)
+                  setBillStepDone(true)
+                  setTotalAmount(total.toFixed(2))
+                  setStep2Committed(false)
+                  if (lines.length === 1) {
+                    setLines(prev => prev.map((l, i) =>
+                      i === 0 ? { ...l, amount: total.toFixed(2) } : l))
+                  }
+                }}
+                onSkip={() => { setBillAllocs([]); setBillStepSkipped(true) }}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ════ Step 2 — How much ═══════════════════════════════════════════ */}
       {show2 && (

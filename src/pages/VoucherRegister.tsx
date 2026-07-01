@@ -33,6 +33,12 @@ import {
 import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
 import { formatIndianCurrency } from '@/lib/vouchers'
 import { queueForPayment, dequeuePayment } from '@/lib/pay-now'
+import {
+  fetchAllocationsForPayment,
+  fetchAllocationsForBill,
+  type AllocationDetail,
+  type BillPaymentDetail,
+} from '@/lib/allocations'
 import styles from './VoucherRegister.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -694,6 +700,27 @@ function DetailPanel({
   const beneficiaryName = getVoucherBeneficiary(row, detail)
   const approvalAction = getApprovalAction(detail)
 
+  // ── Bill allocation data (loaded per voucher when panel opens) ────────────
+  const [paymentAllocs, setPaymentAllocs] = useState<AllocationDetail[]>([])
+  const [billPayments,  setBillPayments]  = useState<BillPaymentDetail[]>([])
+  const [allocLoading,  setAllocLoading]  = useState(false)
+
+  useEffect(() => {
+    if (!detail?.id) { setPaymentAllocs([]); setBillPayments([]); return }
+    const nature = detail.voucher_type.nature
+    if (nature !== 'payment' && nature !== 'receipt' && nature !== 'purchase' && nature !== 'sales') return
+    setAllocLoading(true)
+    if (nature === 'payment' || nature === 'receipt') {
+      fetchAllocationsForPayment(detail.id)
+        .then(setPaymentAllocs).catch(() => setPaymentAllocs([]))
+        .finally(() => setAllocLoading(false))
+    } else {
+      fetchAllocationsForBill(detail.id)
+        .then(setBillPayments).catch(() => setBillPayments([]))
+        .finally(() => setAllocLoading(false))
+    }
+  }, [detail?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const traceabilityStamps = [
     {
       label: 'Created by',
@@ -1145,6 +1172,76 @@ function DetailPanel({
             <div className={styles.sectionHeader}>Accounting Entries</div>
             <EntriesTable entries={detail.entries} />
           </div>
+
+          {/* ── Bill Allocation ──────────────────────────────────────── */}
+          {(detail.voucher_type.nature === 'purchase' || detail.voucher_type.nature === 'sales') && (
+            <div className={styles.panelSection}>
+              <div className={styles.sectionHeader}>
+                Bill Status
+                {allocLoading && <Loader2 size={12} className={styles.spin} style={{ marginLeft: 6 }} />}
+              </div>
+              {!allocLoading && (() => {
+                const totalPaid = billPayments.reduce((s, p) => s + p.amount_allocated, 0)
+                const outstanding = Math.max(0, detail.amount - totalPaid)
+                return (
+                  <>
+                    <div className={styles.metaGrid} style={{ marginBottom: billPayments.length ? '0.625rem' : 0 }}>
+                      <div className={styles.metaItem}>
+                        <span className={styles.metaLabel}>Total Paid</span>
+                        <span className={styles.metaValue}>
+                          {totalPaid > 0.005 ? formatIndianCurrency(totalPaid) : <span className={styles.dim}>—</span>}
+                        </span>
+                      </div>
+                      <div className={styles.metaItem}>
+                        <span className={styles.metaLabel}>Outstanding</span>
+                        <span className={`${styles.metaValue} ${outstanding > 0.005 ? styles.allocOutstanding : styles.dim}`}>
+                          {outstanding > 0.005 ? formatIndianCurrency(outstanding) : 'Fully settled'}
+                        </span>
+                      </div>
+                    </div>
+                    {billPayments.length > 0 && (
+                      <div className={styles.allocTable}>
+                        {billPayments.map(p => (
+                          <div key={p.payment_voucher_id} className={styles.allocRow}>
+                            <span className={styles.allocVno}>{p.payment_voucher_number}</span>
+                            <span className={styles.allocDate}>{fmtDate(p.payment_voucher_date)}</span>
+                            <span className={styles.allocAmt}>{formatIndianCurrency(p.amount_allocated)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {billPayments.length === 0 && (
+                      <div className={styles.allocEmpty}>No payments allocated yet</div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+          )}
+
+          {(detail.voucher_type.nature === 'payment' || detail.voucher_type.nature === 'receipt') && (
+            <div className={styles.panelSection}>
+              <div className={styles.sectionHeader}>
+                Bill Allocation
+                {allocLoading && <Loader2 size={12} className={styles.spin} style={{ marginLeft: 6 }} />}
+              </div>
+              {!allocLoading && paymentAllocs.length === 0 && (
+                <div className={styles.allocEmpty}>Not allocated to any bill</div>
+              )}
+              {!allocLoading && paymentAllocs.length > 0 && (
+                <div className={styles.allocTable}>
+                  {paymentAllocs.map(a => (
+                    <div key={a.bill_voucher_id} className={styles.allocRow}>
+                      <span className={styles.allocVno}>{a.bill_voucher_number}</span>
+                      <span className={styles.allocDate}>{fmtDate(a.bill_voucher_date)}</span>
+                      <span className={styles.allocAmt}>{formatIndianCurrency(a.amount_allocated)}</span>
+                      <span className={styles.allocOf}>of {formatIndianCurrency(a.bill_amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Timeline ────────────────────────────────────────────── */}
           {detail.history.length > 0 && (

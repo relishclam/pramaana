@@ -117,6 +117,14 @@ export default function VoucherEntry() {
   // ── Preview ───────────────────────────────────────────────────────────────
   const [showPreview, setShowPreview] = useState(false)
 
+  // ── GST Quick-Add panel ───────────────────────────────────────────────────
+  const [taxLedgers,    setTaxLedgers]    = useState<TaxLedger[]>([])
+  const [gstBase,       setGstBase]       = useState('')
+  const [gstRateKey,    setGstRateKey]    = useState<'5' | '12' | '18' | '28' | 'custom'>('18')
+  const [gstCustomRate, setGstCustomRate] = useState('')
+  const [gstSupply,     setGstSupply]     = useState<'intra' | 'inter'>('intra')
+  const [partyGstin,    setPartyGstin]    = useState<string | null>(null)
+
   // ── Init: voucher types are global — load once independently ───────────────
   useEffect(() => {
     fetchVoucherTypes()

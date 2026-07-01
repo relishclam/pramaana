@@ -10,6 +10,7 @@
 
 import { useState, useCallback } from 'react'
 import { saveDraftVoucher, type VoucherPayload } from '@/lib/vouchers'
+import { uploadVoucherAttachments } from '@/lib/attachments'
 import { supabase } from '@/lib/supabase'
 import type { OcrResult, OcrLineItem } from '../../api/ocr'
 
@@ -354,7 +355,8 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
   ) => {
     setState(s => ({ ...s, isSubmitting: true, error: null }))
 
-    const form = state.form
+    const form       = state.form
+    const sourceFile  = state.file   // original invoice uploaded by the user
 
     // Normalise date — OCR may return many formats; try to keep ISO if possible
     let voucherDate = form.invoiceDate
@@ -398,12 +400,17 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
           .eq('id', draftId)
       }
 
+      // Attach the scanned invoice file so it appears in Supporting Documents
+      if (sourceFile) {
+        await uploadVoucherAttachments(draftId, companyId, userId, [sourceFile], 'invoice')
+      }
+
       setState(s => ({ ...s, step: 4, isSubmitting: false, draftId }))
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to create voucher draft'
       setState(s => ({ ...s, isSubmitting: false, error: msg }))
     }
-  }, [state.form])
+  }, [state.form, state.file])
 
   // ── Reset to Step 1 ───────────────────────────────────────────────────────
   const reset = useCallback(() => {

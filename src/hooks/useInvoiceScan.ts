@@ -32,6 +32,7 @@ export interface ScanForm {
   totalGst:         string
   totalAmount:      string
   voucherType:    'purchase' | 'sales' | 'journal' | 'payment' | 'receipt'
+  paymentMode:    string        // '' | 'Cash' | 'Bank' | 'UPI' | 'Cheque' | 'NEFT' | 'RTGS' | 'IMPS'
   narration:        string
   itcEligible:      boolean
   entityId:              string | null
@@ -78,6 +79,7 @@ function defaultForm(): ScanForm {
     totalGst:       '0',
     totalAmount:    '0',
     voucherType:    'purchase',
+    paymentMode:    '',
     narration:      '',
     itcEligible:    true,
     entityId:             null,
@@ -154,6 +156,7 @@ function ocrToForm(ocr: OcrResult, companyGstin = '', companyName = ''): ScanFor
     totalGst:       String(ocr.totalGst),
     totalAmount:    String(ocr.totalAmount),
     voucherType:    isOurSale ? 'sales' : 'purchase',
+    paymentMode:    '',
     narration,
     itcEligible:    !isOurSale,
     entityId:             null,
@@ -376,7 +379,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       narration:           form.narration || null,
       entity_id:           form.entityId,
       amount:              parseFloat(form.totalAmount) || 0,
-      payment_mode:        null,
+      payment_mode:        form.paymentMode ? form.paymentMode.toLowerCase() : null,
       bank_ledger_id:      null,
       cheque_number:       null,
       cheque_date:         null,

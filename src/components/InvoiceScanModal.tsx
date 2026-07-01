@@ -512,6 +512,22 @@ function StepReview({
                   ))}
                 </select>
               </Field>
+              {/* Payment Mode — required when voucher type needs a payment method */}
+              {(form.voucherType === 'payment' || form.voucherType === 'receipt') && (
+                <Field label="Payment Mode *">
+                  <select
+                    className={styles.select}
+                    value={form.paymentMode}
+                    onChange={e => onUpdate('paymentMode', e.target.value)}
+                    aria-label="Payment mode"
+                  >
+                    <option value="">— Select —</option>
+                    {['Cash', 'Bank', 'UPI', 'Cheque', 'NEFT', 'RTGS', 'IMPS'].map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <Field label="Narration">
                 <textarea
                   className={styles.textarea}

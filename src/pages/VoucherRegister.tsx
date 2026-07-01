@@ -837,15 +837,62 @@ function DetailPanel({
       </div>
     `).join('')
 
-    const attachmentRows = attachments.length > 0
-      ? attachments.map((att, i) => `
+    // Build attachment section: text list + embedded image previews
+    const attachmentTypeLabel: Record<string, string> = {
+      invoice_scan:     'Invoice Scan',
+      transfer_receipt: 'Transfer Receipt',
+      supporting_doc:   'Supporting Document',
+    }
+
+    const attachmentListRows = attachments.map((att, i) => {
+      const isImage = att.mime_type?.startsWith('image/') ?? false
+      const typeLabel = attachmentTypeLabel[att.attachment_type] ?? att.attachment_type
+      return `
         <tr>
           <td class="attachNum">${i + 1}</td>
-          <td class="attachName">${escapeHtml(att.file_name)}</td>
+          <td class="attachName">
+            ${escapeHtml(att.file_name)}
+            <span class="attachTypeBadge">${escapeHtml(typeLabel)}</span>
+          </td>
           <td class="attachSize">${escapeHtml(att.file_size ? formatFileSize(att.file_size) : '—')}</td>
+          <td class="attachFormat">${isImage ? 'Image' : 'PDF / Doc'}</td>
         </tr>
+      `
+    }).join('')
+
+    const attachmentImagePreviews = attachments
+      .filter(att => att.mime_type?.startsWith('image/') && att.signed_url)
+      .map((att, i) => `
+        <div class="attachPreview">
+          <div class="attachPreviewLabel">${escapeHtml(att.file_name)}</div>
+          <img class="attachPreviewImg" src="${att.signed_url}" alt="${escapeHtml(att.file_name)}" />
+        </div>
       `).join('')
-      : ''
+
+    const attachmentSection = `
+      <div class="attachSection">
+        <div class="sectionTitle">Supporting Documents</div>
+        ${attachments.length === 0
+          ? `<div class="attachNone">No attachments on this voucher.</div>`
+          : `
+            <table class="attachTable">
+              <thead>
+                <tr>
+                  <th class="attachNum">#</th>
+                  <th>File Name</th>
+                  <th class="attachSize">Size</th>
+                  <th class="attachFormat">Type</th>
+                </tr>
+              </thead>
+              <tbody>${attachmentListRows}</tbody>
+            </table>
+            ${attachmentImagePreviews ? `
+              <div class="attachPreviews">${attachmentImagePreviews}</div>
+            ` : ''}
+          `
+        }
+      </div>
+    `
 
     const html = `<!doctype html>
       <html>
@@ -905,10 +952,22 @@ function DetailPanel({
             .attachSection { margin-top: 18px; }
             .attachSection .sectionTitle { margin: 0 0 8px; font-size: 13px; font-weight: 700; }
             .attachTable { width: 100%; border-collapse: collapse; }
+            .attachTable th { background: #f0f0f0; color: #333; font-size: 11px; text-align: left; padding: 5px 8px; border: 1px solid #ccc; }
             .attachTable td { border: 1px solid #e0e0e0; padding: 5px 8px; font-size: 11px; }
             .attachNum { width: 36px; text-align: center; color: #888; }
             .attachName { word-break: break-all; }
             .attachSize { width: 72px; text-align: right; color: #888; white-space: nowrap; }
+            .attachFormat { width: 80px; color: #888; }
+            .attachTypeBadge {
+              display: inline-block; margin-left: 6px;
+              background: #f0eaf8; color: #6d4aa2;
+              font-size: 10px; padding: 1px 5px; border-radius: 3px;
+            }
+            .attachNone { font-size: 12px; color: #999; font-style: italic; padding: 4px 0; }
+            .attachPreviews { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
+            .attachPreview { flex: 0 0 auto; max-width: 45%; }
+            .attachPreviewLabel { font-size: 10px; color: #666; margin-bottom: 4px; word-break: break-all; }
+            .attachPreviewImg { width: 100%; max-width: 380px; border: 1px solid #ddd; border-radius: 4px; display: block; }
           </style>
         </head>
         <body>
@@ -962,13 +1021,7 @@ function DetailPanel({
 
               <div class="amountWords"><strong>In Words:</strong> ${escapeHtml(numberToIndianWords(detail.amount))}</div>
 
-              ${attachmentRows ? `
-              <div class="attachSection">
-                <div class="sectionTitle">Attachments</div>
-                <table class="attachTable">
-                  <tbody>${attachmentRows}</tbody>
-                </table>
-              </div>` : ''}
+              ${attachmentSection}
 
               <div class="stampRow">
                 ${stampCards}

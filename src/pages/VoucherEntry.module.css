@@ -948,3 +948,44 @@
     justify-content: center;
   }
 }
+
+/* ── GST Quick-Add panel ─────────────────────────────────────────────────── */
+
+.gstPanel {
+  border: 1px solid rgba(74, 158, 158, 0.3);
+  border-radius: var(--radius);
+  background: rgba(74, 158, 158, 0.04);
+  overflow: hidden;
+}
+
+.gstPanelHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(74, 158, 158, 0.08);
+  border-bottom: 1px solid rgba(74, 158, 158, 0.2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--teal);
+}
+
+.gstPanelHint {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.gstPanelBody {
+  padding: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.gstPanelRow {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}

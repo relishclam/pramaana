@@ -39,6 +39,9 @@ interface Ledger {
   bank_name: string | null
   account_number: string | null
   ifsc: string | null
+  is_tax_ledger: boolean
+  tax_type: string | null
+  tax_rate: number | null
   is_active: boolean
   group: { id: string; name: string; nature: string } | null
 }
@@ -565,6 +568,9 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSa
   const [bankName,       setBankName]       = useState(editTarget?.bank_name ?? '')
   const [accountNumber,  setAccountNumber]  = useState(editTarget?.account_number ?? '')
   const [ifsc,           setIfsc]           = useState(editTarget?.ifsc ?? '')
+  const [isTaxLedger,    setIsTaxLedger]    = useState(editTarget?.is_tax_ledger ?? false)
+  const [taxType,        setTaxType]        = useState(editTarget?.tax_type ?? '')
+  const [taxRate,        setTaxRate]        = useState(String(editTarget?.tax_rate ?? ''))
   const [entitySearch,   setEntitySearch]   = useState('')
   const [entityOptions, setEntityOptions] = useState<EntityOption[]>([])
   const [entityId,      setEntityId]      = useState<string | null>(editTarget?.entity_id ?? null)
@@ -652,6 +658,9 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSa
       bank_name:          isBankAccount ? bankName.trim() : null,
       account_number:     isBankAccount ? accountNumber.trim() : null,
       ifsc:               isBankAccount ? ifsc.trim().toUpperCase() : null,
+      is_tax_ledger:      isTaxLedger,
+      tax_type:           isTaxLedger ? taxType || null : null,
+      tax_rate:           isTaxLedger && taxRate ? parseFloat(taxRate) : null,
       ...(!editTarget ? { created_by: userId } : {}),
     }
 
@@ -802,6 +811,57 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSa
               maxLength={15}
             />
           </div>
+
+          {/* GST / Tax Ledger toggle */}
+          <div className={styles.field}>
+            <label className={styles.toggleRow}>
+              <span className={styles.label} style={{ margin: 0 }}>GST / Tax Ledger</span>
+              <button
+                type="button"
+                className={`${styles.toggle} ${isTaxLedger ? styles.toggleOn : ''}`}
+                onClick={() => setIsTaxLedger(v => !v)}
+                aria-pressed={isTaxLedger}
+              />
+            </label>
+            <p className={styles.fieldHint}>
+              Enable for Output CGST/SGST/IGST, Input CGST/SGST/IGST, TDS Payable, etc.
+            </p>
+          </div>
+
+          {/* Tax type + rate — shown only when is_tax_ledger is true */}
+          {isTaxLedger && (
+            <>
+              <div className={styles.field}>
+                <label className={styles.label}>Tax Type <span className={styles.req}>*</span></label>
+                <select
+                  className={styles.select}
+                  value={taxType}
+                  onChange={e => setTaxType(e.target.value)}
+                >
+                  <option value="">— Select type —</option>
+                  <option value="CGST">CGST — Central GST</option>
+                  <option value="SGST">SGST — State GST</option>
+                  <option value="IGST">IGST — Integrated GST</option>
+                  <option value="CESS">CESS — GST Cess</option>
+                  <option value="TDS">TDS — Tax Deducted at Source</option>
+                  <option value="TCS">TCS — Tax Collected at Source</option>
+                </select>
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label}>Default Rate (%) <span className={styles.labelOptional}>(optional)</span></label>
+                <input
+                  className={styles.input}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={taxRate}
+                  onChange={e => setTaxRate(e.target.value)}
+                  placeholder="e.g. 9.00 for 9%"
+                />
+              </div>
+            </>
+          )}
 
           {/* Bank Account toggle */}
           <div className={styles.field}>

@@ -17,7 +17,12 @@ function GSTR1Table({
   from: string
   to: string
 }) {
-  const total = rows.reduce((s, r) => s + r.amount, 0)
+  const total          = rows.reduce((s, r) => s + r.amount, 0)
+  const totalTaxable   = rows.reduce((s, r) => s + (r.taxable_value ?? 0), 0)
+  const totalCGST      = rows.reduce((s, r) => s + (r.cgst ?? 0), 0)
+  const totalSGST      = rows.reduce((s, r) => s + (r.sgst ?? 0), 0)
+  const totalIGST      = rows.reduce((s, r) => s + (r.igst ?? 0), 0)
+  const hasBreakup     = rows.some(r => r.taxable_value !== null)
 
   return (
     <div className={styles.reportDoc}>
@@ -27,12 +32,14 @@ function GSTR1Table({
         <div className={styles.reportPeriod}>{fmtDate(from)} to {fmtDate(to)}</div>
       </div>
 
-      <div className={styles.gstNote}>
-        <Info size={13} style={{ display: 'inline', marginRight: '0.375rem' }} />
-        This report lists all posted sales invoices. GSTIN of recipients and CGST/SGST/IGST
-        breakup require GST-tagged voucher types with tax ledger entries. Use this as a
-        reference to prepare the actual GSTR-1 filing.
-      </div>
+      {!hasBreakup && (
+        <div className={styles.gstNote}>
+          <Info size={13} style={{ display: 'inline', marginRight: '0.375rem' }} />
+          CGST/SGST/IGST breakup requires GST-tagged ledgers. In Pramaana, go to{' '}
+          <strong>Ledgers</strong> → edit each Output GST ledger → enable{' '}
+          <strong>GST / Tax Ledger</strong> and set the tax type.
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className={styles.gstSummaryBox}>
@@ -44,6 +51,18 @@ function GSTR1Table({
           <div className={styles.gstSummaryLabel}>Total Invoice Value</div>
           <div className={styles.gstSummaryValue}>{fmtAmt(total)}</div>
         </div>
+        {hasBreakup && (
+          <>
+            <div className={styles.gstSummaryCard}>
+              <div className={styles.gstSummaryLabel}>Taxable Value</div>
+              <div className={styles.gstSummaryValue}>{fmtAmt(totalTaxable)}</div>
+            </div>
+            <div className={styles.gstSummaryCard}>
+              <div className={styles.gstSummaryLabel}>Total Tax</div>
+              <div className={styles.gstSummaryValue}>{fmtAmt(totalCGST + totalSGST + totalIGST)}</div>
+            </div>
+          </>
+        )}
         <div className={styles.gstSummaryCard}>
           <div className={styles.gstSummaryLabel}>Unique Recipients</div>
           <div className={styles.gstSummaryValue}>
@@ -64,10 +83,10 @@ function GSTR1Table({
                 <th>Invoice Date</th>
                 <th>Recipient / Party</th>
                 <th className={styles.right}>Invoice Value</th>
-                <th className={styles.right}>Taxable Value*</th>
-                <th className={styles.right}>IGST*</th>
-                <th className={styles.right}>CGST*</th>
-                <th className={styles.right}>SGST*</th>
+                <th className={styles.right}>Taxable Value</th>
+                <th className={styles.right}>IGST</th>
+                <th className={styles.right}>CGST</th>
+                <th className={styles.right}>SGST</th>
               </tr>
             </thead>
             <tbody>
@@ -87,10 +106,18 @@ function GSTR1Table({
                   </td>
                   <td>{r.party_name ?? <span className={styles.dim}>—</span>}</td>
                   <td className={`${styles.right} ${styles.mono}`}>{fmtAmt(r.amount)}</td>
-                  <td className={`${styles.right} ${styles.dim}`}>—*</td>
-                  <td className={`${styles.right} ${styles.dim}`}>—*</td>
-                  <td className={`${styles.right} ${styles.dim}`}>—*</td>
-                  <td className={`${styles.right} ${styles.dim}`}>—*</td>
+                  <td className={r.taxable_value !== null ? `${styles.right} ${styles.mono}` : `${styles.right} ${styles.dim}`}>
+                    {r.taxable_value !== null ? fmtAmt(r.taxable_value) : '—'}
+                  </td>
+                  <td className={r.igst !== null ? `${styles.right} ${styles.mono}` : `${styles.right} ${styles.dim}`}>
+                    {r.igst !== null ? fmtAmt(r.igst) : '—'}
+                  </td>
+                  <td className={r.cgst !== null ? `${styles.right} ${styles.mono}` : `${styles.right} ${styles.dim}`}>
+                    {r.cgst !== null ? fmtAmt(r.cgst) : '—'}
+                  </td>
+                  <td className={r.sgst !== null ? `${styles.right} ${styles.mono}` : `${styles.right} ${styles.dim}`}>
+                    {r.sgst !== null ? fmtAmt(r.sgst) : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -98,8 +125,17 @@ function GSTR1Table({
               <tr className={styles.grandTotalRow}>
                 <td colSpan={4}><strong>Total</strong></td>
                 <td className={`${styles.right} ${styles.drValue}`}>{fmtAmt(total)}</td>
-                <td colSpan={4} className={styles.dim} style={{ fontSize: '0.75rem', paddingTop: '0.5rem' }}>
-                  * Requires GST configuration
+                <td className={`${styles.right} ${hasBreakup ? styles.drValue : styles.dim}`}>
+                  {hasBreakup ? fmtAmt(totalTaxable) : '—'}
+                </td>
+                <td className={`${styles.right} ${hasBreakup ? styles.drValue : styles.dim}`}>
+                  {hasBreakup ? fmtAmt(totalIGST) : '—'}
+                </td>
+                <td className={`${styles.right} ${hasBreakup ? styles.drValue : styles.dim}`}>
+                  {hasBreakup ? fmtAmt(totalCGST) : '—'}
+                </td>
+                <td className={`${styles.right} ${hasBreakup ? styles.drValue : styles.dim}`}>
+                  {hasBreakup ? fmtAmt(totalSGST) : '—'}
                 </td>
               </tr>
             </tfoot>
@@ -121,11 +157,26 @@ function GSTR3BTable({
   from: string
   to: string
 }) {
-  const totalSales    = salesRows.reduce((s, r) => s + r.amount, 0)
-  const totalPurchase = purchaseRows.reduce((s, r) => s + r.amount, 0)
-  const netTax        = totalSales - totalPurchase  // simplified net liability
+  const totalSales         = salesRows.reduce((s, r) => s + r.amount, 0)
+  const totalSalesTaxable  = salesRows.reduce((s, r) => s + (r.taxable_value ?? r.amount), 0)
+  const totalSalesCGST     = salesRows.reduce((s, r) => s + (r.cgst ?? 0), 0)
+  const totalSalesSGST     = salesRows.reduce((s, r) => s + (r.sgst ?? 0), 0)
+  const totalSalesIGST     = salesRows.reduce((s, r) => s + (r.igst ?? 0), 0)
+  const hasOutputBreakup   = salesRows.some(r => r.taxable_value !== null)
 
-  const Row = ({ label, value, bold, indent }: { label: string; value: string | number; bold?: boolean; indent?: boolean }) => (
+  const totalPurchase          = purchaseRows.reduce((s, r) => s + r.amount, 0)
+  const totalPurchaseTaxable   = purchaseRows.reduce((s, r) => s + (r.taxable_value ?? r.amount), 0)
+  const totalPurchaseCGST      = purchaseRows.reduce((s, r) => s + (r.cgst ?? 0), 0)
+  const totalPurchaseSGST      = purchaseRows.reduce((s, r) => s + (r.sgst ?? 0), 0)
+  const totalPurchaseIGST      = purchaseRows.reduce((s, r) => s + (r.igst ?? 0), 0)
+  const hasInputBreakup        = purchaseRows.some(r => r.taxable_value !== null)
+
+  const netOutputTax   = totalSalesCGST + totalSalesSGST + totalSalesIGST
+  const netITC         = totalPurchaseCGST + totalPurchaseSGST + totalPurchaseIGST
+  const netTaxLiability = netOutputTax - netITC
+
+  type RowProps = { label: string; value: string | number; igst?: number; cgst?: number; sgst?: number; bold?: boolean; indent?: boolean }
+  const Row = ({ label, value, igst, cgst, sgst, bold, indent }: RowProps) => (
     <tr style={{ borderBottom: '1px solid var(--border)' }}>
       <td style={{
         padding: '0.5rem 0.75rem',
@@ -144,9 +195,15 @@ function GSTR3BTable({
       }}>
         {typeof value === 'number' ? fmtAmt(value) : value}
       </td>
-      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', color: 'var(--text-dim)', fontSize: '0.8125rem' }}>—*</td>
-      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', color: 'var(--text-dim)', fontSize: '0.8125rem' }}>—*</td>
-      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', color: 'var(--text-dim)', fontSize: '0.8125rem' }}>—*</td>
+      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: igst != null ? 'var(--text-muted)' : 'var(--text-dim)' }}>
+        {igst != null ? fmtAmt(igst) : '—'}
+      </td>
+      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: cgst != null ? 'var(--text-muted)' : 'var(--text-dim)' }}>
+        {cgst != null ? fmtAmt(cgst) : '—'}
+      </td>
+      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', color: sgst != null ? 'var(--text-muted)' : 'var(--text-dim)' }}>
+        {sgst != null ? fmtAmt(sgst) : '—'}
+      </td>
     </tr>
   )
 
@@ -158,12 +215,13 @@ function GSTR3BTable({
         <div className={styles.reportPeriod}>{fmtDate(from)} to {fmtDate(to)}</div>
       </div>
 
-      <div className={styles.gstNote}>
-        <Info size={13} style={{ display: 'inline', marginRight: '0.375rem' }} />
-        Tax amounts (IGST, CGST, SGST) shown as "—*" require per-voucher tax breakup. The
-        "Taxable Value" column reflects total voucher amounts as a proxy. Configure GST-specific
-        ledgers to enable automatic tax computation.
-      </div>
+      {(!hasOutputBreakup || !hasInputBreakup) && (
+        <div className={styles.gstNote}>
+          <Info size={13} style={{ display: 'inline', marginRight: '0.375rem' }} />
+          Tax amounts shown as "—" require GST-tagged ledgers. Tag your Output / Input GST
+          ledgers in <strong>Ledgers</strong> → GST / Tax Ledger to enable automatic computation.
+        </div>
+      )}
 
       <div style={{ padding: '1.5rem' }}>
         {/* Section 3.1 */}
@@ -176,18 +234,18 @@ function GSTR3BTable({
               <tr>
                 <th>Description</th>
                 <th className={styles.right}>Taxable Value</th>
-                <th className={styles.right}>IGST*</th>
-                <th className={styles.right}>CGST*</th>
-                <th className={styles.right}>SGST*</th>
+                <th className={styles.right}>IGST</th>
+                <th className={styles.right}>CGST</th>
+                <th className={styles.right}>SGST</th>
               </tr>
             </thead>
             <tbody>
-              <Row label="(a) Outward taxable supplies (other than zero rated, nil rated and exempted)" value={totalSales} indent />
-              <Row label="(b) Outward taxable supplies (zero rated)" value="—*" indent />
-              <Row label="(c) Other outward supplies (nil rated, exempted)" value="—*" indent />
-              <Row label="(d) Inward supplies (liable to reverse charge)" value="—*" indent />
-              <Row label="(e) Non-GST outward supplies" value="—*" indent />
-              <Row label="Total Outward Supplies" value={totalSales} bold />
+              <Row label="(a) Outward taxable supplies (other than zero rated, nil rated and exempted)" value={totalSalesTaxable} igst={hasOutputBreakup ? totalSalesIGST : undefined} cgst={hasOutputBreakup ? totalSalesCGST : undefined} sgst={hasOutputBreakup ? totalSalesSGST : undefined} indent />
+              <Row label="(b) Outward taxable supplies (zero rated)" value="—" indent />
+              <Row label="(c) Other outward supplies (nil rated, exempted)" value="—" indent />
+              <Row label="(d) Inward supplies (liable to reverse charge)" value="—" indent />
+              <Row label="(e) Non-GST outward supplies" value="—" indent />
+              <Row label="Total Outward Supplies" value={totalSalesTaxable} igst={hasOutputBreakup ? totalSalesIGST : undefined} cgst={hasOutputBreakup ? totalSalesCGST : undefined} sgst={hasOutputBreakup ? totalSalesSGST : undefined} bold />
             </tbody>
           </table>
         </div>
@@ -202,17 +260,17 @@ function GSTR3BTable({
               <tr>
                 <th>Description</th>
                 <th className={styles.right}>Taxable Value</th>
-                <th className={styles.right}>IGST*</th>
-                <th className={styles.right}>CGST*</th>
-                <th className={styles.right}>SGST*</th>
+                <th className={styles.right}>IGST</th>
+                <th className={styles.right}>CGST</th>
+                <th className={styles.right}>SGST</th>
               </tr>
             </thead>
             <tbody>
-              <Row label="(A) ITC Available — Import of goods" value="—*" indent />
-              <Row label="(A) ITC Available — Inward supplies from registered persons" value={totalPurchase} indent />
-              <Row label="Total ITC Available (Proxy from Purchase Vouchers)" value={totalPurchase} bold />
-              <Row label="(B) ITC Reversed (manual)" value="—*" indent />
-              <Row label="(C) Net ITC Available" value={Math.max(0, totalPurchase)} bold />
+              <Row label="(A) ITC Available — Import of goods" value="—" indent />
+              <Row label="(A) ITC Available — Inward supplies from registered persons" value={totalPurchaseTaxable} igst={hasInputBreakup ? totalPurchaseIGST : undefined} cgst={hasInputBreakup ? totalPurchaseCGST : undefined} sgst={hasInputBreakup ? totalPurchaseSGST : undefined} indent />
+              <Row label="Total ITC Available" value={totalPurchaseTaxable} igst={hasInputBreakup ? totalPurchaseIGST : undefined} cgst={hasInputBreakup ? totalPurchaseCGST : undefined} sgst={hasInputBreakup ? totalPurchaseSGST : undefined} bold />
+              <Row label="(B) ITC Reversed (manual)" value="—" indent />
+              <Row label="(C) Net ITC Available" value={totalPurchaseTaxable} igst={hasInputBreakup ? totalPurchaseIGST : undefined} cgst={hasInputBreakup ? totalPurchaseCGST : undefined} sgst={hasInputBreakup ? totalPurchaseSGST : undefined} bold />
             </tbody>
           </table>
         </div>
@@ -225,32 +283,32 @@ function GSTR3BTable({
         }}>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-              Output Tax (Proxy)
+              Output Tax
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.125rem', color: 'var(--error)' }}>
-              {fmtAmt(totalSales)}
+              {hasOutputBreakup ? fmtAmt(netOutputTax) : fmtAmt(totalSales) + ' *'}
             </div>
           </div>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-              ITC Available (Proxy)
+              ITC Available
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.125rem', color: 'var(--success)' }}>
-              {fmtAmt(totalPurchase)}
+              {hasInputBreakup ? fmtAmt(netITC) : fmtAmt(totalPurchase) + ' *'}
             </div>
           </div>
           <div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-              Net Tax Liability (Proxy)
+              Net Tax Liability
             </div>
             <div style={{
               fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.125rem',
-              color: netTax > 0 ? 'var(--error)' : 'var(--success)',
+              color: netTaxLiability > 0 ? 'var(--error)' : 'var(--success)',
             }}>
-              {fmtAmt(Math.abs(netTax))}
-              <span style={{ fontSize: '0.75rem', marginLeft: '0.25rem' }}>
-                {netTax > 0 ? 'Payable' : 'Refund'}
-              </span>
+              {hasOutputBreakup && hasInputBreakup
+                ? <>{fmtAmt(Math.abs(netTaxLiability))}<span style={{ fontSize: '0.75rem', marginLeft: '0.25rem' }}>{netTaxLiability > 0 ? 'Payable' : 'Refund'}</span></>
+                : fmtAmt(Math.abs(totalSales - totalPurchase)) + ' *'
+              }
             </div>
           </div>
         </div>

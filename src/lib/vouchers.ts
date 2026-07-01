@@ -336,6 +336,30 @@ export async function updateDraftVoucher(
   if (eErr) throw new Error('Failed to save updated entries: ' + eErr.message)
 }
 
+// ── Tax ledgers (GST, TDS, TCS) ─────────────────────────────────────────────
+
+export interface TaxLedger {
+  id:       string
+  name:     string
+  tax_type: string           // 'CGST' | 'SGST' | 'IGST' | 'CESS' | 'TDS' | 'TCS'
+  tax_rate: number | null    // e.g. 9.00, 14.00
+}
+
+export async function fetchTaxLedgers(companyId: string): Promise<TaxLedger[]> {
+  const { data, error } = await supabase
+    .schema('pramaana')
+    .from('ledgers')
+    .select('id, name, tax_type, tax_rate')
+    .eq('company_id', companyId)
+    .eq('is_tax_ledger', true)
+    .eq('is_active', true)
+    .order('tax_type')
+    .order('name')
+
+  if (error) throw new Error('Failed to load tax ledgers: ' + error.message)
+  return (data ?? []) as TaxLedger[]
+}
+
 // ── Indian number formatting ──────────────────────────────────────────────────
 
 export function formatIndianCurrency(amount: number): string {

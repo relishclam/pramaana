@@ -11,8 +11,10 @@ import {
   saveDraftVoucher,
   submitVoucher,
   formatIndianCurrency,
+  fetchTaxLedgers,
   type VoucherType,
   type VoucherEntryRow,
+  type TaxLedger,
 } from '@/lib/vouchers'
 import { supabase } from '@/lib/supabase'
 import SimplifiedPaymentEntry from './SimplifiedPaymentEntry'
@@ -35,6 +37,7 @@ interface EntityOption {
   display_name: string
   mobile: string | null
   role: string
+  gstin: string | null
   upi_id: string | null
   bank_name: string | null
   account_number: string | null
@@ -164,6 +167,7 @@ export default function VoucherEntry() {
     try {
       type RawEntity = {
         id: string; display_name: string; mobile: string | null
+        gstin: string | null
         upi_id: string | null; bank_name: string | null
         account_number: string | null; ifsc: string | null
       }
@@ -173,7 +177,7 @@ export default function VoucherEntry() {
       const { data: entities, error: eErr } = await supabase
         .schema('registry')
         .from('entities')
-        .select('id, display_name, mobile, upi_id, bank_name, account_number, ifsc')
+        .select('id, display_name, mobile, gstin, upi_id, bank_name, account_number, ifsc')
         .ilike('display_name', `%${q}%`)
         .limit(20)
 
@@ -211,6 +215,7 @@ export default function VoucherEntry() {
               display_name:   e.display_name,
               mobile:         e.mobile,
               role:           r.role,
+              gstin:          e.gstin,
               upi_id:         e.upi_id,
               bank_name:      e.bank_name,
               account_number: e.account_number,
@@ -234,13 +239,80 @@ export default function VoucherEntry() {
     setEntityLabel(`${opt.display_name} · ${opt.role}`)
     setEntitySearch('')
     setEntityOptions([])
+    // Auto-detect intra vs inter-state from GSTIN state codes
+    setPartyGstin(opt.gstin)
+    if (opt.gstin && user?.activeCompany?.gstin) {
+      const coState    = user.activeCompany.gstin.slice(0, 2)
+      const partyState = opt.gstin.slice(0, 2)
+      setGstSupply(coState === partyState ? 'intra' : 'inter')
+    }
   }
 
-  const clearEntity = () => { setEntityId(null); setEntityLabel(''); }
+  const clearEntity = () => { setEntityId(null); setEntityLabel(''); setPartyGstin(null) }
 
   // ── Entry row helpers ─────────────────────────────────────────────────────
   const updateEntry = (index: number, field: keyof VoucherEntryRow, value: string) => {
     setEntries(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e))
+  }
+
+  // ── Load tax ledgers when switching to sales/purchase voucher type ─────────
+  useEffect(() => {
+    if (!companyId) return
+    if (activeType?.nature !== 'sales' && activeType?.nature !== 'purchase') return
+    fetchTaxLedgers(companyId).then(setTaxLedgers).catch(() => {})
+  }, [companyId, activeType?.nature])
+
+  // ── GST Quick-Add: compute and append entry rows ──────────────────────────
+  const handleAddGSTEntries = () => {
+    const base = parseFloat(gstBase)
+    if (!base || base <= 0) { toast.error('Enter a valid taxable amount'); return }
+
+    const rate = gstRateKey === 'custom' ? parseFloat(gstCustomRate) : parseFloat(gstRateKey)
+    if (!rate || rate <= 0 || rate > 100) { toast.error('Enter a valid GST rate'); return }
+
+    const isSales         = activeType?.nature === 'sales'
+    const baseEntryType   = isSales ? 'Cr' : 'Dr'
+    const newRows: VoucherEntryRow[] = []
+
+    // Base income/expense row — ledger left blank; user picks from typeahead
+    newRows.push({
+      ledger_id: '', ledger_name: '', entry_type: baseEntryType,
+      amount: base.toFixed(2),
+      narration: isSales ? 'Sales (taxable value)' : 'Purchase (taxable value)',
+    })
+
+    if (gstSupply === 'intra') {
+      const halfRate = rate / 2
+      const taxAmt   = Math.round(base * halfRate) / 100
+      const cgstL    = taxLedgers.find(l => l.tax_type === 'CGST')
+      const sgstL    = taxLedgers.find(l => l.tax_type === 'SGST')
+      newRows.push({
+        ledger_id: cgstL?.id ?? '', ledger_name: cgstL?.name ?? '',
+        entry_type: baseEntryType, amount: taxAmt.toFixed(2),
+        narration: `CGST @ ${halfRate}%`,
+      })
+      newRows.push({
+        ledger_id: sgstL?.id ?? '', ledger_name: sgstL?.name ?? '',
+        entry_type: baseEntryType, amount: taxAmt.toFixed(2),
+        narration: `SGST @ ${halfRate}%`,
+      })
+    } else {
+      const igstAmt = Math.round(base * rate) / 100
+      const igstL   = taxLedgers.find(l => l.tax_type === 'IGST')
+      newRows.push({
+        ledger_id: igstL?.id ?? '', ledger_name: igstL?.name ?? '',
+        entry_type: baseEntryType, amount: igstAmt.toFixed(2),
+        narration: `IGST @ ${rate}%`,
+      })
+    }
+
+    setEntries(prev => [...prev, ...newRows])
+    setGstBase('')
+    const missing = newRows.filter(r => !r.ledger_id).length
+    if (missing > 0)
+      toast.warning(`${newRows.length - missing} rows added — ${missing} tax ledger(s) not found. Tag them in Ledgers → GST/Tax Ledger.`)
+    else
+      toast.success(`${newRows.length} entry rows added`)
   }
 
   const addEntry = () => setEntries(prev => [...prev, emptyEntry()])
@@ -660,6 +732,98 @@ export default function VoucherEntry() {
           <div className={styles.sectionHeader}>
             <span className={styles.sectionLabel}>Accounting Entries</span>
           </div>
+
+          {/* ── GST Quick-Add panel (sales / purchase only) ─────────────────── */}
+          {(activeType?.nature === 'sales' || activeType?.nature === 'purchase') && (
+            <div className={styles.gstPanel}>
+              <div className={styles.gstPanelHeader}>
+                ⚡ GST Quick-Add
+                {taxLedgers.length === 0 && (
+                  <span className={styles.gstPanelHint}>
+                    — tag GST ledgers in Ledgers → GST/Tax Ledger to enable auto-fill
+                  </span>
+                )}
+              </div>
+              <div className={styles.gstPanelBody}>
+                <div className={styles.gstPanelRow}>
+                  {/* Taxable amount */}
+                  <div className={styles.field} style={{ minWidth: 130, flex: '0 0 auto' }}>
+                    <label className={styles.label}>Taxable Amount</label>
+                    <input
+                      className={styles.input}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={gstBase}
+                      onChange={e => setGstBase(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  {/* GST Rate */}
+                  <div className={styles.field} style={{ flex: '1 1 auto' }}>
+                    <label className={styles.label}>GST Rate</label>
+                    <div className={styles.modeGrid}>
+                      {(['5', '12', '18', '28'] as const).map(r => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`${styles.modeBtn} ${gstRateKey === r ? styles.modeBtnActive : ''}`}
+                          onClick={() => setGstRateKey(r)}
+                        >{r}%</button>
+                      ))}
+                      <button
+                        type="button"
+                        className={`${styles.modeBtn} ${gstRateKey === 'custom' ? styles.modeBtnActive : ''}`}
+                        onClick={() => setGstRateKey('custom')}
+                      >Custom</button>
+                    </div>
+                    {gstRateKey === 'custom' && (
+                      <input
+                        className={styles.input}
+                        style={{ marginTop: '0.375rem', maxWidth: 100 }}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={gstCustomRate}
+                        onChange={e => setGstCustomRate(e.target.value)}
+                        placeholder="Rate %"
+                      />
+                    )}
+                  </div>
+                </div>
+                {/* Supply type */}
+                <div className={styles.field}>
+                  <label className={styles.label}>
+                    Supply Type
+                    {partyGstin && (
+                      <span className={styles.gstPanelHint}> — auto-detected from party GSTIN</span>
+                    )}
+                  </label>
+                  <div className={styles.modeGrid}>
+                    <button
+                      type="button"
+                      className={`${styles.modeBtn} ${gstSupply === 'intra' ? styles.modeBtnActive : ''}`}
+                      onClick={() => setGstSupply('intra')}
+                    >Intra-state (CGST + SGST)</button>
+                    <button
+                      type="button"
+                      className={`${styles.modeBtn} ${gstSupply === 'inter' ? styles.modeBtnActive : ''}`}
+                      onClick={() => setGstSupply('inter')}
+                    >Inter-state (IGST)</button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.addRowBtn}
+                  onClick={handleAddGSTEntries}
+                  disabled={!gstBase || parseFloat(gstBase) <= 0}
+                >
+                  <Plus size={14} /> Add GST Entry Rows
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Entry rows */}
           <div className={styles.entriesTable}>

@@ -489,8 +489,12 @@ export interface GSTVoucherRow {
   voucher_number: string
   voucher_date:   string
   party_name:     string | null
-  amount:         number
+  amount:         number        // total invoice value (Dr = Cr side of voucher)
   nature:         string
+  taxable_value:  number | null // null when no tax ledgers tagged in this voucher
+  cgst:           number | null
+  sgst:           number | null
+  igst:           number | null
 }
 
 export async function fetchGSTVouchers(
@@ -527,14 +531,76 @@ export async function fetchGSTVouchers(
       entityMap.set(e.id, e.display_name))
   }
 
-  return rows.map(r => ({
+  const baseRows = rows.map(r => ({
     id:             r.id,
     voucher_number: r.voucher_number,
     voucher_date:   r.voucher_date,
     party_name:     r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
     amount:         r.amount,
     nature,
+    taxable_value:  null as number | null,
+    cgst:           null as number | null,
+    sgst:           null as number | null,
+    igst:           null as number | null,
   }))
+
+  return enrichWithTaxBreakup(baseRows, nature)
+}
+
+// internal: enrich GSTVoucherRows with CGST/SGST/IGST from voucher_entries
+async function enrichWithTaxBreakup(
+  rows: GSTVoucherRow[],
+  nature: 'sales' | 'purchase',
+): Promise<GSTVoucherRow[]> {
+  if (rows.length === 0) return rows
+
+  const voucherIds = rows.map(r => r.id)
+
+  const { data: rawEntries } = await supabase
+    .schema('pramaana')
+    .from('voucher_entries')
+    .select('voucher_id, entry_type, amount, ledger:ledgers(is_tax_ledger, tax_type)')
+    .in('voucher_id', voucherIds)
+
+  type RawEntry = {
+    voucher_id:  string
+    entry_type:  string
+    amount:      number
+    ledger: { is_tax_ledger: boolean; tax_type: string | null } | null
+  }
+
+  // group by voucher
+  const byVoucher = new Map<string, RawEntry[]>()
+  for (const e of (rawEntries ?? []) as unknown as RawEntry[]) {
+    const arr = byVoucher.get(e.voucher_id) ?? []
+    arr.push(e)
+    byVoucher.set(e.voucher_id, arr)
+  }
+
+  // sales: income is Cr side; purchase: expense is Dr side
+  const taxableSide = nature === 'sales' ? 'Cr' : 'Dr'
+
+  return rows.map(r => {
+    const entries = byVoucher.get(r.id)
+    if (!entries) return r
+    const hasTaxLedger = entries.some(e => e.ledger?.is_tax_ledger)
+    if (!hasTaxLedger) return r  // not yet configured — return nulls
+
+    const taxable_value = entries
+      .filter(e => e.entry_type === taxableSide && !e.ledger?.is_tax_ledger)
+      .reduce((s, e) => s + e.amount, 0)
+    const cgst = entries
+      .filter(e => e.ledger?.tax_type === 'CGST')
+      .reduce((s, e) => s + e.amount, 0) || null
+    const sgst = entries
+      .filter(e => e.ledger?.tax_type === 'SGST')
+      .reduce((s, e) => s + e.amount, 0) || null
+    const igst = entries
+      .filter(e => e.ledger?.tax_type === 'IGST')
+      .reduce((s, e) => s + e.amount, 0) || null
+
+    return { ...r, taxable_value: taxable_value || null, cgst, sgst, igst }
+  })
 }
 
 // ── Cash Flow Statement (Indirect Method) ─────────────────────────────────────

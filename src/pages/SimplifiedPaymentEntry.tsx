@@ -578,7 +578,9 @@ export default function SimplifiedPaymentEntry({
 
       {/* ════ Step 1 — Who ════════════════════════════════════════════════ */}
       <div className={styles.step}>
-        <StepHead num={1} done={step1Done} label="Who are you paying?" />
+        <StepHead num={1} done={step1Done} label={
+          voucherType.nature === 'receipt' ? 'Who is paying you?' : 'Who are you paying?'
+        } />
         <div className={styles.body}>
           {entityId ? (
             <div className={styles.selectedChip}>

@@ -369,3 +369,24 @@ export function formatIndianCurrency(amount: number): string {
     maximumFractionDigits: 2,
   })
 }
+
+// ── Entity ledger lookup ──────────────────────────────────────────────────────
+// Returns the ledger in pramaana.ledgers that is linked to this entity
+// (via ledgers.entity_id). Used by the "New invoice — enter it now" flow to
+// find the intermediary creditor/debtor account for the Purchase ↔ Payment link.
+// Returns null if no ledger has been associated with this entity in this company.
+
+export async function fetchEntityLedger(
+  companyId: string,
+  entityId: string,
+): Promise<{ id: string; name: string } | null> {
+  const { data } = await supabase
+    .schema('pramaana')
+    .from('ledgers')
+    .select('id, name')
+    .eq('company_id', companyId)
+    .eq('entity_id', entityId)
+    .eq('is_active', true)
+    .maybeSingle()
+  return (data ?? null) as { id: string; name: string } | null
+}

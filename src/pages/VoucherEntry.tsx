@@ -546,6 +546,13 @@ export default function VoucherEntry() {
           userId={userId}
           voucherType={activeType}
           voucherDate={voucherDate}
+          pairedVoucherType={
+            // payment → needs purchase type for "new invoice" flow
+            // receipt → needs sales type for "new invoice" flow
+            isPayment
+              ? (voucherTypes.find(t => t.nature === 'purchase') ?? null)
+              : (voucherTypes.find(t => t.nature === 'sales')    ?? null)
+          }
         />
       ) : (
 

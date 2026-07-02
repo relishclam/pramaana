@@ -7,6 +7,7 @@ import {
   searchLedgers,
   formatIndianCurrency,
   fetchPaymentAccounts,
+  fetchEntityLedger,
   type VoucherType,
   type PaymentAccount,
 } from '@/lib/vouchers'
@@ -38,11 +39,15 @@ interface ExpenseLine {
 }
 
 interface Props {
-  companyId:   string
-  companyCode: string
-  userId:      string
-  voucherType: VoucherType
-  voucherDate: string
+  companyId:         string
+  companyCode:       string
+  userId:            string
+  voucherType:       VoucherType
+  voucherDate:       string
+  // The paired voucher type used in the "New invoice — enter it now" flow:
+  // payment → purchase type; receipt → sales type
+  // null means the paired type wasn't found (button is hidden).
+  pairedVoucherType: VoucherType | null
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -54,7 +59,7 @@ const UTR_MODES = new Set(['UPI', 'NEFT', 'RTGS', 'IMPS'])
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SimplifiedPaymentEntry({
-  companyId, companyCode, userId, voucherType, voucherDate,
+  companyId, companyCode, userId, voucherType, voucherDate, pairedVoucherType,
 }: Props) {
   const navigate = useNavigate()
 
@@ -110,6 +115,10 @@ export default function SimplifiedPaymentEntry({
   // 'expense' = hits P&L immediately (salary, rent, wages)
   // 'advance' = sits on Balance Sheet until settled (travel advance, deposit)
   const [directPaymentType, setDirectPaymentType] = useState<'expense' | 'advance' | null>(null)
+  // 'new_invoice' = atomically create Purchase+Payment via create_linked_vouchers RPC
+  const [newInvoiceMode,    setNewInvoiceMode]    = useState(false)
+  const [entityLedgerId,    setEntityLedgerId]    = useState<string | null>(null)
+  const [entityLedgerName,  setEntityLedgerName]  = useState('')
   const step2BillRef = useRef<HTMLDivElement>(null)
 
   // ── Step 7: Attachments ──────────────────────────────────────────────────
@@ -136,9 +145,12 @@ export default function SimplifiedPaymentEntry({
     voucherType.nature === 'payment' ? 'purchase' :
     voucherType.nature === 'receipt' ? 'sales' : null
   const showBillStep    = !!(entityId && billNature)
-  // Step is complete only when: bills allocated, OR user has explicitly chosen expense/advance
+  // Step is complete only when: bills allocated, OR user has explicitly chosen expense/advance,
+  // OR new invoice mode is active (actual construction happens at submit time)
   // (billStepSkipped alone is insufficient — the choice card must be answered first)
-  const billStepComplete = !showBillStep || billStepDone || (billStepSkipped && directPaymentType !== null)
+  const billStepComplete = !showBillStep || billStepDone
+    || (billStepSkipped && directPaymentType !== null)
+    || newInvoiceMode
 
   // ── Load open bills when entity is selected for payment/receipt ───────────
   // (effect runs on entityId + billNature changes; clearEntity resets state)
@@ -185,6 +197,9 @@ export default function SimplifiedPaymentEntry({
       setBillStepDone(false)
       setBillStepSkipped(false)
       setDirectPaymentType(null)
+      setNewInvoiceMode(false)
+      setEntityLedgerId(null)
+      setEntityLedgerName('')
       return
     }
     setOpenBillsLoading(true)
@@ -277,6 +292,9 @@ export default function SimplifiedPaymentEntry({
     setBillStepDone(false)
     setBillStepSkipped(false)
     setDirectPaymentType(null)
+    setNewInvoiceMode(false)
+    setEntityLedgerId(null)
+    setEntityLedgerName('')
   }
 
   const clearEntity = () => {
@@ -289,6 +307,9 @@ export default function SimplifiedPaymentEntry({
     setBillStepDone(false)
     setBillStepSkipped(false)
     setDirectPaymentType(null)
+    setNewInvoiceMode(false)
+    setEntityLedgerId(null)
+    setEntityLedgerName('')
   }
 
   // ── Expense line helpers ──────────────────────────────────────────────────
@@ -331,18 +352,50 @@ export default function SimplifiedPaymentEntry({
     : null
 
   // ── Build Dr/Cr entries ───────────────────────────────────────────────────
-  const buildEntries = () => [
-    ...lines.map((l, i) => ({
-      voucher_id: '', ledger_id: l.ledger_id,
-      entry_type: 'Dr' as const, amount: parseFloat(l.amount),
-      narration: null, sort_order: i,
-    })),
-    {
-      voucher_id: '', ledger_id: selectedAccountId,
-      entry_type: 'Cr' as const, amount: totalNum,
-      narration: null, sort_order: lines.length,
-    },
-  ]
+  // Direction depends on voucher type:
+  //   payment: Dr expense lines  / Cr bank-account
+  //   receipt: Dr bank-account   / Cr income lines
+  const isReceiptMode = voucherType.nature === 'receipt'
+  const buildEntries = () => isReceiptMode
+    ? [
+        // Receipt: money comes IN — bank is debited, income ledgers credited
+        {
+          voucher_id: '', ledger_id: selectedAccountId,
+          entry_type: 'Dr' as const, amount: totalNum,
+          narration: null, sort_order: 0,
+        },
+        ...lines.map((l, i) => ({
+          voucher_id: '', ledger_id: l.ledger_id,
+          entry_type: 'Cr' as const, amount: parseFloat(l.amount),
+          narration: null, sort_order: i + 1,
+        })),
+      ]
+    : [
+        // Payment: money goes OUT — expense ledgers debited, bank credited
+        ...lines.map((l, i) => ({
+          voucher_id: '', ledger_id: l.ledger_id,
+          entry_type: 'Dr' as const, amount: parseFloat(l.amount),
+          narration: null, sort_order: i,
+        })),
+        {
+          voucher_id: '', ledger_id: selectedAccountId,
+          entry_type: 'Cr' as const, amount: totalNum,
+          narration: null, sort_order: lines.length,
+        },
+      ]
+
+  // ── New invoice handler — loads entity ledger in background ──────────────
+  const handleNewInvoiceIntent = async () => {
+    if (!entityId || !pairedVoucherType) return
+    setNewInvoiceMode(true)
+    setBillStepSkipped(true)
+    // Background-load entity ledger so we can validate at submit time without blocking UX
+    fetchEntityLedger(companyId, entityId)
+      .then(ledger => {
+        if (ledger) { setEntityLedgerId(ledger.id); setEntityLedgerName(ledger.name) }
+      })
+      .catch(() => { /* handled at submit time */ })
+  }
 
   // ── File staging helpers ──────────────────────────────────────────────────
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -364,10 +417,110 @@ export default function SimplifiedPaymentEntry({
     if (!canSubmit) return
     setSaving(true)
     try {
-      const entries      = buildEntries()
-      const finalMode    = isBankAccount ? paymentMode.toLowerCase() : 'cash'
-      const needsUtr     = UTR_MODES.has(paymentMode)
-      const needsCheque  = paymentMode === 'Cheque'
+      const finalMode   = isBankAccount ? paymentMode.toLowerCase() : 'cash'
+      const needsUtr    = UTR_MODES.has(paymentMode)
+      const needsCheque = paymentMode === 'Cheque'
+
+      // ── Path A: New invoice — atomic Purchase+Payment via RPC ────────────────────
+      if (newInvoiceMode) {
+        if (!pairedVoucherType) {
+          toast.error('Paired voucher type not found — cannot create linked vouchers')
+          return
+        }
+        if (!entityLedgerId) {
+          toast.error(
+            `No ledger found for this ${isReceiptMode ? 'customer' : 'vendor'}. ` +
+            'Go to Ledgers → New Ledger and link it to this entity before using this option.'
+          )
+          return
+        }
+        // Build balanced entries for both vouchers:
+        // Bill (Purchase/Sales): Dr expense/income lines + Cr/Dr entity ledger
+        // Payment/Receipt:       Dr entity ledger + Cr/Dr bank account
+        const billEntries = isReceiptMode
+          ? [
+              // Sales: Dr entity debtor ledger / Cr income lines
+              { ledger_id: entityLedgerId, entry_type: 'Dr', amount: totalNum, narration: null, sort_order: 0 },
+              ...lines.map((l, i) => ({ ledger_id: l.ledger_id, entry_type: 'Cr', amount: parseFloat(l.amount), narration: null, sort_order: i + 1 })),
+            ]
+          : [
+              // Purchase: Dr expense lines / Cr entity creditor ledger
+              ...lines.map((l, i) => ({ ledger_id: l.ledger_id, entry_type: 'Dr', amount: parseFloat(l.amount), narration: null, sort_order: i })),
+              { ledger_id: entityLedgerId, entry_type: 'Cr', amount: totalNum, narration: null, sort_order: lines.length },
+            ]
+
+        const payEntries = isReceiptMode
+          ? [
+              // Receipt: Dr bank / Cr entity debtor ledger
+              { ledger_id: selectedAccountId, entry_type: 'Dr', amount: totalNum, narration: null, sort_order: 0 },
+              { ledger_id: entityLedgerId,    entry_type: 'Cr', amount: totalNum, narration: null, sort_order: 1 },
+            ]
+          : [
+              // Payment: Dr entity creditor ledger / Cr bank
+              { ledger_id: entityLedgerId,    entry_type: 'Dr', amount: totalNum, narration: null, sort_order: 0 },
+              { ledger_id: selectedAccountId, entry_type: 'Cr', amount: totalNum, narration: null, sort_order: 1 },
+            ]
+
+        const billPayload = {
+          company_id: companyId, company_code: companyCode,
+          prefix: pairedVoucherType.prefix,
+          voucher_type_id: pairedVoucherType.id,
+          voucher_date: voucherDate,
+          entity_id: entityId,
+          amount: totalNum,
+          narration: narration || null,
+          ref_document_number: refNumber || null,
+          created_by: userId,
+        }
+        const payPayload = {
+          company_id: companyId, company_code: companyCode,
+          prefix: voucherType.prefix,
+          voucher_type_id: voucherType.id,
+          voucher_date: voucherDate,
+          entity_id: entityId,
+          amount: totalNum,
+          payment_mode: finalMode || null,
+          bank_ledger_id: isBankAccount ? selectedAccountId : null,
+          cheque_number: needsCheque ? chequeNumber || null : null,
+          cheque_date: needsCheque ? chequeDate || null : null,
+          utr_number: needsUtr ? utrNumber || null : null,
+          narration: narration || null,
+          ref_document_number: refNumber || null,
+          created_by: userId,
+        }
+
+        const { data: rpcResult, error: rpcError } = await supabase
+          .schema('pramaana')
+          .rpc('create_linked_vouchers', {
+            p_purchase:         billPayload,
+            p_purchase_entries: billEntries,
+            p_payment:          payPayload,
+            p_payment_entries:  payEntries,
+          })
+
+        if (rpcError) throw new Error(rpcError.message)
+
+        const ids = rpcResult as {
+          purchase_id: string; purchase_number: string
+          payment_id:  string; payment_number:  string
+        }
+
+        if (stagedFiles.length > 0) {
+          const { failed } = await uploadVoucherAttachments(ids.payment_id, companyId, userId, stagedFiles)
+          if (failed.length > 0)
+            toast.warning(`Submitted — ${failed.length} file(s) failed to upload`)
+        }
+
+        toast.success(
+          `${isReceiptMode ? 'Sales + receipt' : 'Purchase + payment'} submitted — ` +
+          `${ids.purchase_number} & ${ids.payment_number}`
+        )
+        navigate('/vouchers')
+        return
+      }
+
+      // ── Path B: Normal single-voucher submit ────────────────────────────────
+      const entries = buildEntries()
 
       const payload = {
         company_id:          companyId,
@@ -479,8 +632,10 @@ export default function SimplifiedPaymentEntry({
         <div ref={step2BillRef} className={styles.step}>
           <div className={styles.stepHead}>
             <span className={styles.stepLabel}>
-              Open Bills
-              <span className={styles.optionalTag}> · allocate this payment</span>
+              {voucherType.nature === 'receipt' ? 'Open Sales Invoices' : 'Open Bills'}
+              <span className={styles.optionalTag}>
+                {voucherType.nature === 'receipt' ? ' · allocate this receipt' : ' · allocate this payment'}
+              </span>
             </span>
           </div>
           <div className={styles.body}>
@@ -488,26 +643,122 @@ export default function SimplifiedPaymentEntry({
               <div className={styles.selectedChip}>
                 <span>
                   {billAllocs.length} bill{billAllocs.length > 1 ? 's' : ''} selected
-                  {' \u2014 '}{formatIndianCurrency(billAllocs.reduce((s, r) => s + r.amount_allocated, 0))}
+                  {' — '}{formatIndianCurrency(billAllocs.reduce((s, r) => s + r.amount_allocated, 0))}
                 </span>
                 <button
                   type="button"
-                  onClick={() => { setBillStepDone(false); setBillStepSkipped(false) }}
+                  onClick={() => { setBillStepDone(false); setBillStepSkipped(false); setDirectPaymentType(null); setNewInvoiceMode(false) }}
                   aria-label="Edit allocation"
                 >
                   <X size={13} />
                 </button>
               </div>
-            ) : billStepSkipped ? (
-              <div className={styles.skippedChip}>
-                <span>Advance / No allocation</span>
+            ) : newInvoiceMode ? (
+              // New invoice mode chip
+              <div className={styles.selectedChip}>
+                <span>
+                  {voucherType.nature === 'receipt'
+                    ? '📄 New sales invoice — creating sale + receipt together'
+                    : '📄 New purchase invoice — creating purchase + payment together'}
+                  {entityLedgerName && (
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginLeft: '0.375rem' }}>
+                      via {entityLedgerName}
+                    </span>
+                  )}
+                </span>
                 <button
                   type="button"
-                  onClick={() => { setBillStepSkipped(false); setBillStepDone(false) }}
-                  aria-label="Edit"
+                  onClick={() => { setNewInvoiceMode(false); setBillStepSkipped(false); setEntityLedgerId(null); setEntityLedgerName('') }}
+                  aria-label="Cancel new invoice"
                 >
                   <X size={13} />
                 </button>
+              </div>
+            ) : billStepSkipped && directPaymentType !== null ? (
+              // Explicit direct-payment choice made
+              <div className={styles.skippedChip}>
+                <span>
+                  {directPaymentType === 'expense'
+                    ? (voucherType.nature === 'receipt' ? 'Direct income — no invoice' : 'Direct expense — no invoice')
+                    : (voucherType.nature === 'receipt' ? 'Advance received — to settle later' : 'Advance payment — to settle later')
+                  }
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setBillStepSkipped(false); setBillStepDone(false); setDirectPaymentType(null); setNewInvoiceMode(false) }}
+                  aria-label="Change"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : billStepSkipped || (openBillsLoaded && openBills.length === 0) ? (
+              // Intent card — shown when no open bills exist, or user dismissed BillAllocPanel
+              <div className={styles.intentCard}>
+                <p className={styles.intentCardTitle}>
+                  {openBills.length === 0
+                    ? (voucherType.nature === 'receipt'
+                        ? 'No open invoices found. What kind of receipt is this?'
+                        : 'No open bills found. What kind of payment is this?')
+                    : (voucherType.nature === 'receipt'
+                        ? 'None of those match. What kind of receipt is this?'
+                        : 'None of those match. What kind of payment is this?')
+                  }
+                </p>
+                <div className={styles.intentChoices}>
+                  {pairedVoucherType && (
+                    <button
+                      type="button"
+                      className={styles.intentBtn}
+                      onClick={handleNewInvoiceIntent}
+                    >
+                      <span className={styles.intentBtnLabel}>
+                        {voucherType.nature === 'receipt' ? '📄 New sales invoice' : '📄 New purchase invoice'}
+                      </span>
+                      <span className={styles.intentBtnSub}>
+                        {voucherType.nature === 'receipt'
+                          ? 'Create sale + receipt atomically'
+                          : 'Create purchase + payment atomically'}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={styles.intentBtn}
+                    onClick={() => { setBillStepSkipped(true); setDirectPaymentType('expense') }}
+                  >
+                    <span className={styles.intentBtnLabel}>
+                      {voucherType.nature === 'receipt' ? '💰 Direct income' : '📋 Direct expense'}
+                    </span>
+                    <span className={styles.intentBtnSub}>
+                      {voucherType.nature === 'receipt'
+                        ? 'Rent, misc income — hits P&L'
+                        : 'Salary, wages, rent — hits P&L'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.intentBtn}
+                    onClick={() => { setBillStepSkipped(true); setDirectPaymentType('advance') }}
+                  >
+                    <span className={styles.intentBtnLabel}>
+                      {voucherType.nature === 'receipt' ? '⏳ Advance received' : '⏳ Advance payment'}
+                    </span>
+                    <span className={styles.intentBtnSub}>
+                      {voucherType.nature === 'receipt'
+                        ? 'From customer — sits on Balance Sheet'
+                        : 'Travel, deposit — sits on Balance Sheet'}
+                    </span>
+                  </button>
+                </div>
+                {billStepSkipped && openBills.length > 0 && (
+                  <button
+                    type="button"
+                    className={styles.intentBackBtn}
+                    onClick={() => { setBillStepSkipped(false); setBillStepDone(false) }}
+                  >
+                    ← Back to open bills
+                  </button>
+                )}
               </div>
             ) : (
               <BillAllocPanel
@@ -523,7 +774,7 @@ export default function SimplifiedPaymentEntry({
                       i === 0 ? { ...l, amount: total.toFixed(2) } : l))
                   }
                 }}
-                onSkip={() => { setBillAllocs([]); setBillStepSkipped(true) }}
+                onSkip={() => { setBillAllocs([]); setBillStepSkipped(true); setDirectPaymentType(null) }}
               />
             )}
           </div>
@@ -560,7 +811,9 @@ export default function SimplifiedPaymentEntry({
       {/* ════ Step 3 — What for ═══════════════════════════════════════════ */}
       {show3 && (
         <div ref={step3Ref} className={styles.step}>
-          <StepHead num={3} done={step3Done} label="What is this for?" />
+          <StepHead num={3} done={step3Done} label={
+            voucherType.nature === 'receipt' ? 'What income is this for?' : 'What is this for?'
+          } />
           <div className={styles.body}>
             <div className={styles.expenseLines}>
               {lines.map(line => (

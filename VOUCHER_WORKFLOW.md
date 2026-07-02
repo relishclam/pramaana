@@ -1,7 +1,7 @@
 # Pramaana — Voucher Lifecycle & Pay Now Workflow
 
 > Single source of truth for voucher states, transitions, roles, and the full Pay Now / UPI payment flow.
-> Last updated: 2026-07-01
+> Last updated: 2026-07-02
 
 ---
 
@@ -256,18 +256,23 @@ Appears in financial reports (Trial Balance, P&L, Balance Sheet).
 
 ## 6. Company Payment Accounts ("Pay From")
 
-Managed in **Admin Panel → Payment Accounts**.
+Managed in **Admin Panel → Payment Accounts**. Stored in `registry.company_bank_accounts` (not in the `pramaana` schema).
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID | Primary key |
 | `company_id` | UUID → `registry.companies` | One set of accounts per company |
-| `label` | TEXT | Free-text label e.g. `HDFC Current A/C`, `Federal Bank OD` |
+| `label` | TEXT | Display label e.g. `HDFC Current A/C`, `Federal Bank OD` |
+| `account_holder_name` | TEXT | Legal name on the account |
+| `bank_name` | TEXT | Used for mobile bank app launcher lookup |
+| `bank_account_number` | TEXT | Account number |
+| `bank_ifsc` | TEXT | IFSC code |
+| `upi_id` | TEXT | Company UPI VPA (used as sender UPI for reference) |
+| `is_primary` | BOOLEAN | Primary account shown first in datalist |
+| `is_active` | BOOLEAN | Soft-delete flag |
 | `created_at` | TIMESTAMPTZ | |
 
-These populate the **paid_from_account** autocomplete datalist in the Pay Now modal.
-
-> **Planned:** Replace free-text labels with structured bank accounts (bank name, account number, IFSC, UPI ID) as part of the Company Profiles feature.
+The `fetchCompanyPaymentAccounts()` in `src/lib/pay-now.ts` reads from this table, ordered by `is_primary DESC, created_at ASC`. These populate the **paid_from_account** autocomplete in the Pay Now modal.
 
 ---
 
@@ -304,7 +309,7 @@ These populate the **paid_from_account** autocomplete datalist in the Pay Now mo
 | `status` | ENUM | every transition | Drives the entire workflow |
 | `payment_mode` | TEXT | creation | Stored lowercase: `upi`, `bank`, `neft`, `rtgs`, `imps`, `cheque`, `cash` |
 | `entity_id` | UUID | creation | FK → `registry.entities` |
-| `posted_at` / `posted_by` | TIMESTAMPTZ / UUID | `approved` | Admin who approved |
+| `posted_at` / `posted_by` | TIMESTAMPTZ / UUID | `posted` | Who finalised the voucher to posted state |
 | `otp_verified_at` / `otp_verified_by` | TIMESTAMPTZ / UUID | `completed` | |
 | `completed_at` / `completed_by` | TIMESTAMPTZ / UUID | `completed` | Same as otp_verified |
 | `queued_at` / `queued_for_payment_by` | TIMESTAMPTZ / UUID | `awaiting_payment` | |
@@ -340,20 +345,116 @@ Managed in **Relish Suite → Master Data → Entities**.
 
 ---
 
-## 9. Source Files
+## 9. Bill Allocations
+
+Added in migration `040_bill_allocations.sql`. Allows payment and receipt vouchers to be linked to the specific purchase/sales bills they settle, enabling per-invoice outstanding tracking.
+
+> **Accounting note:** This is a business-intelligence layer on top of double-entry. It does **not** change `voucher_entries` — it only stores allocation metadata in `pramaana.voucher_allocations`.
+
+### `pramaana.voucher_allocations`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `company_id` | UUID | FK → `registry.companies` |
+| `entity_id` | UUID | FK → `registry.entities` (nullable) |
+| `bill_voucher_id` | UUID | The purchase/sales voucher being settled |
+| `payment_voucher_id` | UUID | The payment/receipt voucher doing the settling |
+| `amount_allocated` | NUMERIC(15,2) | Portion of the bill settled by this payment |
+| `is_advance` | BOOLEAN | `true` when payment preceded the bill (advance) |
+| `allocated_at` | TIMESTAMPTZ | |
+| `allocated_by` | UUID | FK → `auth.users` |
+
+**Invariant:** `SUM(outstanding per entity)` must equal the entity's ledger balance.
+
+### Bill Allocation Flow (SimplifiedPaymentEntry)
+
+```
+User selects entity + enters total amount
+        │
+        ▼
+fetchOpenBills(companyId, entityId, billNature)
+  → Returns purchase/sales vouchers with status IN
+    ('approved', 'completed', 'awaiting_payment', 'posted')
+  → Calculates outstanding = amount − already-allocated
+  → Filters out fully-settled bills (outstanding < 0.005)
+        │
+        ▼
+User allocates amounts across open bills in BillAllocPanel
+        │
+        ▼
+voucher is created (submitVoucher / saveDraftVoucher)
+        │
+        ▼
+saveAllocations(companyId, entityId, paymentVoucherId, userId, rows)
+  → INSERTs rows into pramaana.voucher_allocations
+```
+
+To query which bills a payment settled: `fetchAllocationsForPayment(paymentVoucherId)`.
+
+---
+
+## 10. Voucher Attachments
+
+Added in migrations `020_voucher_attachments.sql` (base table) and `038_attachment_type.sql` (`attachment_type` column).
+
+Files are stored in Supabase Storage bucket **`voucher-attachments`** under path `{company_id}/{voucher_id}/{timestamp}_{random}.{ext}`.
+
+### `pramaana.voucher_attachments`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UUID | PK |
+| `voucher_id` | UUID | FK → `pramaana.vouchers` |
+| `company_id` | UUID | FK → `registry.companies` |
+| `file_name` | TEXT | Original filename |
+| `file_size` | BIGINT | Bytes (nullable) |
+| `mime_type` | TEXT | MIME type (nullable) |
+| `storage_path` | TEXT | Supabase Storage object path |
+| `uploaded_by` | UUID | FK → `auth.users` |
+| `uploaded_at` | TIMESTAMPTZ | |
+| `is_deleted` | BOOLEAN | Soft-delete flag |
+| `attachment_type` | TEXT | `'invoice'` \| `'transfer_receipt'` \| `'other'` |
+
+### Upload flow
+
+```
+uploadVoucherAttachments(voucherId, companyId, userId, files, attachmentType)
+  For each file:
+    1. Upload to Storage → {company_id}/{voucher_id}/{ts}_{rand}.{ext}
+    2. INSERT into pramaana.voucher_attachments
+    3. On DB failure → remove orphaned Storage file (cleanup)
+  Returns { ok: string[], failed: string[] }
+```
+
+Called **after** the voucher is saved (requires a real `voucher_id`).
+
+---
+
+## 11. Source Files
 
 | File | Purpose |
 |---|---|
-| `src/lib/vouchers.ts` | Voucher types, `saveDraftVoucher`, `submitVoucher` |
+| `src/lib/vouchers.ts` | Voucher types, `saveDraftVoucher`, `submitVoucher`, `fetchVoucherForEdit`, `updateDraftVoucher`, `fetchTaxLedgers` |
 | `src/lib/vouchers-list.ts` | Register listing, `recallVoucher`, `deleteVoucher`, `submitDraftVoucher` |
-| `src/lib/approvals.ts` | `fetchPendingVouchers`, `approveVoucher`, `rejectVoucher`, `fetchVoucherFull` |
+| `src/lib/approvals.ts` | `fetchPendingVouchers`, `approveVoucher`, `rejectVoucher`, `fetchVoucherFull`, `fetchPendingCount` |
 | `src/lib/otp.ts` | `initiatePaymentOtp`, `verifyPaymentOtp` |
-| `src/lib/pay-now.ts` | `fetchAwaitingPayments`, `queueForPayment`, `dequeuePayment`, `markVoucherPaid`, company payment accounts |
-| `src/pages/VoucherEntry.tsx` | Create / edit voucher UI |
+| `src/lib/pay-now.ts` | `fetchAwaitingPayments`, `queueForPayment`, `dequeuePayment`, `dequeuePayment`, `markVoucherPaid`, `fetchCompanyPaymentAccounts`, `fetchAdminMobile`, `updateVoucherPaymentMode` |
+| `src/lib/allocations.ts` | `fetchOpenBills`, `saveAllocations`, `fetchAllocationsForPayment` — bill allocation engine |
+| `src/lib/attachments.ts` | `uploadVoucherAttachments`, `fetchVoucherAttachments`, `deleteVoucherAttachment` — Supabase Storage |
+| `src/pages/VoucherEntry.tsx` | Full double-entry voucher create / edit UI |
+| `src/pages/SimplifiedPaymentEntry.tsx` | Step-based simplified payment/receipt entry with entity search, bill allocation, and attachment upload |
 | `src/pages/VoucherRegister.tsx` | All-vouchers list with Pay Now wired in |
 | `src/pages/ApprovalQueue.tsx` | Approve / reject / OTP verification UI |
 | `src/pages/AwaitingPayments.tsx` | `/payments` — queued payment list |
 | `src/components/PayNowModal.tsx` | Pay Now modal (UPI QR, bank details, Mark Paid) |
-| `src/pages/AdminPanel.tsx` | Company payment accounts management |
-| `supabase/migrations/036_pay_now.sql` | `paid_from_account` column + `company_payment_accounts` table |
+| `src/components/BillAllocPanel.tsx` | Bill allocation UI — links payments to open purchase/sales bills |
+| `src/components/InvoiceScanModal.tsx` | OCR-based invoice scan (via `/api/ocr-edge`) to prefill voucher fields |
+| `src/components/QRRelayModal.tsx` | QR relay modal for cross-device UPI payment |
+| `src/pages/AdminPanel.tsx` | Company payment accounts management (`registry.company_bank_accounts`) |
+| `supabase/migrations/020_voucher_attachments.sql` | `pramaana.voucher_attachments` table + Storage bucket policy |
+| `supabase/migrations/036_pay_now.sql` | `paid_from_account` column + original `pramaana.company_payment_accounts` table |
+| `supabase/migrations/038_attachment_type.sql` | `attachment_type` column on `voucher_attachments` |
 | `supabase/migrations/039_awaiting_payment_status.sql` | `awaiting_payment` status enum value |
+| `supabase/migrations/040_bill_allocations.sql` | `pramaana.voucher_allocations` table |
+| `supabase/migrations/20260625000000_invoice_scan_module.sql` | Invoice scan schema (scan sessions, OCR results) |

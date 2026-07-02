@@ -843,23 +843,28 @@ function DetailPanel({
 
     // Build attachment section: text list + embedded image previews
     const attachmentTypeLabel: Record<string, string> = {
-      invoice_scan:     'Invoice Scan',
+      invoice:          'Invoice',
       transfer_receipt: 'Transfer Receipt',
-      supporting_doc:   'Supporting Document',
+      other:            'Supporting Document',
     }
 
     const attachmentListRows = attachments.map((att, i) => {
-      const isImage = att.mime_type?.startsWith('image/') ?? false
+      const isImage  = att.mime_type?.startsWith('image/') ?? false
       const typeLabel = attachmentTypeLabel[att.attachment_type] ?? att.attachment_type
+      // All attachments get a clickable link — signed URLs are valid for 1 hour from
+      // print time, which covers the typical "print and send to payee" use case.
+      const nameCell = att.signed_url
+        ? `<a href="${att.signed_url}" target="_blank" style="color:#6d4aa2;text-decoration:none;font-weight:600">${escapeHtml(att.file_name)}&nbsp;&#8599;</a>`
+        : escapeHtml(att.file_name)
       return `
         <tr>
           <td class="attachNum">${i + 1}</td>
           <td class="attachName">
-            ${escapeHtml(att.file_name)}
+            ${nameCell}
             <span class="attachTypeBadge">${escapeHtml(typeLabel)}</span>
           </td>
           <td class="attachSize">${escapeHtml(att.file_size ? formatFileSize(att.file_size) : '—')}</td>
-          <td class="attachFormat">${isImage ? 'Image' : 'PDF / Doc'}</td>
+          <td class="attachFormat">${isImage ? 'Image (preview ↓)' : 'PDF / Doc'}</td>
         </tr>
       `
     }).join('')

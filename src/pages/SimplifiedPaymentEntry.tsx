@@ -107,6 +107,9 @@ export default function SimplifiedPaymentEntry({
   const [billAllocs,       setBillAllocs]       = useState<AllocRow[]>([])
   const [billStepSkipped,  setBillStepSkipped]  = useState(false)
   const [billStepDone,     setBillStepDone]     = useState(false)
+  // 'expense' = hits P&L immediately (salary, rent, wages)
+  // 'advance' = sits on Balance Sheet until settled (travel advance, deposit)
+  const [directPaymentType, setDirectPaymentType] = useState<'expense' | 'advance' | null>(null)
   const step2BillRef = useRef<HTMLDivElement>(null)
 
   // ── Step 7: Attachments ──────────────────────────────────────────────────
@@ -133,7 +136,9 @@ export default function SimplifiedPaymentEntry({
     voucherType.nature === 'payment' ? 'purchase' :
     voucherType.nature === 'receipt' ? 'sales' : null
   const showBillStep    = !!(entityId && billNature)
-  const billStepComplete = !showBillStep || billStepDone || billStepSkipped
+  // Step is complete only when: bills allocated, OR user has explicitly chosen expense/advance
+  // (billStepSkipped alone is insufficient — the choice card must be answered first)
+  const billStepComplete = !showBillStep || billStepDone || (billStepSkipped && directPaymentType !== null)
 
   // ── Load open bills when entity is selected for payment/receipt ───────────
   // (effect runs on entityId + billNature changes; clearEntity resets state)
@@ -179,6 +184,7 @@ export default function SimplifiedPaymentEntry({
       setBillAllocs([])
       setBillStepDone(false)
       setBillStepSkipped(false)
+      setDirectPaymentType(null)
       return
     }
     setOpenBillsLoading(true)
@@ -187,9 +193,10 @@ export default function SimplifiedPaymentEntry({
       .then(bills => {
         setOpenBills(bills)
         setOpenBillsLoaded(true)
-        if (bills.length === 0) setBillStepSkipped(true)
+        // No auto-skip when bills.length === 0 — user must explicitly choose
+        // "Direct expense" or "Advance" via the intent card below.
       })
-      .catch(() => { setOpenBillsLoaded(true); setBillStepSkipped(true) })
+      .catch(() => { setOpenBillsLoaded(true); setBillStepSkipped(true); setDirectPaymentType(null) })
       .finally(() => setOpenBillsLoading(false))
   }, [entityId, billNature, companyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -269,6 +276,7 @@ export default function SimplifiedPaymentEntry({
     setBillAllocs([])
     setBillStepDone(false)
     setBillStepSkipped(false)
+    setDirectPaymentType(null)
   }
 
   const clearEntity = () => {
@@ -280,6 +288,7 @@ export default function SimplifiedPaymentEntry({
     setBillAllocs([])
     setBillStepDone(false)
     setBillStepSkipped(false)
+    setDirectPaymentType(null)
   }
 
   // ── Expense line helpers ──────────────────────────────────────────────────

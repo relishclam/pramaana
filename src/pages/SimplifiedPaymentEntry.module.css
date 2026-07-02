@@ -259,6 +259,76 @@
   color: var(--error);
 }
 
+/* ── Direct payment / receipt intent choice card ─────────────────────────── */
+
+.intentCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.875rem;
+}
+
+.intentCardTitle {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0 0 0.625rem;
+}
+
+.intentChoices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+}
+
+.intentBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+  font-family: inherit;
+  width: 100%;
+}
+
+.intentBtn:hover {
+  border-color: var(--teal);
+  background: var(--teal-light);
+}
+
+.intentBtnLabel {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.intentBtnSub {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.intentBackBtn {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.intentBackBtn:hover {
+  color: var(--text);
+}
+
 /* ── Amount input (step 2) ───────────────────────────────────────────────── */
 
 .amountRow {

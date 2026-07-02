@@ -218,13 +218,21 @@ export default function SimplifiedPaymentEntry({
       if (eErr || !entities?.length) { setEntityOptions([]); return }
 
       const ids = (entities as RawEntity[]).map(e => e.id)
+
+      // Role filter is context-aware: receipts come FROM customers;
+      // payments go TO vendors/staff. Vendors are included in receipt
+      // roles to cover refund scenarios (vendor returning money).
+      const roleFilter = voucherType.nature === 'receipt'
+        ? ['Customer', 'Vendor', 'Supplier']
+        : ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor', 'Fisher']
+
       const { data: roles } = await supabase
         .schema('registry')
         .from('entity_roles')
         .select('entity_id, role')
         .eq('company_id', companyId)
         .eq('is_active', true)
-        .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor'])
+        .in('role', roleFilter)
         .in('entity_id', ids)
 
       if (!roles?.length) { setEntityOptions([]); return }
@@ -428,7 +436,10 @@ export default function SimplifiedPaymentEntry({
                   className={styles.typeaheadInput}
                   value={entitySearch}
                   onChange={e => handleEntityInput(e.target.value)}
-                  placeholder="Search vendors, staff, contractors…"
+                  placeholder={voucherType.nature === 'receipt'
+                    ? 'Search customers…'
+                    : 'Search vendors, staff, contractors…'
+                  }
                   autoFocus
                 />
                 {entityLoading && <Loader2 size={14} className={`${styles.spin} ${styles.searchSpinner}`} />}

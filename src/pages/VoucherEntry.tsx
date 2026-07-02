@@ -453,6 +453,8 @@ export default function VoucherEntry() {
   }
 
   const isPayment = activeType?.nature === 'payment'
+  const isReceipt  = activeType?.nature === 'receipt'
+  const useSimplifiedForm = isPayment || isReceipt
 
   return (
     <div className={styles.page}>
@@ -505,7 +507,7 @@ export default function VoucherEntry() {
       )}
 
       {/* ── Type selector — always visible ─────────────────────────────── */}
-      <div className={styles.section} style={{ maxWidth: isPayment ? 640 : undefined }}>
+      <div className={styles.section} style={{ maxWidth: useSimplifiedForm ? 640 : undefined }}>
         <div className={styles.segmented}>
           {voucherTypes.map(vt => (
             <button
@@ -521,7 +523,7 @@ export default function VoucherEntry() {
       </div>
 
       {/* ── Date — always visible ──────────────────────────────────────── */}
-      <div style={{ maxWidth: isPayment ? 640 : undefined, marginBottom: '0.25rem' }}>
+      <div style={{ maxWidth: useSimplifiedForm ? 640 : undefined, marginBottom: '0.25rem' }}>
         <div className={styles.row2} style={{ maxWidth: 360 }}>
           <div className={styles.field}>
             <label className={styles.label}>Voucher Date <span className={styles.req}>*</span></label>
@@ -535,8 +537,8 @@ export default function VoucherEntry() {
         </div>
       </div>
 
-      {/* ── Payment type → simplified conversational form ──────────────── */}
-      {isPayment && activeType ? (
+      {/* ── Payment / Receipt → simplified conversational form ───────── */}
+      {useSimplifiedForm && activeType ? (
         <SimplifiedPaymentEntry
           key={activeType.id}
           companyId={companyId}

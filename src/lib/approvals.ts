@@ -307,20 +307,34 @@ export interface ApproveVoucherResult {
 // point verifyPaymentOtp() advances it to 'completed'.
 // (Previously this set status='posted' directly — moved to a two-step flow.)
 
+// ── Approve voucher ───────────────────────────────────────────────────────────
+// OTP is ONLY initiated for 'payment' nature vouchers (outward payments to
+// domestic payees). All other voucher types (sales, purchase, receipt,
+// journal, contra) are posted immediately on admin approval — no OTP step.
+// Rationale: OTP verifies "you are the correct recipient of funds being sent."
+// For sales/receipts the money is coming IN; for journals there is no cash
+// movement. Sending OTP to a foreign export customer is not feasible.
+
 export async function approveVoucher(
-  voucherId: string,
-  companyId: string,
-  userId: string,
-  comments: string | null,
-  entityId: string | null,
+  voucherId:     string,
+  companyId:     string,
+  userId:        string,
+  comments:      string | null,
+  entityId:      string | null,
+  voucherNature: string,        // e.g. 'payment' | 'sales' | 'purchase' | ...
 ): Promise<ApproveVoucherResult> {
   const now = new Date().toISOString()
+  const isPayment = voucherNature === 'payment'
 
-  // Step 1 — Advance to 'approved' (was: 'posted')
+  // Step 1 — Advance status:
+  //   payment  → 'approved'  (OTP verification pending)
+  //   all else → 'posted'    (final state; no OTP or Pay Now step needed)
+  const newStatus = isPayment ? 'approved' : 'posted'
+
   const { error: vErr } = await supabase
     .schema('pramaana')
     .from('vouchers')
-    .update({ status: 'approved', posted_at: now, posted_by: userId })
+    .update({ status: newStatus, posted_at: now, posted_by: userId })
     .eq('id', voucherId)
     .eq('status', 'pending_approval')
 
@@ -341,7 +355,12 @@ export async function approveVoucher(
 
   if (aErr) throw new Error('Failed to record approval: ' + aErr.message)
 
-  // Step 3 — Initiate OTP for payee
+  // Step 3 — OTP only for outward payment vouchers
+  if (!isPayment) {
+    return { approved: true, otp_sent: false, mobile_masked: null, otp_reason: 'not_applicable' }
+  }
+
+  // Step 3 — Initiate OTP for payee (payment vouchers only)
   const otpResult: OtpInitResult = await initiatePaymentOtp(
     voucherId, companyId, userId, entityId
   )

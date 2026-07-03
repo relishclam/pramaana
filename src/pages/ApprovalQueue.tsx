@@ -519,11 +519,13 @@ function DetailPanel({
         voucher.id, companyId, userId,
         approvalNote.trim() || null,
         voucher.entity_id,
+        voucher.voucher_type.nature,
       )
       if (!result.otp_sent) {
-        // No entity mobile — skip OTP, go straight to done
         const reason = result.otp_reason
-        if (reason === 'no_mobile' || reason === 'no_entity') {
+        if (reason === 'not_applicable') {
+          toast.success('Approved and posted.')
+        } else if (reason === 'no_mobile' || reason === 'no_entity') {
           toast.success('Approved. No payee mobile on file — skipping OTP.')
         } else {
           toast.warning(`Approved. OTP SMS failed (${reason ?? 'unknown'}) — voucher is in Approved state.`)
@@ -751,7 +753,7 @@ function DetailPanel({
       </div>
 
       {/* OTP panel — shown after approve, before verification */}
-      {(otpPending || voucher?.status === 'approved') && voucher && (
+      {(otpPending || voucher?.status === 'approved') && voucher && voucher.voucher_type.nature === 'payment' && (
         <div className={styles.panelFooter}>
           <OtpPanel
             voucherId={voucher.id}

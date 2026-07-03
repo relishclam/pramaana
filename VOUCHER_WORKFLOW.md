@@ -5,6 +5,233 @@
 
 ---
 
+## 0. User Manual — Pramaana Voucher Entry
+
+Practical reference for data entry staff. Each scenario shows the exact ledger rows to enter.
+
+---
+
+### 0.1 Accounting Rules You Must Know
+
+| Rule | What it means in practice |
+|---|---|
+| **Dr = Cr always** | Every voucher must balance. The "Balanced ✅" indicator must be green before you can submit. |
+| **Income ledger = taxable value** | Never put the GST-inclusive total into a Sales / Income ledger. Only the amount before GST goes there. |
+| **GST Payable ≠ GST Input Credit** | Sales vouchers → CGST/SGST **Payable** (liability). Purchase vouchers → CGST/SGST **Input Credit** (asset). Using the wrong ledger silently mis-states both your tax liability and your ITC balance. |
+| **TDS is a receivable, not an expense** | When a customer deducts TDS, the withheld amount is RFPL's advance tax paid to the government. Book it as `TDS Receivable` (asset), not as a loss. |
+| **Security deposits are liabilities** | Deposits received from tenants are refundable. They go to a Liability ledger, not to income. |
+
+---
+
+### 0.2 Approval Flow by Voucher Type
+
+| Voucher type | On admin approval | OTP sent? | Moves to Payments page? |
+|---|---|---|---|
+| **Payment** | Status → Awaiting OTP | ✅ Yes — to payee's mobile | ✅ Yes, after OTP verified |
+| **Receipt** | Status → Posted immediately | ❌ No | ❌ No |
+| **Sales** | Status → Posted immediately | ❌ No | ❌ No |
+| **Purchase** | Status → Posted immediately | ❌ No | ❌ No |
+| **Journal** | Status → Posted immediately | ❌ No | ❌ No |
+| **Contra** | Status → Posted immediately | ❌ No | ❌ No |
+
+---
+
+### 0.3 GST Ledger Reference
+
+Create these six ledgers once. Tag each with `is_tax_ledger = true` and the matching `tax_type`.
+
+| Ledger name | Group | Nature | tag | Used on |
+|---|---|---|---|---|
+| CGST Payable | Duties & Taxes | LIABILITY | `CGST` | Sales vouchers |
+| SGST/TNGST Payable | Duties & Taxes | LIABILITY | `SGST` | Sales vouchers |
+| IGST Payable | Duties & Taxes | LIABILITY | `IGST` | Sales vouchers (inter-state) |
+| CGST Input Credit | Current Assets | ASSET | `CGST` | Purchase vouchers |
+| SGST Input Credit | Current Assets | ASSET | `SGST` | Purchase vouchers |
+| IGST Input Credit | Current Assets | ASSET | `IGST` | Purchase vouchers (inter-state) |
+
+> **⚡ GST Quick-Add** auto-fills these rows once the ledgers are tagged. It finds any ledger with the matching `tax_type`. Create both sets (Payable + Input Credit) so the right one appears depending on context.
+
+---
+
+### 0.4 Scenario A — Sales Invoice with GST (Intra-state)
+
+**Example:** RFPL issues lease rent invoice INV 036 to Peninsular Fisheries Pvt Ltd.  
+Taxable value ₹2,10,000 · CGST 9% · SGST 9% · Invoice total ₹2,47,800
+
+**Voucher type:** Sales  
+**Entry method:** Full double-entry form → ⚡ GST Quick-Add → add Bank row manually
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Peninsular Fisheries (Debtor) | 2,47,800 | — | Sundry Debtors group |
+| 2 | Lease Rent Income | — | 2,10,000 | Taxable value only |
+| 3 | CGST Payable | — | 18,900 | Auto-filled by GST Quick-Add |
+| 4 | SGST/TNGST Payable | — | 18,900 | Auto-filled by GST Quick-Add |
+| **Total** | | **2,47,800** | **2,47,800** | ✅ Balanced |
+
+> If Peninsular pays in the same transaction (cash sale): replace row 1 with `Dr Canara Bank ₹2,47,800` and skip the Receipt step.
+
+---
+
+### 0.5 Scenario B — Receipt of Lease Rent (with TDS & Deposit Deduction)
+
+**Example:** Peninsular settles INV 036.  
+- Invoice: ₹2,47,800  
+- TDS deducted @ 10% on taxable value: ₹21,000  
+- Monthly deposit deduction: ₹21,000  
+- **Net cash received: ₹2,05,800**
+
+**Voucher type:** Receipt  
+**Entry method:** Full double-entry form (5 legs — do not use Simplified form)
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Canara Bank | 2,05,800 | — | Actual cash received |
+| 2 | TDS Receivable — Sec 194I | 21,000 | — | RFPL's advance tax credit |
+| 3 | Security Deposit — Peninsular | 21,000 | — | Monthly adjustment of deposit |
+| 4 | Peninsular Fisheries (Debtor) | — | 2,47,800 | Closes the Sales voucher receivable |
+| **Total** | | **2,47,800** | **2,47,800** | ✅ Balanced |
+
+> Use **BillAllocPanel** (Bill Step) to link this Receipt to the open Sales invoice (INV 036). This closes the outstanding balance in the Receivables report.
+
+---
+
+### 0.6 Scenario C — Receiving a Security Deposit (one-time)
+
+**Example:** Peninsular pays ₹2,10,000 security deposit at lease start.
+
+**Voucher type:** Receipt → Direct receipt — no invoice  
+**Bill Step:** Choose **⏳ Advance received — to settle later**
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Canara Bank | 2,10,000 | — | Cash received |
+| 2 | Security Deposit — Peninsular | — | 2,10,000 | Liability — refundable at lease end |
+| **Total** | | **2,10,000** | **2,10,000** | ✅ Balanced |
+
+> Security Deposit ledger should be under **Current Liabilities** (if lease < 12 months) or **Long-term Liabilities** (if > 12 months).
+
+---
+
+### 0.7 Scenario D — Outward Payment to Vendor (with OTP)
+
+**Example:** RFPL pays freight charges to ABC Logistics ₹15,000 cash.
+
+**Voucher type:** Payment  
+**Entry method:** Simplified Conversational Form → Direct expense → no invoice
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Freight & Transport Charges | 15,000 | — | Expense ledger (Indirect Expenses) |
+| 2 | Cash / Petty Cash | — | 15,000 | Payment account |
+| **Total** | | **15,000** | **15,000** | ✅ Balanced |
+
+Flow: Submit → Admin approves → **OTP sent to ABC Logistics mobile** → OTP verified → appears on Payments page → Mark as Paid → Posted.
+
+---
+
+### 0.8 Scenario E — Purchase Invoice + Immediate Payment (Atomic)
+
+**Example:** RFPL receives a packaging supplies invoice from Vendor X for ₹50,000 + 12% GST = ₹56,000 and pays immediately.
+
+**Voucher type:** Payment → **📄 New purchase invoice — enter it now**  
+*(Uses `create_linked_vouchers()` RPC — atomically creates Purchase + Payment)*
+
+The system creates **two vouchers in one action:**
+
+**Auto-created Purchase voucher:**
+
+| # | Ledger | Dr (₹) | Cr (₹) |
+|---|---|---|---|
+| 1 | Packaging Supplies (Expense) | 50,000 | — |
+| 2 | CGST Input Credit | 3,000 | — |
+| 3 | SGST Input Credit | 3,000 | — |
+| 4 | Vendor X (Creditor) | — | 56,000 |
+
+**Auto-created Payment voucher:**
+
+| # | Ledger | Dr (₹) | Cr (₹) |
+|---|---|---|---|
+| 1 | Vendor X (Creditor) | 56,000 | — |
+| 2 | Canara Bank | — | 56,000 |
+
+Both vouchers are linked via `voucher_allocations`. The admin sees both on one combined approval screen, approves once, and the OTP is sent to Vendor X.
+
+---
+
+### 0.9 Scenario F — Salary / Wages (Direct Payment, No Invoice)
+
+**Example:** RFPL pays monthly salary to staff member Sibi ₹25,000 via UPI.
+
+**Voucher type:** Payment → **📋 Direct expense — no invoice**
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Salaries & Wages | 25,000 | — | Indirect Expenses group |
+| 2 | Canara Bank | — | 25,000 | Bank account |
+| **Total** | | **25,000** | **25,000** | ✅ Balanced |
+
+> Salary payments are **direct expenses** — no purchase invoice exists. Choose "Direct expense — no invoice" in the Bill Step to explicitly acknowledge this. Do NOT choose "Advance payment" unless you're paying an advance before the month ends.
+
+---
+
+### 0.10 Scenario G — Travel Advance to Employee
+
+**Example:** Staff member gets ₹5,000 travel advance from petty cash before a trip.
+
+**Voucher type:** Payment → **⏳ Advance payment — to settle later**
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Advances to Staff — [Name] | 5,000 | — | Current Assets group |
+| 2 | Petty Cash | — | 5,000 | Cash account |
+| **Total** | | **5,000** | **5,000** | ✅ Balanced |
+
+When the employee submits actual expense bills, create a **Journal voucher:**
+```
+Dr  Travel Expenses      ₹5,000   (actual expense hit P&L)
+Cr  Advances to Staff    ₹5,000   (advance cleared)
+```
+If the employee returns unused cash, create a **Receipt voucher** to Dr Petty Cash / Cr Advances to Staff for the returned amount.
+
+---
+
+### 0.11 Scenario H — Contra (Bank to Bank / Cash to Bank Transfer)
+
+**Example:** Transfer ₹1,00,000 from Canara Bank Current A/c to Federal Bank OD A/c.
+
+**Voucher type:** Contra  
+**Payment mode:** Bank / NEFT / RTGS
+
+| # | Ledger | Dr (₹) | Cr (₹) | Notes |
+|---|---|---|---|---|
+| 1 | Federal Bank OD | 1,00,000 | — | Money arriving |
+| 2 | Canara Bank | — | 1,00,000 | Money leaving |
+| **Total** | | **1,00,000** | **1,00,000** | ✅ Balanced |
+
+> Contra vouchers do **not** require a party entity and do **not** go through OTP. They post immediately on admin approval.
+
+---
+
+### 0.12 GST Filing Reconciliation
+
+At the end of each quarter:
+
+1. **GSTR-1 (Sales):** Trial Balance → Sales Accounts + CGST/SGST/IGST Payable ledger balances = total output tax owed
+2. **GSTR-3B / ITC claim (Purchases):** CGST/SGST/IGST Input Credit ledger balances = ITC to claim
+3. **Net GST payable:** Output tax − ITC = amount to pay via GST Portal
+4. **Payment of GST (Journal/Payment voucher):**
+
+| # | Ledger | Dr | Cr |
+|---|---|---|---|
+| 1 | CGST Payable | ₹X | — |
+| 2 | SGST Payable | ₹Y | — |
+| 3 | Canara Bank | — | ₹(X+Y) |
+
+5. **TDS Reconciliation:** `TDS Receivable` ledger balance should match Form 26AS. Claim as advance tax credit at ITR filing.
+
+---
+
 ## 1. Voucher Types (Nature)
 
 Every voucher belongs to a **Voucher Type** which defines its accounting nature.  

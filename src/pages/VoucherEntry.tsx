@@ -18,7 +18,7 @@ import {
 } from '@/lib/vouchers'
 import { supabase } from '@/lib/supabase'
 import SimplifiedPaymentEntry from './SimplifiedPaymentEntry'
-import InvoiceScanModal from '@/components/InvoiceScanModal'
+import InvoiceScanModal, { consumeScanFile } from '@/components/InvoiceScanModal'
 import { uploadVoucherAttachments, formatFileSize } from '@/lib/attachments'
 import styles from './VoucherEntry.module.css'
 
@@ -69,6 +69,8 @@ export default function VoucherEntry() {
     scanId?:   string
     prefill?: {
       voucher_type?:  string
+      entity_id?:     string | null   // already-resolved entity (GSTIN-matched in scan)
+      entity_name?:   string | null   // display name for the entity chip
       party_name?:    string | null
       party_gstin?:   string | null
       amount?:        number          // = taxable_value; drives gstBase
@@ -100,8 +102,15 @@ export default function VoucherEntry() {
   // ── Entity typeahead ──────────────────────────────────────────────────────
   const [entitySearch,   setEntitySearch]   = useState('')
   const [entityOptions,  setEntityOptions]  = useState<EntityOption[]>([])
-  const [entityId,       setEntityId]       = useState<string | null>(null)
-  const [entityLabel,    setEntityLabel]    = useState('')
+  // If scan prefill has a GSTIN-verified entity_id, use it directly (skip search)
+  const [entityId,       setEntityId]       = useState<string | null>(
+    () => fromScanState?.prefill?.entity_id ?? null
+  )
+  const [entityLabel,    setEntityLabel]    = useState(() => {
+    const pf = fromScanState?.prefill
+    if (pf?.entity_id && pf.entity_name) return `${pf.entity_name} · (scan-verified)`
+    return ''
+  })
   const [entityLoading,  setEntityLoading]  = useState(false)
   const entityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -120,7 +129,11 @@ export default function VoucherEntry() {
   const [scanOpen, setScanOpen] = useState(false)
 
   // ── Staged attachments ────────────────────────────────────────────────────
-  const [stagedFiles, setStagedFiles] = useState<File[]>([])
+  // Consume any scan file stored by InvoiceScanModal so it is uploaded on submit.
+  const [stagedFiles, setStagedFiles] = useState<File[]>(() => {
+    const f = consumeScanFile()
+    return f ? [f] : []
+  })
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // ── Preview ───────────────────────────────────────────────────────────────

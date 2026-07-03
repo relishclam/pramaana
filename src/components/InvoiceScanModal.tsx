@@ -10,6 +10,16 @@ import { formatIndianCurrency } from '@/lib/vouchers'
 import type { VoucherType } from '@/lib/vouchers'
 import styles from './InvoiceScanModal.module.css'
 
+// ── Module-level scan file holder ─────────────────────────────────────────────
+// File objects cannot be serialised into navigate() state.
+// We hand the file off here; VoucherEntry consumes it on mount.
+let _pendingScanFile: File | null = null
+export function consumeScanFile(): File | null {
+  const f = _pendingScanFile
+  _pendingScanFile = null
+  return f
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -732,6 +742,7 @@ export default function InvoiceScanModal({
   open, onClose, companyId, userId, companyGstin = '', companyName = '', voucherTypes,
 }: Props) {
   const { state, selectFile, startScan, updateField, submitVoucher, reset } = useInvoiceScan({ companyGstin, companyName })
+  const navigate = useNavigate()
   const modalRef = useRef<HTMLDivElement>(null)
 
   // Focus trap + ESC handler
@@ -785,10 +796,44 @@ export default function InvoiceScanModal({
   }
 
   function handleSubmit() {
-    const vtNature  = state.form.voucherType
-    const vt        = voucherTypes.find(t => t.nature === vtNature) ?? voucherTypes[0]
+    const vtNature = state.form.voucherType
+    const vt       = voucherTypes.find(t => t.nature === vtNature) ?? voucherTypes[0]
     if (!vt) { toast.error('No matching voucher type found'); return }
-    submitVoucher(companyId, vt.id, userId, state.ocrResult?.confidence ?? null)
+
+    const form = state.form
+    // Counter-party: for sales WE are supplier, so entity = recipient; for purchase vice versa
+    const isOurSale   = form.voucherType === 'sales'
+    const partyName   = isOurSale ? form.recipientName   : form.supplierName
+    const partyGstin  = isOurSale ? form.recipientGstin  : form.supplierGstin
+
+    // Store file for VoucherEntry to stage as attachment on mount
+    if (state.file) _pendingScanFile = state.file
+
+    // Navigate to VoucherEntry with full extracted data.
+    // VoucherEntry will auto-populate entity, GST entries, narration, ref, and stage the file.
+    navigate('/vouchers/new', {
+      state: {
+        fromScan: true,
+        prefill: {
+          voucher_type:  vt.nature === 'purchase' ? 'PURCHASE' :
+                         vt.nature === 'sales'    ? 'SALE'     : vt.code,
+          entity_id:     form.entityId    ?? null,
+          entity_name:   partyName        ?? null,
+          party_name:    partyName        ?? null,
+          party_gstin:   partyGstin       ?? null,
+          taxable_value: parseFloat(form.taxableValue) || 0,
+          total_gst:     parseFloat(form.totalGst)     || 0,
+          cgst:          parseFloat(form.cgst)         || 0,
+          sgst:          parseFloat(form.sgst)         || 0,
+          igst:          parseFloat(form.igst)         || 0,
+          gst_type:      form.gstType,
+          invoice_date:  form.invoiceDate,
+          narration:     form.narration,
+          bill_ref:      form.invoiceNo || null,
+        },
+      },
+    })
+    onClose()
   }
 
   function handleBack() {

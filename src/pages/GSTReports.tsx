@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import { Loader2, Printer, FileBarChart2, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -410,9 +411,7 @@ export default function GSTReports() {
 
       {/* Content */}
       {loading ? (
-        <div className={styles.loading}>
-          <Loader2 size={20} className={styles.spin} /> Loading GST data…
-        </div>
+        <FoodStreamMini label="Loading GST data…" />
       ) : !hasRun ? (
         <div className={styles.noData}>
           <FileBarChart2 size={36} style={{ opacity: 0.3 }} />

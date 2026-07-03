@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import { Loader2, Printer, FileBarChart2, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -275,9 +276,7 @@ export default function ReceivablesPayables() {
 
       {/* Content */}
       {loading ? (
-        <div className={styles.loading}>
-          <Loader2 size={20} className={styles.spin} /> Fetching outstanding balances…
-        </div>
+        <FoodStreamMini label="Fetching outstanding balances…" />
       ) : !hasRun ? (
         <div className={styles.noData}>
           <FileBarChart2 size={36} style={{ opacity: 0.3 }} />

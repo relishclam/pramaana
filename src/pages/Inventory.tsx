@@ -10,7 +10,7 @@ import {
   type ClamFPForm,
   type InventoryValuation,
 } from '@/lib/inventory'
-import css from './Inventory.module.css'
+import FoodStreamMini from '@/components/FoodStreamMini'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -406,7 +406,7 @@ export default function Inventory() {
       {error && <div className={css.error}>{error}</div>}
 
       {loading ? (
-        <div className={css.loading}><div className={css.spinner} /></div>
+        <FoodStreamMini label="" />
       ) : (
         <>
           {/* Summary strip */}

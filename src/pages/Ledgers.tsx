@@ -236,7 +236,7 @@ function LedgerGroupsTab() {
 
       {/* Tree */}
       {loading ? (
-        <div className={styles.loading}><Loader2 size={20} className={styles.spin} /></div>
+        <FoodStreamMini label="" />
       ) : (
         <div className={styles.tree}>
           {renderTree(null, 0)}
@@ -470,7 +470,7 @@ function LedgersTab() {
 
       {/* List */}
       {loading ? (
-        <div className={styles.loading}><Loader2 size={20} className={styles.spin} /></div>
+        <FoodStreamMini label="" />
       ) : filtered.length === 0 ? (
         <div className={styles.emptyState}>
           {ledgers.length === 0

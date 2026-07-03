@@ -1,6 +1,6 @@
 # Pramaana — System Definition
 **Generated:** 2026-06-19  
-**Last Updated:** 2026-06-25 (commit `8727ca7` — OCR company-master auto-correction + locked field UI in Review step)  
+**Last Updated:** 2026-07-03 (migrations 035–044: Pay Now, bill allocations, linked vouchers, awaiting_payment status, posted immutability triggers; `src/lib/pay-now.ts`, `src/lib/allocations.ts`; `/payments` route; reports filter fix)  
 **Scope:** `pramaana/` repo only — `src/`, `api/`, `supabase/migrations/`, `supabase/functions/`  
 **Method:** Direct code inspection of all lib files, page components, migrations, App.tsx, AuthContext.tsx, and config files  
 **Not covered:** Relish Suite (`relish-business-suite/` parent repo), ClamFlow backend/frontend (separate repos)
@@ -40,6 +40,7 @@ Source of truth: `supabase/migrations/008_pramaana_schema.sql`, `009_ledger_bank
 | is_system | BOOLEAN | YES | FALSE | System groups = TRUE. Never delete. |
 | sort_order | INT | YES | 0 | |
 | is_active | BOOLEAN | YES | TRUE | |
+| is_pending_review | BOOLEAN | NOT NULL | FALSE | Added migration 042. TRUE when created by `accounts` role — admin must approve before it is considered permanent. |
 | created_at | TIMESTAMPTZ | YES | now() | |
 | updated_at | TIMESTAMPTZ | YES | now() | Updated by trigger `trg_updated_at` |
 
@@ -114,6 +115,7 @@ WITH CHECK (
 | ifsc | TEXT | YES | — | Added migration 009 |
 | is_system | BOOLEAN | YES | FALSE | |
 | is_active | BOOLEAN | YES | TRUE | |
+| is_pending_review | BOOLEAN | NOT NULL | FALSE | Added migration 042. TRUE when created by `accounts` role — admin must approve. |
 | created_by | UUID | YES | — | FK → auth.users(id) |
 | created_at | TIMESTAMPTZ | YES | now() | |
 | updated_at | TIMESTAMPTZ | YES | now() | Updated by trigger `trg_updated_at` |
@@ -257,7 +259,7 @@ CREATE POLICY vtype_write ON pramaana.voucher_types
 | ref_document_number | TEXT | YES | — | PO number, invoice number cross-ref |
 | ref_document_type | TEXT | YES | — | 'purchase_order','invoice','gst_invoice' |
 | needs_approval | BOOLEAN | YES | FALSE | |
-| status | TEXT | NOT NULL | 'draft' | CHECK IN ('draft','pending_approval','approved','completed','posted','cancelled','open','rejected','partial','closed') — expanded by migration 025 |
+| status | TEXT | NOT NULL | 'draft' | CHECK IN ('draft','pending_approval','approved','completed','awaiting_payment','posted','cancelled','open','rejected','partial','closed') — expanded by migrations 025, 039 |
 | is_suspense | BOOLEAN | NOT NULL | FALSE | Added migration 021 |
 | suspense_purpose | TEXT | YES | — | Added migration 021 |
 | suspense_balance | NUMERIC(15,2) | YES | 0 | Added migration 021 |
@@ -275,6 +277,11 @@ CREATE POLICY vtype_write ON pramaana.voucher_types
 | otp_verified_by | UUID | YES | — | FK → auth.users(id). Written by `verifyPaymentOtp()`. |
 | completed_at | TIMESTAMPTZ | YES | — | Written by `verifyPaymentOtp()` when voucher reaches `completed`. |
 | completed_by | UUID | YES | — | FK → auth.users(id). Written by `verifyPaymentOtp()`. |
+| queued_at | TIMESTAMPTZ | YES | — | Added migration 039. Timestamp when voucher was queued for payment (`completed → awaiting_payment`). |
+| queued_for_payment_by | UUID | YES | — | Added migration 039. FK → auth.users(id). User who queued the voucher. |
+| paid_from_account | TEXT | YES | — | Added migration 036. Company bank/UPI account used for payment (from `registry.company_bank_accounts.label`). |
+| paid_at | TIMESTAMPTZ | YES | — | Added migration 025 (IF NOT EXISTS). Date payment was recorded. |
+| paid_by | UUID | YES | — | FK → auth.users(id). Written by `markVoucherPaid()`. Audit trail for who recorded the payment. |
 
 **UNIQUE:** `(company_id, voucher_number)`
 
@@ -291,11 +298,12 @@ CREATE POLICY "anon_read_suspense_vouchers"
   USING (is_suspense = true);
 ```
 
-**Triggers on this table (4):**
+**Triggers on this table (5):**
 - `trg_updated_at` BEFORE UPDATE → `pramaana.set_updated_at()`
 - `trg_audit_vouchers` AFTER INSERT OR UPDATE OR DELETE → `pramaana.fn_audit_voucher()`
-- `trg_prevent_posted_edit` BEFORE UPDATE OR DELETE → `pramaana.fn_prevent_posted_edit()`
-- `trg_validate_voucher_balance` BEFORE UPDATE → `pramaana.fn_validate_voucher_balance()`
+- `trg_prevent_posted_edit` BEFORE UPDATE OR DELETE → `pramaana.fn_prevent_posted_edit()` — blocks UPDATE/DELETE when `OLD.status IN ('posted','cancelled')`
+- `trg_prevent_posted_voucher_update` BEFORE UPDATE → `pramaana.prevent_posted_voucher_update()` — added migration 044; belt-and-suspenders for the UPDATE path only
+- `trg_validate_voucher_balance` BEFORE UPDATE → `pramaana.fn_validate_voucher_balance()` — fires only on transition **to** `'posted'`
 
 ---
 
@@ -372,6 +380,7 @@ Original schema (migration 008) had status CHECK IN ('open','partial','cleared')
 | reference_number | TEXT | YES | — | Added migration 021 |
 | invoice_available | BOOLEAN | YES | — | Added migration 021 |
 | settlement_session_id | UUID | YES | — | FK → pramaana.settlement_sessions(id). Added at end of migration 008. |
+| submitted_by | UUID | YES | — | Added migration 035. Auth user who entered the settlement directly inside the register. NULL when staff submitted via public link (anon). |
 | settled_at | TIMESTAMPTZ | YES | — | |
 | settled_by | UUID | YES | — | FK → auth.users(id) |
 | notes | TEXT | YES | — | |
@@ -416,6 +425,7 @@ CREATE POLICY "anon_insert_suspense_settlements"
 | uploaded_by | UUID | NOT NULL | — | |
 | uploaded_at | TIMESTAMPTZ | NOT NULL | now() | |
 | is_deleted | BOOLEAN | NOT NULL | FALSE | Soft delete only |
+| attachment_type | TEXT | NOT NULL | 'invoice' | Added migration 038. CHECK IN ('invoice','transfer_receipt','other'). Distinguishes invoice/bill from bank transfer receipt. |
 
 **RLS policies (from migration 020):**
 ```sql
@@ -448,6 +458,41 @@ CREATE POLICY "owner or admin can soft-delete attachments"
     )
   );
 ```
+
+---
+
+#### `pramaana.voucher_allocations`
+**Created by migration 040. Bill-allocation engine — links payment/receipt vouchers to the specific purchase/sales bills they settle. BI layer only — does not change accounting entries.**
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| id | UUID | NOT NULL | gen_random_uuid() | PK |
+| company_id | UUID | NOT NULL | — | FK → registry.companies(id) ON DELETE CASCADE |
+| entity_id | UUID | YES | — | FK → registry.entities(id) ON DELETE SET NULL |
+| bill_voucher_id | UUID | NOT NULL | — | FK → pramaana.vouchers(id) ON DELETE CASCADE. Purchase or Sales voucher being settled. |
+| payment_voucher_id | UUID | NOT NULL | — | FK → pramaana.vouchers(id) ON DELETE CASCADE. Payment or Receipt voucher doing the settling. |
+| amount_allocated | NUMERIC(15,2) | NOT NULL | — | CHECK (amount_allocated > 0) |
+| is_advance | BOOLEAN | NOT NULL | FALSE | TRUE when payment preceded the bill (retroactive allocation). |
+| allocated_at | TIMESTAMPTZ | NOT NULL | now() | |
+| allocated_by | UUID | YES | — | FK → auth.users(id) ON DELETE SET NULL |
+
+**CONSTRAINT:** `no_self_link CHECK (bill_voucher_id != payment_voucher_id)`
+
+**RLS policy `company_isolation`:** same as `pramaana.ledgers`.
+
+**Invariant:** `SUM(outstanding per entity) = entity ledger balance`. Not enforced at DB level — maintained by application code.
+
+---
+
+#### `pramaana.company_payment_accounts`
+**Created by migration 036 (simple version). SUPERSEDED in application code by `registry.company_bank_accounts` which carries full banking detail. Migration 036 table is no longer queried by any app lib function.**
+
+| Column | Type | Notes |
+|---|---|
+| id | UUID | PK |
+| company_id | UUID | FK → registry.companies(id) ON DELETE CASCADE |
+| label | TEXT | NOT NULL |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT now() |
 
 ---
 
@@ -736,11 +781,12 @@ Pramaana reads these registry tables. It does NOT write to them.
 
 | Table | Columns read | Via |
 |---|---|---|
-| `registry.profiles` | `id, email, full_name, is_super_admin, is_active, created_at` | `AuthContext.tsx`, `vouchers-list.ts`, `approvals.ts`, `suspense.ts` |
+| `registry.profiles` | `id, email, full_name, mobile, entity_id, is_super_admin, is_active, created_at` | `AuthContext.tsx`, `vouchers-list.ts`, `approvals.ts`, `suspense.ts`, `pay-now.ts` |
 | `registry.companies` | `id, code, name, gstin, is_active` | `AuthContext.tsx` |
 | `registry.company_users` | `id, user_id, company_id, role` | `AuthContext.tsx` |
-| `registry.entities` | `id, display_name, mobile` | `vouchers-list.ts`, `approvals.ts`, `suspense.ts`, `sms.ts` |
+| `registry.entities` | `id, display_name, mobile, upi_id, bank_account_number, bank_ifsc, bank_name` | `vouchers-list.ts`, `approvals.ts`, `suspense.ts`, `sms.ts`, `pay-now.ts` |
 | `registry.sequence_counters` | via RPC only | `vouchers.ts` `getNextSequence()`, `suspense.ts` `approveSuspenseVoucher()`, `vouchers-list.ts` `submitDraftVoucher()` |
+| `registry.company_bank_accounts` | `id, company_id, label, account_holder_name, bank_name, bank_account_number, bank_ifsc, upi_id, is_primary, is_active, created_at` | `pay-now.ts` `fetchCompanyPaymentAccounts()` — **READ + WRITE** (admin can add/delete accounts) |
 
 ---
 
@@ -841,6 +887,16 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 | 032_grant_pramaana_schema_to_postgrest_roles.sql | ✅ Applied | Grants `USAGE ON SCHEMA pramaana` to `anon`, `authenticated`, `service_role`. Grants `ALL ON ALL TABLES/SEQUENCES/ROUTINES IN SCHEMA pramaana` to `service_role`. Ensures Supabase Edge Functions using service_role key can access pramaana schema. Also grants `SELECT ON pramaana.settlement_sessions` to `authenticated`. |
 | 033_ocr_confidence.sql | ✅ Applied | Adds `ocr_confidence NUMERIC(5,2)` and `source TEXT DEFAULT 'manual' CHECK IN ('manual','ocr')` to `pramaana.vouchers`. Back-fills existing rows with `source='manual'`. Creates index `idx_vouchers_source WHERE source='ocr'`. |
 | 034_scan_ref_sequence.sql | ⏳ **PENDING — not yet applied to production** | Creates `pramaana.scan_sequence_counters` table (PK: company_id + type_code + fy) and `pramaana.next_scan_ref(p_company_id, p_company_code, p_type, p_scan_date)` RPC. Atomically increments counter and returns formatted ref like `RFPL/2627/PUR/20260625-0001`. Also adds `our_gstin TEXT` to `pramaana.invoice_scans` (IF NOT EXISTS). |
+| 035_suspense_submitted_by.sql | ✅ Applied | Adds `submitted_by UUID` (nullable) to `pramaana.suspense_settlements`. NULL = submitted via public anon link. UUID = accounts/admin user who entered directly in the register. |
+| 036_pay_now.sql | ✅ Applied | Adds `paid_from_account TEXT` and `paid_at TIMESTAMPTZ` (IF NOT EXISTS) to `pramaana.vouchers`. Creates `pramaana.company_payment_accounts` (simple label table — superseded in app code by `registry.company_bank_accounts`). |
+| 037_profile_mobile.sql | ✅ Applied | Adds `mobile TEXT` and `entity_id UUID` columns to `registry.profiles`. Back-fills `mobile` from `public.profiles.phone` for existing users. |
+| 038_attachment_type.sql | ✅ Applied | Adds `attachment_type TEXT NOT NULL DEFAULT 'invoice' CHECK IN ('invoice','transfer_receipt','other')` to `pramaana.voucher_attachments`. |
+| 039_awaiting_payment_status.sql | ✅ Applied | Adds `'awaiting_payment'` to the `pramaana.vouchers.status` CHECK constraint. Adds `queued_at TIMESTAMPTZ` and `queued_for_payment_by UUID` columns (IF NOT EXISTS) for queue audit trail. NOTE: The CHECK constraint was applied manually on 2026-06-30 before this migration was run. |
+| 040_bill_allocations.sql | ✅ Applied | Creates `pramaana.voucher_allocations` table. Bill-allocation BI layer — links payment/receipt vouchers to purchase/sales bills. `no_self_link` constraint prevents linking a bill to itself. |
+| 041_create_linked_vouchers.sql | ✅ Applied | Creates `pramaana.create_linked_vouchers(p_purchase JSONB, p_purchase_entries JSONB, p_payment JSONB, p_payment_entries JSONB)` RPC. Atomically creates a Purchase + Payment voucher pair (both `pending_approval`) plus a `voucher_allocation` row in a single transaction. Balance-checks both entry sets server-side. Entity ID mismatch guard. |
+| 042_ledger_pending_review.sql | ✅ Applied | Adds `is_pending_review BOOLEAN NOT NULL DEFAULT FALSE` to both `pramaana.ledger_groups` and `pramaana.ledgers`. Allows accounts-role users to propose new ledgers; admin approves by setting this to false. |
+| 044_posted_voucher_immutability.sql | ✅ Applied | Adds two trigger functions: `pramaana.prevent_posted_voucher_update()` (BEFORE UPDATE on vouchers, blocks when OLD.status='posted') and `pramaana.prevent_posted_entry_mutation()` (BEFORE INSERT/UPDATE/DELETE on voucher_entries, blocks when parent voucher is 'posted'). Belt-and-suspenders alongside existing `fn_prevent_posted_edit`. |
+| 20260625000000_invoice_scan_module.sql | ✅ Applied | Invoice scan schema (`pramaana.invoice_scans`, `pramaana.invoice_scan_items` — written by the Supabase Edge Function `ocr`). |
 
 ---
 
@@ -928,11 +984,38 @@ Both are `SECURITY DEFINER` to avoid RLS infinite recursion when querying `regis
 
 ---
 
-### `src/lib/approvals.ts`
+### `src/lib/pay-now.ts`
 
 | Function | Signature | Tables | Operation |
 |---|---|---|---|
-| `fetchPendingCount` | `(companyId) → number` | pramaana.vouchers | `count: 'exact', head: true` WHERE `status='pending_approval'` |
+| `fetchCompanyPaymentAccounts` | `(companyId) → CompanyPaymentAccount[]` | registry.company_bank_accounts | SELECT WHERE `company_id=`, `is_active=true`, order `is_primary DESC, created_at ASC` |
+| `addCompanyPaymentAccount` | `(companyId, label) → CompanyPaymentAccount` | registry.company_bank_accounts | INSERT |
+| `deleteCompanyPaymentAccount` | `(id) → void` | registry.company_bank_accounts | DELETE |
+| `markVoucherPaid` | `(voucherId, payload) → void` | pramaana.vouchers | UPDATE `{status:'posted', paid_at, paid_by, paid_from_account, utr_number?, cheque_number?}` WHERE `status IN ('completed','awaiting_payment')`. **This is the only code path that writes `status='posted'`.** |
+| `queueForPayment` | `(voucherId, userId) → void` | pramaana.vouchers | UPDATE `{status:'awaiting_payment', queued_at, queued_for_payment_by}` WHERE `status='completed'` |
+| `dequeuePayment` | `(voucherId) → void` | pramaana.vouchers | UPDATE `{status:'completed', queued_at:null, queued_for_payment_by:null}` WHERE `status='awaiting_payment'` |
+| `updateVoucherPaymentMode` | `(voucherId, paymentMode) → void` | pramaana.vouchers | UPDATE `{payment_mode}` — inline fix for queued vouchers with wrong mode |
+| `fetchAdminMobile` | `(companyId, userId) → string\|null` | registry.profiles, registry.entities | Fallback chain: `profiles.mobile` → `entities.mobile` via `profiles.entity_id` → entity with role 'Management' for the company |
+| `fetchAwaitingPayments` | `(companyId) → AwaitingPayment[]` | pramaana.vouchers, pramaana.voucher_types, registry.entities | SELECT WHERE `status='awaiting_payment'`, order `queued_at ASC`. Overdue flag when `queued_at > 48h ago`. |
+
+**`CompanyPaymentAccount` interface:** `{ id, company_id, label, account_holder_name, bank_name, bank_account_number, bank_ifsc, upi_id, is_primary, is_active, created_at }` — reads from `registry.company_bank_accounts`, NOT `pramaana.company_payment_accounts` (migration 036 created the latter, but the app evolved to use the richer registry table).
+
+---
+
+### `src/lib/allocations.ts`
+
+| Function | Signature | Tables | Operation |
+|---|---|---|---|
+| `fetchOpenBills` | `(companyId, entityId, billNature:'purchase'\|'sales') → OpenBill[]` | pramaana.vouchers, pramaana.voucher_types, pramaana.voucher_allocations | SELECT bills WHERE `status IN ['approved','completed','awaiting_payment','posted']`; calculate `outstanding = amount − SUM(already_allocated)`; filter out fully-settled bills (outstanding < 0.005). |
+| `saveAllocations` | `(companyId, entityId, paymentVoucherId, allocatedBy, rows) → void` | pramaana.voucher_allocations | INSERT rows. Called after voucher is created. |
+| `fetchAllocationsForPayment` | `(paymentVoucherId) → AllocationDetail[]` | pramaana.voucher_allocations, pramaana.vouchers | Returns which bills this payment settled, with bill amounts. |
+| `fetchAllocationsForBill` | `(billVoucherId) → BillPaymentDetail[]` | pramaana.voucher_allocations, pramaana.vouchers | Returns which payments were applied to this bill. |
+
+**`OpenBill` interface:** `{ id, voucher_number, voucher_date, amount, outstanding, narration, ref_document_number }`
+
+---
+
+### `src/lib/approvals.ts` |
 | `fetchPendingVouchers` | `(companyId) → PendingVoucher[]` | pramaana.vouchers, pramaana.voucher_types, registry.profiles, registry.entities | SELECT + batch cross-schema fetches |
 | `fetchVoucherFull` | `(voucherId) → VoucherFull` | pramaana.vouchers, pramaana.voucher_entries, pramaana.ledgers, pramaana.ledger_groups, pramaana.approval_actions, registry.profiles, registry.entities, pramaana.cost_centres | 3 parallel SELECTs, then 4 parallel lookups |
 | `approveVoucher` | `(voucherId, companyId, userId, comments, entityId) → ApproveVoucherResult` | pramaana.vouchers, pramaana.approval_actions, pramaana.otp_sessions, registry.entities | UPDATE `{status:'approved', posted_at, posted_by}` WHERE `status='pending_approval'`; INSERT approval_action `action='approved'`; calls `initiatePaymentOtp()` → OTP SMS sent to payee mobile. Returns `{approved, otp_sent, mobile_masked, otp_reason?}`. **Note:** transitions to `'approved'` NOT `'posted'` — DB balance trigger does NOT fire. |
@@ -1222,6 +1305,7 @@ These appear in all three routing branches (unauthenticated, authenticated-no-co
 | `/suspense` | `SuspenseRegister` via `SuspenseRegisterGuard` | Any authenticated (no role filter) |
 | `/suspense/new` | `SuspenseEntry` via `SuspenseEntryGuard` | admin, accounts, super_admin |
 | `/approvals` | `ApprovalQueue` via `ApprovalQueueGuard` | admin, accounts, auditor, super_admin |
+| `/payments` | `AwaitingPayments` via `AwaitingPaymentsGuard` | admin, accounts, super_admin |
 | `/inventory` | `Inventory` via `InventoryGuard` | admin, accounts, auditor, super_admin |
 | `/reports/day-book` | `DayBook` via `ReportGuard` | admin, accounts, auditor, super_admin |
 | `/reports/ledger` | `LedgerStatement` via `ReportGuard` | admin, accounts, auditor, super_admin |
@@ -1269,6 +1353,7 @@ registry.company_users.role  →  per-company role
 | /suspense (register) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | /suspense/new | ✅ | ✅ | ✅ | | | | |
 | /approvals | ✅ | ✅ | ✅ | ✅ | | | |
+| /payments | ✅ | ✅ | ✅ | | | | |
 | /inventory (view) | ✅ | ✅ | ✅ | ✅ | | | |
 | /inventory (set rate) | ✅ | ✅ | | | | | |
 | /reports/* | ✅ | ✅ | ✅ | ✅ | | | |
@@ -1345,8 +1430,8 @@ Full WhatsApp Business API via 2Factor: onboarding initiated 2026-06-12, credent
 | `src/lib/permissions.ts` absent | `src/lib/` | Low | Referenced as an existing file in RELISH_PLATFORM_MASTER.md §8.3 and §8.4. Not present in the directory. Permission checks are done inline in App.tsx route guards. |
 | `src/lib/whatsapp.ts` absent | `src/lib/` | Low | Referenced as an existing file in RELISH_PLATFORM_MASTER.md §8.3. Not present in the directory. WhatsApp link builder logic is not implemented as a separate module. |
 | `voucher_attachments` defined twice | Migrations 008 + 020 | Documentation | Migration 008 defines the table with `file_url TEXT NOT NULL` (no `storage_path`, no `is_deleted`). Migration 020 uses `CREATE TABLE IF NOT EXISTS` with the correct schema. If 008 ran first, 020's `CREATE TABLE IF NOT EXISTS` is a no-op — the old column set would remain. The app code uses `storage_path`, `is_deleted` etc. Likely the table was dropped manually between migrations, or 020 ran before 008. |
-| `posted` status is unreachable — ALL REPORTS EMPTY | `approvals.ts`, `src/lib/reports.ts` | **CRITICAL** | `approveVoucher` was changed to transition `pending_approval → approved` (NOT `posted`). `verifyPaymentOtp` then transitions `approved → completed`. No code path ever sets `status='posted'`. **Consequence 1:** `fn_validate_voucher_balance` trigger only fires on `→ posted` — Dr/Cr balance is **never validated** in the current flow. **Consequence 2:** All six report functions (DayBook, LedgerStatement, TrialBalance, OutstandingLedgers, GSTVouchers, CashFlow) filter `.eq('status','posted')` — all reports show empty data. Fix: change filter to `.in('status', ['approved','completed'])` or restructure final status. |
-| OTP/completion columns not in tracked migration | `pramaana.vouchers`, `src/lib/otp.ts` | High | `verifyPaymentOtp()` writes `otp_verified_at`, `otp_verified_by`, `completed_at`, `completed_by` to `pramaana.vouchers`. These columns do not appear in any migration file in `supabase/migrations/`. The write error is caught and not rethrown (`// Non-fatal`), so it fails silently if the columns don't exist. Verify in live DB: `SELECT column_name FROM information_schema.columns WHERE table_schema='pramaana' AND table_name='vouchers'`. |
+| `posted` status is unreachable — ALL REPORTS EMPTY | `approvals.ts`, `src/lib/reports.ts` | ✅ **RESOLVED 2026-07-03** | `markVoucherPaid()` in `pay-now.ts` now writes `status='posted'` as the terminal state. `reports.ts` was updated to filter `.in('status', ['approved','completed','awaiting_payment','posted'])` across all report functions. Balance trigger (`fn_validate_voucher_balance`) fires on the transition to `posted`. Reports are no longer empty. |
+| OTP/completion columns not in tracked migration | `pramaana.vouchers`, `src/lib/otp.ts` | ✅ **DOCUMENTATION ERROR — 2026-07-03** | The original note was wrong. `otp_verified_at`, `otp_verified_by`, `completed_at`, `completed_by`, `paid_at`, `paid_by` are all present in `025_fix_status_enums_and_payment_columns.sql` lines 118–123 as `ADD COLUMN IF NOT EXISTS`. `queued_at` and `queued_for_payment_by` are in `039_awaiting_payment_status.sql`. All columns have always been tracked. The gap entry itself was the error. |
 | Dashboard is a placeholder | `src/App.tsx` `Dashboard()` | Medium | No KPI cards. Returns a simple welcome message with company name and role. |
 | `VoucherEdit.tsx` not end-to-end tested | `src/pages/VoucherEdit.tsx` | Medium | Built, route added, but no confirmed test of save path with a real draft voucher. |
 | Financial reports not built | Phase 3 | ✅ BUILT 2026-06-19 | All core + extended reports now built — see Section 3.2 routes. |
@@ -1471,6 +1556,64 @@ Trigger: `trg_audit_vouchers AFTER INSERT OR UPDATE OR DELETE ON pramaana.vouche
 
 ---
 
+**`pramaana.prevent_posted_voucher_update()`**
+Source: `044_posted_voucher_immutability.sql`
+```sql
+CREATE OR REPLACE FUNCTION pramaana.prevent_posted_voucher_update()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.status = 'posted' THEN
+    RAISE EXCEPTION 'Voucher % is posted and cannot be modified. '
+      'Create a reversing Journal voucher to correct it.', OLD.voucher_number
+      USING ERRCODE = 'raise_exception';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+```
+Trigger: `trg_prevent_posted_voucher_update BEFORE UPDATE ON pramaana.vouchers FOR EACH ROW`
+
+Belt-and-suspenders alongside `fn_prevent_posted_edit` (which covers UPDATE OR DELETE on both `posted` AND `cancelled`). This narrower trigger covers only the `UPDATE + posted` case with a more descriptive error message directing to the reversal pattern.
+
+---
+
+**`pramaana.prevent_posted_entry_mutation()`**
+Source: `044_posted_voucher_immutability.sql`
+```sql
+CREATE OR REPLACE FUNCTION pramaana.prevent_posted_entry_mutation()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  v_voucher_status TEXT;
+  v_voucher_number TEXT;
+  v_voucher_id     UUID;
+BEGIN
+  IF TG_OP = 'DELETE' THEN v_voucher_id := OLD.voucher_id;
+  ELSE                      v_voucher_id := NEW.voucher_id;
+  END IF;
+
+  SELECT status, voucher_number INTO v_voucher_status, v_voucher_number
+  FROM   pramaana.vouchers WHERE id = v_voucher_id;
+
+  IF v_voucher_status = 'posted' THEN
+    RAISE EXCEPTION 'Cannot modify entries of posted voucher %. '
+      'Create a reversing Journal voucher to correct it.', v_voucher_number
+      USING ERRCODE = 'raise_exception';
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$;
+```
+Triggers:
+- `trg_prevent_posted_entry_insert BEFORE INSERT ON pramaana.voucher_entries FOR EACH ROW`
+- `trg_prevent_posted_entry_update BEFORE UPDATE ON pramaana.voucher_entries FOR EACH ROW`
+- `trg_prevent_posted_entry_delete BEFORE DELETE ON pramaana.voucher_entries FOR EACH ROW`
+
+This is the primary new protection from migration 044 — `fn_prevent_posted_edit` covers the vouchers row but not its entries. This closes the gap where a crafty UPDATE to `voucher_entries` could silently alter the accounting record of a posted voucher.
+
+---
+
 ### 7.2 Voucher State Machine
 
 **Standard voucher states** (from `vouchers.status` CHECK constraint in migration 008):
@@ -1488,21 +1631,27 @@ Trigger: `trg_audit_vouchers AFTER INSERT OR UPDATE OR DELETE ON pramaana.vouche
 | `pending_approval` → `draft` | `rejectVoucher()` | `approvals.ts` | No status guard on UPDATE (relies on `fn_prevent_posted_edit`) |
 | `pending_approval` → `approved` | `approveVoucher()` | `approvals.ts` | `.eq('status','pending_approval')` guard; OTP initiated via `initiatePaymentOtp()`; **DB balance trigger NOT fired** (trigger only fires on → `'posted'`) |
 | `approved` → `completed` | `verifyPaymentOtp()` | `otp.ts` | `.eq('status','approved')` guard; OTP bcrypt-verified via `/api/otp`; writes `otp_verified_at`, `otp_verified_by`, `completed_at`, `completed_by` |
+| `completed` → `awaiting_payment` | `queueForPayment()` | `pay-now.ts` | `.eq('status','completed')` guard; writes `queued_at`, `queued_for_payment_by` |
+| `awaiting_payment` → `completed` | `dequeuePayment()` | `pay-now.ts` | `.eq('status','awaiting_payment')` guard; clears `queued_at`, `queued_for_payment_by` |
+| `completed` or `awaiting_payment` → `posted` | `markVoucherPaid()` | `pay-now.ts` | `.in('status',['completed','awaiting_payment'])` guard; writes `paid_at`, `paid_by`, `paid_from_account`; DB balance trigger fires |
 | `draft` → (deleted) | `deleteVoucher()` | `vouchers-list.ts` | `.eq('status','draft')` guard on DELETE |
 | any editable → (edit) | `updateDraftVoucher()` | `vouchers.ts` | DB trigger raises EXCEPTION if `OLD.status IN ('posted','cancelled')` |
 
-**`approved` state**: Written by `approveVoucher()` (`pending_approval → approved`). This is an intermediate OTP-pending state — the payment has been admin-approved but the payee has not yet confirmed via OTP.
+**`approved` state**: Written by `approveVoucher()` (`pending_approval → approved`). Intermediate OTP-pending state — admin-approved, payee has not yet confirmed via OTP.
 
-**`completed` state**: Written by `verifyPaymentOtp()` (`approved → completed`). Terminal state for a successfully OTP-verified payment voucher.
+**`completed` state**: Written by `verifyPaymentOtp()` (`approved → completed`). OTP verified. Payment is now authorised and can be initiated.
 
-**`posted` state is NEVER written** by any current code path. The DB trigger `fn_validate_voucher_balance` fires only on the `→ posted` transition — meaning Dr=Cr balance is **never validated** in the current flow. All six report functions filter `.eq('status','posted')` and return empty data.
+**`awaiting_payment` state**: Written by `queueForPayment()` (`completed → awaiting_payment`). Voucher is on the Payments queue (`/payments`). Can be dequeued back to `completed` via `dequeuePayment()`.
+
+**`posted` state**: Written by `markVoucherPaid()` (`completed` or `awaiting_payment` → `posted`). Terminal financial state. All report functions include `posted` in their status filter. DB trigger `fn_validate_voucher_balance` fires on this transition — rejects if Dr ≠ Cr. **Immutable** once set (triggers `fn_prevent_posted_edit` and `prevent_posted_voucher_update` + `prevent_posted_entry_mutation` from migration 044).
 
 **Reversibility:**
 - `draft` → deletable, editable, submittable
 - `pending_approval` → recallable to `draft`; rejectable to `draft`; approvable to `approved`
-- `approved` → advances to `completed` via OTP verification. `fn_prevent_posted_edit` does NOT block UPDATE on `approved` rows (only blocks `posted` and `cancelled`).
-- `completed` → `fn_prevent_posted_edit` does NOT block UPDATE on `completed` rows. No code modifies completed vouchers, but no DB-level immutability either.
-- `posted` → **IMMUTABLE** (DB trigger). **Never reached in current approval flow.**
+- `approved` → advances to `completed` via OTP. Not blocked by `fn_prevent_posted_edit` (only covers `posted`/`cancelled`).
+- `completed` → can be queued (`awaiting_payment`) or paid directly (`posted`).
+- `awaiting_payment` → can be dequeued back to `completed`; or paid (`posted`).
+- `posted` → **IMMUTABLE** (two DB triggers). Corrections only via a reversing Journal voucher — see §4.1 of VOUCHER_WORKFLOW.md.
 - `cancelled` → **IMMUTABLE**. DB trigger blocks all UPDATE and DELETE.
 
 ---

@@ -401,7 +401,7 @@ Scans uploaded via `/invoices/scan` are stored in `pramaana.invoice_scans` with 
 | `approved` | **Awaiting OTP** | Admin approved. OTP generated & sent to payee's mobile. Awaiting verbal OTP confirmation. |
 | `completed` | **OTP Verified** | OTP confirmed. Payment can now be initiated. |
 | `awaiting_payment` | **Awaiting Payment** | Queued on the Payments page. Payment in progress. |
-| `posted` | **Posted** | Payment recorded. Final state. Included in all financial reports. |
+| `posted` | **Posted** | Payment recorded. Final state. Included in all financial reports. **Immutable** — see §4.1. |
 | `cancelled` | **Cancelled** | Manually cancelled (reserved; not used in the standard flow). |
 
 ---
@@ -463,7 +463,51 @@ Scans uploaded via `/invoices/scan` are stored in `pramaana.invoice_scans` with 
 | `approved` | — | — | Enter OTP, Resend OTP |
 | `completed` | — | Queue for Payment | Queue for Payment, Pay Now |
 | `awaiting_payment` | — | Dequeue, Pay Now (bank modes) | Dequeue, Pay Now |
-| `posted` | View only | View only | View only |
+| `posted` | View only | View only | View only — **DB trigger blocks any edit** |
+
+---
+
+### 4.1 Posted Voucher Immutability & Reversal
+
+**`posted` is a terminal, immutable state.**
+
+Migration `044_posted_voucher_immutability.sql` adds two Postgres `BEFORE` triggers:
+
+| Trigger | Table | What it blocks |
+|---|---|---|
+| `trg_prevent_posted_voucher_update` | `pramaana.vouchers` | Any `UPDATE` where the row is already `posted` |
+| `trg_prevent_posted_entry_insert/update/delete` | `pramaana.voucher_entries` | Any `INSERT`, `UPDATE`, or `DELETE` on entries whose parent voucher is `posted` |
+
+The transition **to** `posted` (i.e. the `markVoucherPaid()` write where `OLD.status = 'awaiting_payment'`) is explicitly allowed.
+
+#### Reversal Pattern
+
+To correct a posted voucher, **create a new Journal voucher** with exactly reversed amounts — every `Dr` becomes `Cr` and vice versa. Reference the original voucher number in both the narration and the `ref_document_number` field.
+
+**Example — reversing a mis-posted payment:**
+
+Original posted voucher `RHHF/PYMT/2627/0042`:
+
+| # | Ledger | Dr | Cr |
+|---|---|---|---|
+| 1 | Freight Charges | 15,000 | — |
+| 2 | Canara Bank | — | 15,000 |
+
+**Step 1 — Reversing Journal** (new voucher, ref: `RHHF/PYMT/2627/0042`):
+
+| # | Ledger | Dr | Cr |
+|---|---|---|---|
+| 1 | Canara Bank | 15,000 | — |
+| 2 | Freight Charges | — | 15,000 |
+
+**Step 2 — Correcting entry** (if needed — e.g. correct ledger or amount):
+
+| # | Ledger | Dr | Cr |
+|---|---|---|---|
+| 1 | Correct Expense | 15,000 | — |
+| 2 | Canara Bank | — | 15,000 |
+
+The original + reversing vouchers net to zero in all reports. The correct entry stands alone. GST filing integrity is maintained because filed-period data is never touched.
 
 ---
 
@@ -826,4 +870,74 @@ Called **after** the voucher is saved (requires a real `voucher_id`).
 | `supabase/migrations/039_awaiting_payment_status.sql` | `awaiting_payment` status enum value |
 | `supabase/migrations/040_bill_allocations.sql` | `pramaana.voucher_allocations` table |
 | `supabase/migrations/041_create_linked_vouchers.sql` | `pramaana.create_linked_vouchers()` RPC — atomic Purchase+Payment creation |
+| `supabase/migrations/044_posted_voucher_immutability.sql` | Triggers preventing edits to posted vouchers and their entries |
 | `supabase/migrations/20260625000000_invoice_scan_module.sql` | Invoice scan schema (scan sessions, OCR results) |
+
+---
+
+## 13. Known Gaps & Engineering Notes
+
+### 13.1 Voucher Sequence Generation — Atomicity Status
+
+**Voucher number format:** `{COMPANY_CODE}/{TYPE_PREFIX}/{FY_YEAR}/{SEQ:04d}`  
+**Sequence source:** `registry.next_fy_sequence()` Postgres RPC.
+
+**Two invocation paths exist:**
+
+| Path | Invocation | Atomic? |
+|---|---|---|
+| Single-voucher submit (`submitVoucher()` in `vouchers.ts`) | Client calls `next_fy_sequence` RPC, then inserts voucher — **two separate round-trips** | ❌ Not atomic at app level |
+| Linked-voucher creation (`create_linked_vouchers()` RPC) | Both sequence calls and all inserts happen inside a single PL/pgSQL function body | ✅ Atomic |
+
+**Race condition risk on the single-voucher path:**
+
+The risk depends on how `registry.next_fy_sequence` is implemented:
+
+- **If it uses a Postgres `SEQUENCE` object (`NEXTVAL`):** Each concurrent call gets a guaranteed-unique value. Two simultaneous submits cannot get the same number. Gaps on rollback are acceptable per standard accounting practice. ✅ Safe.
+- **If it uses `SELECT MAX(seq_num) + 1`:** Two concurrent submits can read the same max and produce a duplicate number. ❌ Not safe — must be replaced with `SELECT ... FOR UPDATE` on the counter row, or migrated to a real Postgres `SEQUENCE`.
+
+**Action:** Confirm which implementation `registry.next_fy_sequence` uses. The `041_create_linked_vouchers.sql` comment describes it as a "non-transactional counter" which is consistent with a Postgres `SEQUENCE` (sequences are non-transactional by design). If it is `MAX+1`, file a bug and fix before go-live.
+
+**Gap behaviour:** Gaps in voucher numbering are normal — they occur when a draft with an assigned number is recalled and deleted, or when a transaction rolls back after a sequence call. This is acceptable under accounting convention; auditors accept gaps with explanation.
+
+---
+
+### 13.2 Multi-Currency / FX — Not Yet Modelled
+
+The current schema has **no `currency` or `exchange_rate` column** anywhere in `pramaana.vouchers`, `pramaana.voucher_entries`, or `registry.entities`.
+
+All amounts are implicitly INR.
+
+**If RFPL ever invoices in USD or another foreign currency** (e.g. for cocopeat exports), the following schema additions will be needed before any FX transaction is entered:
+
+| Column | Table | Notes |
+|---|---|---|
+| `currency` | `pramaana.vouchers` | ISO 4217 code, default `'INR'` |
+| `exchange_rate` | `pramaana.vouchers` | INR per 1 unit of foreign currency at transaction date |
+| `foreign_amount` | `pramaana.voucher_entries` | Amount in original currency; `amount` column remains INR equivalent |
+
+GST reporting always requires INR values (converted at the RBI reference rate on the invoice date), so the `amount` column in `voucher_entries` must remain in INR regardless.
+
+**This is a breaking schema change** — all existing report queries assume INR throughout. Do not bolt this on as an afterthought. If export invoicing in USD is likely before the next financial year, model it now while the schema is still young.
+
+**Immediate action required:** Confirm with RFPL management whether any FY 26-27 invoices will be in a foreign currency. If yes, add the columns above before Tally cutover on July 31.
+
+---
+
+### 13.3 July 31 Tally Cutover — Priority Classification
+
+| Component | Must be correct on day one? | Risk if rough |
+|---|---|---|
+| **Double-entry balance enforcement** (Dr = Cr guard in `create_linked_vouchers` + client-side) | ✅ **Day-one critical** | Silent Trial Balance mis-tie discovered weeks later |
+| **GST ledger routing** (Payable vs Input Credit, CGST/SGST/IGST split) | ✅ **Day-one critical** | Wrong GST return figures for July filing |
+| **Posted voucher immutability** (`044` trigger) | ✅ **Day-one critical** | Filed-period data can be edited retroactively |
+| **OTP flow** (SMS delivery, 10-min expiry, 3-attempt lock) | ✅ **Day-one critical** | Payment authorisation can be bypassed |
+| **Sequence uniqueness** (confirm `NEXTVAL` not `MAX+1`) | ✅ **Day-one critical** | Duplicate voucher numbers break audit trail |
+| **Bill allocations** (BillAllocPanel, voucher_allocations) | ✅ **Day-one critical** for Receivables/Payables accuracy | Outstanding balances wrong from first month |
+| **Atomic linked-voucher creation** (`create_linked_vouchers`) | ✅ **Day-one critical** | Partial state: Purchase created, Payment not (or vice versa) |
+| **Combined approval UX** (approver sees both linked vouchers) | ⚠️ **Important but can ship rough** | Approver confusion; workaround via two separate approvals |
+| **OCR invoice scan prefill** (GPT-4o, confidence badges) | ⚠️ **Nice to have** | Entry staff type manually — slower but not incorrect |
+| **Scan Inbox flow** (upload → inbox → create voucher) | ⚠️ **Nice to have** | Inline modal covers the use case |
+| **Net Banking / Bank App deep links** | ⚠️ **Nice to have** | Accounts staff open banking app manually |
+| **QR Relay cross-device flow** | ⚠️ **Nice to have** | Standard UPI QR on same device covers most cases |
+| **Multi-currency / FX columns** | ❌ **Not needed July 31** unless FX invoices exist | See §13.2 — plan before FX transaction occurs |

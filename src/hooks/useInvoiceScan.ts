@@ -289,29 +289,61 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       const ocr: OcrResult = await ocrRes.json()
       const initialForm = ocrToForm(ocr, companyGstin, companyName)
 
-      // ── GSTIN entity lookup ────────────────────────────────────────────
-      // After OCR, try to match the counter-party GSTIN against registry.entities.
-      // For a purchase invoice WE are the recipient → supplier is the counter-party.
-      // For a sales invoice WE are the supplier → recipient is the counter-party.
-      const counterGstin = (initialForm.voucherType === 'sales'
+      // ── Entity lookup: GSTIN first, name fallback ─────────────────────
+      // OCR frequently misreads GSTINs (transposed characters, I/1 confusion,
+      // O/0 confusion). Strategy:
+      //   1. Try exact GSTIN match against registry.entities
+      //   2. If GSTIN match fails, search by party_name (ilike)
+      //   3. If name match is found, use the entity's STORED GSTIN (not the
+      //      OCR-misread one) so GST reports are always correct
+      const counterGstin  = (initialForm.voucherType === 'sales'
         ? initialForm.recipientGstin
         : initialForm.supplierGstin
       ).replace(/\s/g, '').toUpperCase()
 
+      const counterName = initialForm.voucherType === 'sales'
+        ? initialForm.recipientName
+        : initialForm.supplierName
+
       let resolvedForm = initialForm
+
+      // Step 1: GSTIN lookup
+      let matchedEntity: { id: string; display_name: string; gstin: string | null } | null = null
       if (counterGstin && GSTIN_RE.test(counterGstin)) {
-        const { data: matched } = await supabase
+        const { data } = await supabase
           .schema('registry')
           .from('entities')
-          .select('id, display_name')
+          .select('id, display_name, gstin')
           .ilike('gstin', counterGstin)
           .maybeSingle()
-        if (matched) {
-          resolvedForm = {
-            ...initialForm,
-            entityId:             matched.id,
-            counterPartyVerified: true,
-          }
+        matchedEntity = data as typeof matchedEntity
+      }
+
+      // Step 2: Name fallback when GSTIN didn't match (OCR misread)
+      if (!matchedEntity && counterName && counterName.trim().length > 3) {
+        const searchTerm = counterName.trim().replace(/pvt\.?\s*ltd\.?/i, '').trim()
+        const { data } = await supabase
+          .schema('registry')
+          .from('entities')
+          .select('id, display_name, gstin')
+          .ilike('display_name', `%${searchTerm}%`)
+          .limit(1)
+          .maybeSingle()
+        matchedEntity = data as typeof matchedEntity
+      }
+
+      if (matchedEntity) {
+        // Use the registry GSTIN (authoritative) rather than the OCR-extracted one.
+        // This corrects misreads automatically and ensures GSTR-1 uses valid GSTINs.
+        const correctedGstin = matchedEntity.gstin ?? counterGstin
+        const isSales = initialForm.voucherType === 'sales'
+        resolvedForm = {
+          ...initialForm,
+          entityId:             matchedEntity.id,
+          counterPartyVerified: true,
+          // Overwrite the OCR-extracted GSTIN with the registry value
+          recipientGstin: isSales  ? correctedGstin : initialForm.recipientGstin,
+          supplierGstin:  !isSales ? correctedGstin : initialForm.supplierGstin,
         }
       }
 

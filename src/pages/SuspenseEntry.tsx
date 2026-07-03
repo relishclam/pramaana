@@ -12,6 +12,7 @@ import {
 import { createSuspenseVoucher } from '@/lib/suspense'
 import { supabase } from '@/lib/supabase'
 import FoodStreamLoader from '@/components/FoodStreamLoader'
+import styles from './SuspenseEntry.module.css'
 
 interface EntityResult { id: string; display_name: string }
 

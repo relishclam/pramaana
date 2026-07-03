@@ -15,6 +15,7 @@ import {
 } from '@/lib/vouchers'
 import { supabase } from '@/lib/supabase'
 import FoodStreamLoader from '@/components/FoodStreamLoader'
+import styles from './VoucherEntry.module.css'
 
 // ── Constants (same as VoucherEntry) ─────────────────────────────────────────
 

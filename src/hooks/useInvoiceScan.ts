@@ -308,7 +308,8 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       let resolvedForm = initialForm
 
       // Step 1: GSTIN lookup
-      let matchedEntity: { id: string; display_name: string; gstin: string | null } | null = null
+      type MatchedEntity = { id: string; display_name: string; gstin: string | null }
+      let matchedEntity: MatchedEntity | null = null
       if (counterGstin && GSTIN_RE.test(counterGstin)) {
         const { data } = await supabase
           .schema('registry')
@@ -316,7 +317,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
           .select('id, display_name, gstin')
           .ilike('gstin', counterGstin)
           .maybeSingle()
-        matchedEntity = data as typeof matchedEntity
+        matchedEntity = data as MatchedEntity | null
       }
 
       // Step 2: Name fallback when GSTIN didn't match (OCR misread)
@@ -329,7 +330,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
           .ilike('display_name', `%${searchTerm}%`)
           .limit(1)
           .maybeSingle()
-        matchedEntity = data as typeof matchedEntity
+        matchedEntity = data as MatchedEntity | null
       }
 
       if (matchedEntity) {

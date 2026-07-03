@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Lock, AlertTriangle, Plus, Pencil, ChevronDown,
-  ChevronRight, Search, X, Check, Loader2,
+  ChevronRight, Search, X, Check, Loader2, Clock,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
@@ -23,6 +23,7 @@ interface LedgerGroup {
   is_system: boolean
   sort_order: number
   is_active: boolean
+  is_pending_review?: boolean
 }
 
 interface Ledger {
@@ -44,6 +45,7 @@ interface Ledger {
   tax_type: string | null
   tax_rate: number | null
   is_active: boolean
+  is_pending_review?: boolean
   group: { id: string; name: string; nature: string } | null
 }
 
@@ -68,6 +70,22 @@ function canWrite(
   role: string | null,
 ): boolean {
   return isSuper || role === 'admin'
+}
+
+// accounts role can propose new ledgers/groups (created with is_pending_review=true)
+function canCreate(
+  isSuper: boolean,
+  role: string | null,
+): boolean {
+  return isSuper || role === 'admin' || role === 'accounts'
+}
+
+// true when the user's creations require admin review
+function needsReview(
+  isSuper: boolean,
+  role: string | null,
+): boolean {
+  return !isSuper && role === 'accounts'
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -107,10 +125,11 @@ export default function Ledgers() {
 function LedgerGroupsTab() {
   const { user } = useAuth()
   const activeCompanyId = user?.activeCompany?.id ?? null
-  const writable = canWrite(
-    user?.profile.is_super_admin ?? false,
-    user?.activeRole ?? null,
-  )
+  const isSuper  = user?.profile.is_super_admin ?? false
+  const role     = user?.activeRole ?? null
+  const writable = canWrite(isSuper, role)
+  const creatable = canCreate(isSuper, role)
+  const reviewMode = needsReview(isSuper, role)
 
   const [groups,  setGroups]  = useState<LedgerGroup[]>([])
   const [loading, setLoading] = useState(true)
@@ -228,7 +247,7 @@ function LedgerGroupsTab() {
       {/* Toolbar */}
       <div className={styles.toolbar}>
         <span className={styles.toolbarTitle}>Chart of Accounts Hierarchy</span>
-        {writable && (
+        {creatable && (
           <button className={styles.btnPrimary} onClick={openCreate}>
             <Plus size={15} /> New Group
           </button>
@@ -250,6 +269,7 @@ function LedgerGroupsTab() {
           groups={groups}
           editTarget={editTarget}
           activeCompanyId={activeCompanyId}
+          isReviewMode={reviewMode && !editTarget}
           onClose={() => setShowForm(false)}
           onSaved={fetchGroups}
         />
@@ -264,11 +284,12 @@ interface GroupFormProps {
   groups: LedgerGroup[]
   editTarget: LedgerGroup | null
   activeCompanyId: string | null
+  isReviewMode: boolean
   onClose: () => void
   onSaved: () => void
 }
 
-function GroupForm({ groups, editTarget, activeCompanyId, onClose, onSaved }: GroupFormProps) {
+function GroupForm({ groups, editTarget, activeCompanyId, isReviewMode, onClose, onSaved }: GroupFormProps) {
   const [name,     setName]     = useState(editTarget?.name ?? '')
   const [parentId, setParentId] = useState(editTarget?.parent_id ?? '')
   const [nature,   setNature]   = useState<Nature>(editTarget?.nature ?? 'ASSET')
@@ -295,8 +316,8 @@ function GroupForm({ groups, editTarget, activeCompanyId, onClose, onSaved }: Gr
       name:       name.trim(),
       parent_id:  parentId || null,
       nature,
-      // code: derive from name — uppercase + underscores
       code: name.trim().toUpperCase().replace(/\s+/g, '_').slice(0, 30),
+      ...(isReviewMode && !editTarget ? { is_pending_review: true } : {}),
     }
 
     const { error } = editTarget
@@ -306,7 +327,11 @@ function GroupForm({ groups, editTarget, activeCompanyId, onClose, onSaved }: Gr
     if (error) {
       toast.error(error.message)
     } else {
-      toast.success(editTarget ? 'Group updated' : 'Group created')
+      toast.success(
+        editTarget ? 'Group updated' :
+        isReviewMode ? 'Ledger group submitted for approval' :
+        'Group created'
+      )
       onSaved()
       onClose()
     }
@@ -318,7 +343,7 @@ function GroupForm({ groups, editTarget, activeCompanyId, onClose, onSaved }: Gr
       <div className={styles.drawer}>
         <div className={styles.drawerHeader}>
           <h2 className={styles.drawerTitle}>
-            {editTarget ? 'Edit Ledger Group' : 'New Ledger Group'}
+            {editTarget ? 'Edit Ledger Group' : isReviewMode ? 'Propose New Ledger Group' : 'New Ledger Group'}
           </h2>
           <button className={styles.drawerClose} onClick={onClose}><X size={18} /></button>
         </div>
@@ -375,7 +400,7 @@ function GroupForm({ groups, editTarget, activeCompanyId, onClose, onSaved }: Gr
             </button>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>
               {saving ? <Loader2 size={15} className={styles.spin} /> : <Check size={15} />}
-              {editTarget ? 'Save Changes' : 'Create Group'}
+              {editTarget ? 'Save Changes' : isReviewMode ? 'Submit for Approval' : 'Create Group'}
             </button>
           </div>
         </form>
@@ -391,10 +416,11 @@ function GroupForm({ groups, editTarget, activeCompanyId, onClose, onSaved }: Gr
 function LedgersTab() {
   const { user } = useAuth()
   const activeCompanyId = user?.activeCompany?.id ?? null
-  const writable = canWrite(
-    user?.profile.is_super_admin ?? false,
-    user?.activeRole ?? null,
-  )
+  const isSuper  = user?.profile.is_super_admin ?? false
+  const role     = user?.activeRole ?? null
+  const writable  = canWrite(isSuper, role)
+  const creatable = canCreate(isSuper, role)
+  const reviewMode = needsReview(isSuper, role)
 
   const [ledgers,    setLedgers]    = useState<Ledger[]>([])
   const [groups,     setGroups]     = useState<LedgerGroup[]>([])
@@ -444,6 +470,14 @@ function LedgersTab() {
   const openCreate = () => { setEditTarget(null); setShowForm(true) }
   const openEdit   = (l: Ledger) => { setEditTarget(l); setShowForm(true) }
 
+  const approveLedger = async (id: string) => {
+    const { error } = await supabase
+      .schema('pramaana').from('ledgers')
+      .update({ is_pending_review: false }).eq('id', id)
+    if (error) toast.error('Approval failed: ' + error.message)
+    else { toast.success('Ledger approved'); fetchData() }
+  }
+
   return (
     <div>
       {/* Toolbar */}
@@ -462,7 +496,7 @@ function LedgersTab() {
             </button>
           )}
         </div>
-        {writable && (
+        {creatable && (
           <button className={styles.btnPrimary} onClick={openCreate}>
             <Plus size={15} /> New Ledger
           </button>
@@ -538,6 +572,7 @@ function LedgersTab() {
           editTarget={editTarget}
           activeCompanyId={activeCompanyId}
           userId={user?.id ?? null}
+          isReviewMode={reviewMode && !editTarget}
           onClose={() => setShowForm(false)}
           onSaved={fetchData}
         />
@@ -553,11 +588,12 @@ interface LedgerFormProps {
   editTarget: Ledger | null
   activeCompanyId: string | null
   userId: string | null
+  isReviewMode: boolean
   onClose: () => void
   onSaved: () => void
 }
 
-function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSaved }: LedgerFormProps) {
+function LedgerForm({ groups, editTarget, activeCompanyId, userId, isReviewMode, onClose, onSaved }: LedgerFormProps) {
   const [name,          setName]          = useState(editTarget?.name ?? '')
   const [groupId,       setGroupId]       = useState(editTarget?.group_id ?? '')
   const [tallyName,     setTallyName]     = useState(editTarget?.tally_ledger_name ?? '')
@@ -663,6 +699,7 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSa
       tax_type:           isTaxLedger ? taxType || null : null,
       tax_rate:           isTaxLedger && taxRate ? parseFloat(taxRate) : null,
       ...(!editTarget ? { created_by: userId } : {}),
+      ...(isReviewMode && !editTarget ? { is_pending_review: true } : {}),
     }
 
     const { error } = editTarget
@@ -672,20 +709,24 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, onClose, onSa
     if (error) {
       toast.error(error.message)
     } else {
-      toast.success(editTarget ? 'Ledger updated' : 'Ledger created')
+      toast.success(
+        editTarget ? 'Ledger updated' :
+        isReviewMode ? 'Ledger submitted for approval' :
+        'Ledger created'
+      )
       onSaved()
       onClose()
     }
     setSaving(false)
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────
   return (
     <div className={styles.overlay}>
       <div className={styles.drawer}>
         <div className={styles.drawerHeader}>
           <h2 className={styles.drawerTitle}>
-            {editTarget ? 'Edit Ledger' : 'New Ledger'}
+            {editTarget ? 'Edit Ledger' : isReviewMode ? 'Propose New Ledger' : 'New Ledger'}
           </h2>
           <button className={styles.drawerClose} onClick={onClose}><X size={18} /></button>
         </div>

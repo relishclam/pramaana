@@ -1,7 +1,7 @@
 # Pramaana — Voucher Lifecycle & Pay Now Workflow
 
 > Single source of truth for voucher states, transitions, roles, and the full Pay Now / UPI payment flow.
-> Last updated: 2026-07-02
+> Last updated: 2026-07-03
 
 ---
 
@@ -10,14 +10,22 @@
 Every voucher belongs to a **Voucher Type** which defines its accounting nature.  
 These are two entirely separate dimensions from the workflow status below.
 
-| Nature | Description | Party Required | Payment Mode Required |
-|---|---|---|---|
-| `payment` | Outward payment to a vendor / payee | ✅ | ✅ |
-| `receipt` | Inward receipt from a customer | ✅ | ✅ |
-| `journal` | General journal adjustment | ❌ | ❌ |
-| `contra` | Cash ↔ Bank transfer | ❌ | ✅ |
-| `purchase` | Purchase entry | ❌ | ❌ |
-| `sales` | Sales entry | ❌ | ❌ |
+| Nature | Description | Entity Field | Entity Required | Payment Mode |
+|---|---|---|---|---|
+| `payment` | Outward payment to a vendor / payee | Payee / Beneficiary | ✅ mandatory | ✅ required |
+| `receipt` | Inward receipt from a customer | Received From | ✅ mandatory | ✅ required |
+| `purchase` | Purchase / liability entry | Vendor / Supplier | ⚠️ optional\* | optional |
+| `sales` | Sales / receivable entry | Customer / Billed To | ⚠️ optional\* | optional |
+| `journal` | General journal adjustment | — | ❌ | ❌ |
+| `contra` | Cash ↔ Bank transfer | — | ❌ | ✅ required |
+
+\* Optional for purchase/sales — but **needed for bill tracking** (bill allocation, Receivables/Payables reports, and the "New Invoice — enter it now" flow all depend on entity being set).
+
+**Entity role filter by nature** (entity search in UI):
+- `payment` → Vendor, Supplier, Staff, Management, Contractor, Government, Auditor, Fisher
+- `receipt` → Customer, Vendor, Supplier (vendors can issue refunds)
+- `sales` → Customer, Client
+- `purchase` → Vendor, Supplier
 
 **Voucher Number Format:** `{COMPANY_CODE}/{TYPE_PREFIX}/{FY_YEAR}/{SEQ:04d}`  
 Example: `RHHF/PYMT/2627/0005`  
@@ -25,7 +33,137 @@ The sequence number is generated at submission time (not on draft save).
 
 ---
 
-## 2. Voucher Workflow States
+## 2. Voucher Creation Paths
+
+Three distinct paths lead to a submitted voucher. All paths end at `pending_approval`.
+
+---
+
+### 2.1 Path A — Simplified Conversational Form (Payment & Receipt)
+
+**Rendered when:** active type = `payment` or `receipt`  
+**Component:** `src/pages/SimplifiedPaymentEntry.tsx`
+
+The form reveals steps sequentially as each is completed.
+
+```
+Step 1 — Who?
+  Entity search (role-filtered: payment→vendors/staff; receipt→customers)
+  or [ Skip — no party ]
+
+  ↓ Entity selected → load open bills / sales invoices for that entity
+
+Bill Step — Is there an invoice? (shown between Step 1 and 2)
+┌──────────────────────────────────────────────────────────────────┐
+│  Open bills / sales invoices found:                              │
+│    [ Allocate against existing bill ]  ← BillAllocPanel         │
+│  No bills, or user dismisses:                                    │
+│    [ 📄 New invoice — enter it now ]   ← creates Purchase+Pay   │
+│    [ 📋 Direct expense / income ]      ← hits P&L immediately   │
+│    [ ⏳ Advance payment / received ]   ← Balance Sheet until settled │
+└──────────────────────────────────────────────────────────────────┘
+
+Step 2 — How much? (total amount)
+Step 3 — What for? (income / expense ledger lines, must balance to total)
+Step 4 — Which account? (company bank / cash account)
+Step 5 — Payment mode (only shown for bank accounts)
+Step 6 — Reference / narration (optional)
+Step 7 — Attachments (invoices, transfer receipts, PDFs)
+Step 8 — Submit → status = pending_approval
+```
+
+**"New invoice — enter it now" sub-path:**  
+Calls `pramaana.create_linked_vouchers()` Postgres RPC atomically:
+1. Purchase/Sales voucher (`pending_approval`) — liability / receivable
+2. Payment/Receipt voucher (`pending_approval`) — cash movement
+3. `voucher_allocation` row linking the two  
+
+Entity's creditor/debtor ledger (found via `ledgers.entity_id`) is the intermediary account. The approver sees both vouchers on a combined approval screen — one OTP, one decision.
+
+---
+
+### 2.2 Path B — Full Double-Entry Form (Purchase, Sales, Journal, Contra)
+
+**Rendered when:** active type = `purchase`, `sales`, `journal`, or `contra`  
+**Component:** `src/pages/VoucherEntry.tsx` (two-column layout)
+
+```
+Left column:                       Right column:
+  Ref document number                ACCOUNTING ENTRIES
+  Entity field (purchase/sales)      ⚡ GST Quick-Add panel
+  Payment mode (optional)              Taxable amount
+  Bank ledger (if bank mode)           GST Rate (5/12/18/28/custom)
+  Cost centre (optional)               Supply type (intra/inter)
+  Narration                            [ + Add GST Entry Rows ]
+  Attachments                        Entry rows (ledger, Dr/Cr, amount, narration)
+                                     Dr Total / Cr Total / Difference
+  [ Save as Draft ]  [ Submit ]
+```
+
+**GST Quick-Add** (`sales` and `purchase` only): user enters taxable amount + rate + supply type → button appends CGST+SGST or IGST rows with pre-tagged ledger IDs. Tax ledgers must be tagged `is_tax_ledger = true` with correct `tax_type` in Ledgers → GST/Tax Ledger.
+
+**Intra vs inter-state detection:** auto-detected when both party GSTIN and company GSTIN are present (first two digits = state code).
+
+---
+
+### 2.3 Path C — Scan Invoice (GPT-4o Vision OCR)
+
+**Entry points:**  
+- **Inline button:** "Scan Invoice" on the New Voucher page → `InvoiceScanModal`  
+- **Scan Inbox:** `/invoices/scan` upload → `/invoices/inbox` → Scan Detail → "Create Voucher"
+
+#### Inline modal flow (primary)
+
+```
+Step 1 — Upload
+  Drop / browse: PDF, JPG, PNG (max 5 MB)
+  PDFs: page 1 rendered to JPEG at 2× scale before OCR
+
+Step 2 — Processing (GPT-4o via /api/ocr-edge)
+  Extracts: invoice_no, invoice_date, supplier_name, supplier_gstin,
+            recipient_name, recipient_gstin, line items (description, HSN,
+            qty, rate, amount), taxable_value, cgst, sgst, igst, total_gst,
+            total_amount, gst_type (intra/inter), confidence %
+
+Step 3 — Review
+  All extracted fields editable
+  GSTIN validation — highlighted red if invalid format
+  Our company's fields locked to Company Master (authoritative)
+  Counter-party GSTIN looked up in registry.entities → auto-selects entity
+  Supply type (intra/inter) auto-routed from GSTIN state codes
+  Confidence badge shown; < 75% triggers review warning
+
+Step 4 — "Create Draft Voucher" (button label)
+  → navigate('/vouchers/new') with full prefill payload:
+       entity_id     (if GSTIN-matched — skips entity search entirely)
+       entity_name   (for entity chip)
+       taxable_value, cgst, sgst, igst, total_gst, gst_type
+       narration, bill_ref (= invoice number), invoice_date
+  → scan PDF stored in module-level holder; VoucherEntry stages it
+  → modal closes
+
+VoucherEntry mounts / receives prefill:
+  ✅ Voucher type pre-selected (Sales / Purchase)
+  ✅ Entity chip shows name (scan-verified or name-searched)
+  ✅ Reference No = invoice number
+  ✅ Narration pre-filled
+  ✅ Taxable amount in GST Quick-Add
+  ✅ GST rate auto-computed, snapped to nearest standard (5/12/18/28%)
+  ✅ Supply type set (intra / inter)
+  ✅ CGST + SGST (or IGST) entry rows auto-generated after tax ledgers load
+  ✅ Scanned PDF staged as attachment
+  → User fills remaining row(s) (income/expense ledger), reviews, submits
+```
+
+**GSTIN wrong / not found:** counter-party lookup fails silently; `party_name` always passed → entity search field pre-filled with scanned name; user confirms from dropdown.
+
+#### Scan Inbox flow (secondary)
+
+Scans uploaded via `/invoices/scan` are stored in `pramaana.invoice_scans` with full OCR data. From the Scan Detail page, "Create Voucher" navigates to `/vouchers/new` with the same prefill payload (implemented in `CreateVoucherButton.tsx`).
+
+---
+
+## 3. Voucher Workflow States
 
 ### State Definitions
 
@@ -41,7 +179,7 @@ The sequence number is generated at submission time (not on draft save).
 
 ---
 
-## 3. Full Lifecycle — State Transitions
+## 4. Full Lifecycle — State Transitions
 
 ```
  ┌─────────────────────────────────────────────────────────────────────┐
@@ -102,7 +240,7 @@ The sequence number is generated at submission time (not on draft save).
 
 ---
 
-## 4. OTP Workflow Detail
+## 5. OTP Workflow Detail
 
 Triggered automatically when an admin **approves** a voucher.
 
@@ -153,7 +291,7 @@ verifyPaymentOtp()
 
 ---
 
-## 5. Pay Now Workflow
+## 6. Pay Now Workflow
 
 Applies to any voucher where:
 - `status = 'completed'` or `status = 'awaiting_payment'`
@@ -254,7 +392,7 @@ Appears in financial reports (Trial Balance, P&L, Balance Sheet).
 
 ---
 
-## 6. Company Payment Accounts ("Pay From")
+## 7. Company Payment Accounts ("Pay From")
 
 Managed in **Admin Panel → Payment Accounts**. Stored in `registry.company_bank_accounts` (not in the `pramaana` schema).
 
@@ -276,7 +414,7 @@ The `fetchCompanyPaymentAccounts()` in `src/lib/pay-now.ts` reads from this tabl
 
 ---
 
-## 7. Net Banking & Bank App Lookup
+## 8. Net Banking & Bank App Lookup
 
 ### Net Banking URLs (Desktop — from `entity.bank_name`)
 
@@ -300,7 +438,7 @@ The `fetchCompanyPaymentAccounts()` in `src/lib/pay-now.ts` reads from this tabl
 
 ---
 
-## 8. Database Schema Reference
+## 9. Database Schema Reference
 
 ### `pramaana.vouchers` — payment-related columns
 
@@ -345,7 +483,7 @@ Managed in **Relish Suite → Master Data → Entities**.
 
 ---
 
-## 9. Bill Allocations
+## 10. Bill Allocations
 
 Added in migration `040_bill_allocations.sql`. Allows payment and receipt vouchers to be linked to the specific purchase/sales bills they settle, enabling per-invoice outstanding tracking.
 
@@ -394,7 +532,7 @@ To query which bills a payment settled: `fetchAllocationsForPayment(paymentVouch
 
 ---
 
-## 10. Voucher Attachments
+## 11. Voucher Attachments
 
 Added in migrations `020_voucher_attachments.sql` (base table) and `038_attachment_type.sql` (`attachment_type` column).
 
@@ -431,25 +569,28 @@ Called **after** the voucher is saved (requires a real `voucher_id`).
 
 ---
 
-## 11. Source Files
+## 12. Source Files
 
 | File | Purpose |
 |---|---|
-| `src/lib/vouchers.ts` | Voucher types, `saveDraftVoucher`, `submitVoucher`, `fetchVoucherForEdit`, `updateDraftVoucher`, `fetchTaxLedgers` |
+| `src/lib/vouchers.ts` | Voucher types, `saveDraftVoucher`, `submitVoucher`, `fetchVoucherForEdit`, `updateDraftVoucher`, `fetchTaxLedgers`, `fetchEntityLedger` |
 | `src/lib/vouchers-list.ts` | Register listing, `recallVoucher`, `deleteVoucher`, `submitDraftVoucher` |
 | `src/lib/approvals.ts` | `fetchPendingVouchers`, `approveVoucher`, `rejectVoucher`, `fetchVoucherFull`, `fetchPendingCount` |
 | `src/lib/otp.ts` | `initiatePaymentOtp`, `verifyPaymentOtp` |
-| `src/lib/pay-now.ts` | `fetchAwaitingPayments`, `queueForPayment`, `dequeuePayment`, `dequeuePayment`, `markVoucherPaid`, `fetchCompanyPaymentAccounts`, `fetchAdminMobile`, `updateVoucherPaymentMode` |
+| `src/lib/pay-now.ts` | `fetchAwaitingPayments`, `queueForPayment`, `dequeuePayment`, `markVoucherPaid`, `fetchCompanyPaymentAccounts`, `fetchAdminMobile`, `updateVoucherPaymentMode` |
 | `src/lib/allocations.ts` | `fetchOpenBills`, `saveAllocations`, `fetchAllocationsForPayment` — bill allocation engine |
 | `src/lib/attachments.ts` | `uploadVoucherAttachments`, `fetchVoucherAttachments`, `deleteVoucherAttachment` — Supabase Storage |
-| `src/pages/VoucherEntry.tsx` | Full double-entry voucher create / edit UI |
-| `src/pages/SimplifiedPaymentEntry.tsx` | Step-based simplified payment/receipt entry with entity search, bill allocation, and attachment upload |
-| `src/pages/VoucherRegister.tsx` | All-vouchers list with Pay Now wired in |
+| `src/pages/VoucherEntry.tsx` | New Voucher page — type selector, scan prefill receiver, GST Quick-Add, full double-entry form (purchase/sales/journal/contra), entity field for all commercial types |
+| `src/pages/SimplifiedPaymentEntry.tsx` | Step-based conversational form (payment/receipt) with entity search, bill allocation intent gate, "New invoice" branch, attachment upload |
+| `src/hooks/useInvoiceScan.ts` | OCR scan state machine — upload → processing → review → prefill generation |
+| `src/components/InvoiceScanModal.tsx` | Inline scan modal; "Create Draft Voucher" now navigates to VoucherEntry with full prefill; exports `consumeScanFile()` |
+| `src/modules/invoice-scan/CreateVoucherButton.tsx` | Scan inbox "Create Voucher" — navigates to VoucherEntry with full GST prefill |
+| `src/pages/VoucherRegister.tsx` | All-vouchers list with Pay Now, voucher print (attachment links), approval actions |
 | `src/pages/ApprovalQueue.tsx` | Approve / reject / OTP verification UI |
 | `src/pages/AwaitingPayments.tsx` | `/payments` — queued payment list |
 | `src/components/PayNowModal.tsx` | Pay Now modal (UPI QR, bank details, Mark Paid) |
 | `src/components/BillAllocPanel.tsx` | Bill allocation UI — links payments to open purchase/sales bills |
-| `src/components/InvoiceScanModal.tsx` | OCR-based invoice scan (via `/api/ocr-edge`) to prefill voucher fields |
+| `src/components/InvoiceScanModal.tsx` | OCR-based invoice scan (via `/api/ocr-edge`) — full prefill to VoucherEntry |
 | `src/components/QRRelayModal.tsx` | QR relay modal for cross-device UPI payment |
 | `src/pages/AdminPanel.tsx` | Company payment accounts management (`registry.company_bank_accounts`) |
 | `supabase/migrations/020_voucher_attachments.sql` | `pramaana.voucher_attachments` table + Storage bucket policy |
@@ -457,4 +598,5 @@ Called **after** the voucher is saved (requires a real `voucher_id`).
 | `supabase/migrations/038_attachment_type.sql` | `attachment_type` column on `voucher_attachments` |
 | `supabase/migrations/039_awaiting_payment_status.sql` | `awaiting_payment` status enum value |
 | `supabase/migrations/040_bill_allocations.sql` | `pramaana.voucher_allocations` table |
+| `supabase/migrations/041_create_linked_vouchers.sql` | `pramaana.create_linked_vouchers()` RPC — atomic Purchase+Payment creation |
 | `supabase/migrations/20260625000000_invoice_scan_module.sql` | Invoice scan schema (scan sessions, OCR results) |

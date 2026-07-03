@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabase'
 import SimplifiedPaymentEntry from './SimplifiedPaymentEntry'
 import InvoiceScanModal, { consumeScanFile } from '@/components/InvoiceScanModal'
 import { uploadVoucherAttachments, formatFileSize } from '@/lib/attachments'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 import styles from './VoucherEntry.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -570,11 +571,7 @@ export default function VoucherEntry() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loadingInit) {
-    return (
-      <div className={styles.loadingPage}>
-        <Loader2 size={24} className={styles.spin} />
-      </div>
-    )
+    return <FoodStreamLoader label="Loading voucher types" />
   }
 
   const isPayment = activeType?.nature === 'payment'

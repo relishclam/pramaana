@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { PlusCircle, Trash2, CheckCircle, AlertCircle, Loader2, Paperclip } from 'lucide-react'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 import {
   getSessionByToken,
   submitExpenseEntry,
@@ -204,15 +205,7 @@ export default function SettleCapture() {
   // ── Screens ─────────────────────────────────────────────────────────────────
 
   if (pageState === 'loading') {
-    return (
-      <div className={styles.page}>
-        <div className={styles.card}>
-          <div className={styles.logo}>PRAMAANA</div>
-          <Loader2 size={32} className={styles.spin} />
-          <p className={styles.sub}>Loading…</p>
-        </div>
-      </div>
-    )
+    return <FoodStreamLoader label="Loading" />
   }
 
   if (pageState === 'invalid') {

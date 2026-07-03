@@ -8,6 +8,7 @@ import {
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useApprovalCount } from '@/contexts/ApprovalContext'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 import {
   fetchPendingVouchers,
   fetchVoucherFull,
@@ -929,9 +930,7 @@ export default function ApprovalQueue() {
 
       {/* List */}
       {loading ? (
-        <div className={styles.loadingPage}>
-          <Loader2 size={24} className={styles.spin} />
-        </div>
+        <FoodStreamLoader label="Loading approvals" />
       ) : vouchers.length === 0 ? (
         <EmptyState />
       ) : (

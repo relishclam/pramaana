@@ -11,7 +11,7 @@ import {
 } from '@/lib/vouchers'
 import { createSuspenseVoucher } from '@/lib/suspense'
 import { supabase } from '@/lib/supabase'
-import styles from './SuspenseEntry.module.css'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 
 interface EntityResult { id: string; display_name: string }
 
@@ -200,11 +200,7 @@ export default function SuspenseEntry() {
   }
 
   if (refLoading) {
-    return (
-      <div className={styles.loadingPage}>
-        <Loader2 size={24} className={styles.spin} />
-      </div>
-    )
+    return <FoodStreamLoader label="Loading" />
   }
 
   return (

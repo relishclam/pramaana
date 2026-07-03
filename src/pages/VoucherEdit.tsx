@@ -14,7 +14,7 @@ import {
   type VoucherEntryRow,
 } from '@/lib/vouchers'
 import { supabase } from '@/lib/supabase'
-import styles from './VoucherEntry.module.css'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 
 // ── Constants (same as VoucherEntry) ─────────────────────────────────────────
 
@@ -367,11 +367,7 @@ export default function VoucherEdit() {
 
   // ── Render: loading ───────────────────────────────────────────────────────
   if (loadingInit) {
-    return (
-      <div className={styles.loadingPage}>
-        <Loader2 size={24} className={styles.spin} />
-      </div>
-    )
+    return <FoodStreamLoader label="Loading voucher" />
   }
 
   if (notFound) {

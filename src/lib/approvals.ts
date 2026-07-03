@@ -135,7 +135,15 @@ export async function fetchPendingVouchers(companyId: string): Promise<PendingVo
       .map(e => [e.id, e.mobile ?? null])
   )
 
-  return rows.map(r => ({
+  return rows
+    // Filter out non-payment vouchers stuck in 'approved' status from old code.
+    // Only 'payment' nature vouchers should sit in 'approved' (OTP-pending).
+    // All other types now go directly to 'posted' on approval.
+    .filter(r =>
+      r.status === 'pending_approval' ||
+      (r.status === 'approved' && r.voucher_type?.nature === 'payment')
+    )
+    .map(r => ({
     id: r.id,
     voucher_number: r.voucher_number,
     voucher_date: r.voucher_date,

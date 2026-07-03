@@ -752,7 +752,7 @@ function DetailPanel({
         )}
       </div>
 
-      {/* OTP panel — shown after approve, before verification */}
+      {/* OTP panel — shown after approve, before verification (payment vouchers only) */}
       {(otpPending || voucher?.status === 'approved') && voucher && voucher.voucher_type.nature === 'payment' && (
         <div className={styles.panelFooter}>
           <OtpPanel
@@ -763,6 +763,23 @@ function DetailPanel({
             mobileMasked={otpMasked}
             onVerified={() => onActionDone(voucher.id)}
           />
+        </div>
+      )}
+
+      {/* Stuck-voucher recovery: non-payment voucher in 'approved' state from old code */}
+      {canApprove && voucher?.status === 'approved' && voucher.voucher_type.nature !== 'payment' && (
+        <div className={styles.panelFooter}>
+          <button
+            className={styles.btnApprove}
+            onClick={async () => {
+              await supabase.schema('pramaana').from('vouchers')
+                .update({ status: 'posted' }).eq('id', voucher.id)
+              toast.success('Voucher marked as posted')
+              onActionDone(voucher.id)
+            }}
+          >
+            Mark as Posted
+          </button>
         </div>
       )}
 

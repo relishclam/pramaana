@@ -27,9 +27,9 @@
 }
 
 @keyframes fsSwell {
-  0%   { transform: translateX(0)    translateY(0);    }
-  50%  { transform: translateX(-25%) translateY(-4px); }
-  100% { transform: translateX(-50%) translateY(0);    }
+  0%   { transform: translateX(-100%) translateY(0);    }
+  50%  { transform: translateX(20%)   translateY(-4px); }
+  100% { transform: translateX(167%)  translateY(0);    }
 }
 
 @keyframes fsDots {

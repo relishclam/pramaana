@@ -6,6 +6,7 @@ import {
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import styles from './Ledgers.module.css'
 
 // ── Types ─────────────────────────────────────────────────────────────────────

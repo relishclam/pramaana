@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import { Search, Loader2, X, ExternalLink, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'

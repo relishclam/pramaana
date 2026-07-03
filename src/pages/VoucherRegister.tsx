@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
   AlertCircle, FileText, ExternalLink, Trash2, Edit3, Send, RotateCcw, BookOpen,

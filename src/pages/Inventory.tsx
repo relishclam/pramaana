@@ -11,8 +11,10 @@ import {
   type InventoryValuation,
 } from '@/lib/inventory'
 import FoodStreamMini from '@/components/FoodStreamMini'
+import css from './Inventory.module.css'
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── helpers
+import css from './Inventory.module.css' ───────────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined) {
   if (n == null) return '—'

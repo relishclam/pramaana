@@ -26,6 +26,7 @@ import {
   type AttachmentWithUrl,
 } from '@/lib/attachments'
 import { formatIndianCurrency } from '@/lib/vouchers'
+import { supabase } from '@/lib/supabase'
 import { initiatePaymentOtp, verifyPaymentOtp } from '@/lib/otp'
 import styles from './ApprovalQueue.module.css'
 

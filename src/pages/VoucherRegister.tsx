@@ -168,6 +168,17 @@ function getVoucherBeneficiary(row: RegisterVoucher | null, detail: VoucherFull 
   return detail?.entity_name ?? row?.entity_name ?? '—'
 }
 
+// Returns the human-readable label for the entity field based on voucher nature.
+function entityFieldLabel(nature: string | undefined): string {
+  switch (nature) {
+    case 'payment':  return 'Payee / Beneficiary'
+    case 'receipt':  return 'Received From'
+    case 'sales':    return 'Customer / Billed To'
+    case 'purchase': return 'Vendor / Supplier'
+    default:         return 'Party'
+  }
+}
+
 function getApprovalAction(detail: VoucherFull | null) {
   return detail?.history.find(item => item.action === 'approved') ?? null
 }
@@ -832,6 +843,9 @@ function DetailPanel({
     const drTotal = detail.entries.reduce((sum, e) => e.entry_type === 'Dr' ? sum + e.amount : sum, 0)
     const crTotal = detail.entries.reduce((sum, e) => e.entry_type === 'Cr' ? sum + e.amount : sum, 0)
 
+    const printEntityLabel = entityFieldLabel(detail.voucher_type.nature)
+    const printVoucherTitle = detail.voucher_type.name.toUpperCase() + ' VOUCHER'
+
     const stampCards = traceabilityStamps.map((stamp) => `
       <div class="stampCard">
         <div class="stampName">${escapeHtml(stamp.name)}</div>
@@ -987,14 +1001,14 @@ function DetailPanel({
 
             <div class="voucherBox">
               <p class="orgName">${escapeHtml(companyName)}</p>
-              <div class="voucherType">PAYMENT VOUCHER</div>
+              <div class="voucherType">${escapeHtml(printVoucherTitle)}</div>
 
               <div class="rule"></div>
 
               <div class="metaGrid">
                 <div class="metaItem"><span class="metaLabel">Voucher No:</span> ${escapeHtml(row.voucher_number)}</div>
                 <div class="metaItem"><span class="metaLabel">Date:</span> ${escapeHtml(fmtDateTimeLong(detail.voucher_date))}</div>
-                <div class="metaItem"><span class="metaLabel">Payee:</span> ${escapeHtml(beneficiaryName)}</div>
+                <div class="metaItem"><span class="metaLabel">${escapeHtml(printEntityLabel)}:</span> ${escapeHtml(beneficiaryName)}</div>
                 <div class="metaItem"><span class="metaLabel">Payment Mode:</span> ${escapeHtml(detail.payment_mode ?? '—')}</div>
                 <div class="metaItem"><span class="metaLabel">Head of Account:</span> ${escapeHtml(detail.entries[0]?.group_name ?? detail.entries[0]?.ledger_name ?? '—')}</div>
                 <div class="metaItem"><span class="metaLabel">Status:</span> ${escapeHtml(row.status.toUpperCase())}</div>
@@ -1176,7 +1190,7 @@ function DetailPanel({
         </div>
 
         {loading ? (
-          <div className={styles.panelLoading}><Loader2 size={24} className={styles.spin} /></div>
+          <div className={styles.panelLoading}><FoodStreamMini size={50} label="" /></div>
         ) : !detail ? null : (
           <div className={styles.panelBody}>
 
@@ -1192,7 +1206,7 @@ function DetailPanel({
                 <span className={styles.metaValue}>{detail.voucher_type.name}</span>
               </div>
               <div className={styles.metaItem}>
-                <span className={styles.metaLabel}>Payee / Beneficiary</span>
+                <span className={styles.metaLabel}>{entityFieldLabel(detail.voucher_type.nature)}</span>
                 <span className={styles.metaValue}>{beneficiaryName}</span>
               </div>
               <div className={styles.metaItem}>
@@ -2069,7 +2083,7 @@ export default function VoucherRegister() {
         <div className={styles.tableWrap}>
           {loading ? (
             <div className={styles.centerState}>
-              <Loader2 size={24} className={styles.spin} />
+              <FoodStreamMini label="" />
             </div>
           ) : allRows.length === 0 ? (
             <div className={styles.emptyState}>

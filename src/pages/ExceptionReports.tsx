@@ -216,9 +216,7 @@ export default function ExceptionReports() {
 
       {/* Content */}
       {loading ? (
-        <div className={styles.loading}>
-          <Loader2 size={20} className={styles.spin} /> Scanning vouchers for anomalies…
-        </div>
+        <FoodStreamMini label="Scanning vouchers for anomalies…" />
       ) : !hasRun ? (
         <div className={styles.noData}>
           <AlertTriangle size={36} style={{ opacity: 0.3 }} />

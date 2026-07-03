@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import {
   Plus, Search, X, ChevronRight, Loader2, CheckCircle, Clock, XCircle,
   AlertCircle, Send, RotateCcw, Copy, Check, Wallet, FileText, Lock, Wrench,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 import {
   fetchSuspenseVouchers, fetchSuspenseSession, fetchSuspenseSettlements,
   createOrRefreshSession, buildSettlementUrl,
@@ -147,7 +149,7 @@ function SettlementsTable({
 }) {
   const canAct = role === 'admin' || role === 'accounts'
 
-  if (loading) return <div className={styles.tableLoading}><Loader2 size={16} className={styles.spin} /></div>
+  if (loading) return <FoodStreamLoader label="Loading suspense" />
   if (settlements.length === 0) return <div className={styles.emptySettlements}>No expenses submitted yet</div>
 
   return (
@@ -461,7 +463,7 @@ function DetailPanel({
       </div>
 
       {loading ? (
-        <div className={styles.panelLoading}><Loader2 size={24} className={styles.spin} /></div>
+        <div className={styles.panelLoading}><FoodStreamMini size={50} label="" /></div>
       ) : !row ? null : (
         <div className={styles.panelBody}>
 
@@ -1030,7 +1032,7 @@ export default function SuspenseRegister() {
 
         <div className={styles.tableWrap}>
           {loading ? (
-            <div className={styles.centerState}><Loader2 size={24} className={styles.spin} /></div>
+            <div className={styles.centerState}><FoodStreamMini label="" /></div>
           ) : allRows.length === 0 ? (
             <div className={styles.emptyState}>
               <Wallet size={44} className={styles.emptyIcon} />

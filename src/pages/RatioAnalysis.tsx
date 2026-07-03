@@ -165,9 +165,7 @@ export default function RatioAnalysis() {
 
       {/* Content */}
       {loading ? (
-        <div className={styles.loading}>
-          <Loader2 size={20} className={styles.spin} /> Computing financial ratios…
-        </div>
+        <FoodStreamMini label="Computing financial ratios…" />
       ) : !hasRun ? (
         <div className={styles.noData}>
           <FileBarChart2 size={36} style={{ opacity: 0.3 }} />

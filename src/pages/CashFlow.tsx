@@ -128,9 +128,7 @@ export default function CashFlow() {
 
       {/* Content */}
       {loading ? (
-        <div className={styles.loading}>
-          <Loader2 size={20} className={styles.spin} /> Computing cash flows…
-        </div>
+        <FoodStreamMini label="Computing cash flows…" />
       ) : !hasRun ? (
         <div className={styles.noData}>
           <FileBarChart2 size={36} style={{ opacity: 0.3 }} />

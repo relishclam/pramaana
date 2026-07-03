@@ -294,9 +294,7 @@ export default function VoucherSearch() {
 
       {/* Results */}
       {loading ? (
-        <div className={styles.loading}>
-          <Loader2 size={20} className={styles.spin} /> Searching…
-        </div>
+        <FoodStreamMini label="Searching…" />
       ) : !hasRun ? (
         <div className={styles.noData}>
           <Search size={36} style={{ opacity: 0.3 }} />

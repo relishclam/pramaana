@@ -8,7 +8,7 @@
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Clock, AlertTriangle, CreditCard, RotateCcw } from 'lucide-react'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatIndianCurrency } from '@/lib/vouchers'
@@ -215,7 +215,7 @@ export default function AwaitingPayments() {
         <div className={styles.tableWrap}>
           {loading ? (
             <div className={styles.centerState}>
-              <Loader2 size={24} className={styles.spin} />
+              <FoodStreamMini label="" />
             </div>
           ) : rows.length === 0 ? (
             <div className={styles.emptyState}>

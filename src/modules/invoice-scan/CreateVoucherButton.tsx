@@ -38,12 +38,25 @@ export default function CreateVoucherButton({ scan, onCreated }: Props) {
         fromScan: true,
         scanId:   scan.id,
         prefill: {
-          voucher_type: scan.type === 'purchase' ? 'PURCHASE' : 'SALE',
-          party_name:   scan.party_name,
-          party_gstin:  scan.party_gstin,
-          amount:       scan.total_amount,
-          narration:    `Invoice ${scan.invoice_no ?? ''} dated ${scan.invoice_date ?? ''}`.trim(),
-          bill_ref:     scan.storage_path,
+          voucher_type:  scan.type === 'purchase' ? 'PURCHASE' : 'SALE',
+          party_name:    scan.party_name,
+          party_gstin:   scan.party_gstin,
+          // Taxable value drives GST Quick-Add; use it as 'amount', not total_amount
+          amount:        scan.taxable_value,
+          taxable_value: scan.taxable_value,
+          total_gst:     scan.total_gst,
+          cgst:          scan.cgst,
+          sgst:          scan.sgst,
+          igst:          scan.igst,
+          gst_type:      scan.gst_type,
+          invoice_date:  scan.invoice_date,
+          narration:     [
+            scan.party_name,
+            scan.invoice_no  ? `Inv ${scan.invoice_no}`   : '',
+            scan.invoice_date ? `dt ${scan.invoice_date}` : '',
+          ].filter(Boolean).join(' \u00b7 '),
+          // bill_ref = invoice number shown in Reference No. field (not storage path)
+          bill_ref: scan.invoice_no ?? null,
         },
       },
     })

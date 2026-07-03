@@ -68,12 +68,19 @@ export default function VoucherEntry() {
     fromScan?: boolean
     scanId?:   string
     prefill?: {
-      voucher_type?: string
-      party_name?:   string | null
-      party_gstin?:  string | null
-      amount?:       number
-      narration?:    string
-      bill_ref?:     string | null
+      voucher_type?:  string
+      party_name?:    string | null
+      party_gstin?:   string | null
+      amount?:        number          // = taxable_value; drives gstBase
+      taxable_value?: number
+      total_gst?:     number
+      cgst?:          number
+      sgst?:          number
+      igst?:          number
+      gst_type?:      'intra' | 'inter' | 'unknown' | null
+      invoice_date?:  string | null
+      narration?:     string
+      bill_ref?:      string | null
     }
   } | null)
 
@@ -121,13 +128,25 @@ export default function VoucherEntry() {
 
   // ── GST Quick-Add panel ───────────────────────────────────────────────────
   const [taxLedgers,    setTaxLedgers]    = useState<TaxLedger[]>([])
-  const [gstBase,       setGstBase]       = useState(() =>
-    // Pre-fill from scan amount for purchase/sales (GST quick-add uses this)
-    fromScanState?.prefill?.amount ? String(fromScanState.prefill.amount) : ''
-  )
-  const [gstRateKey,    setGstRateKey]    = useState<'5' | '12' | '18' | '28' | 'custom'>('18')
+  const [gstBase,       setGstBase]       = useState(() => {
+    // Pre-fill from scan's taxable value (not total amount — GST Quick-Add works on taxable)
+    const pf = fromScanState?.prefill
+    return pf?.taxable_value ? String(pf.taxable_value) : (pf?.amount ? String(pf.amount) : '')
+  })
+  const [gstRateKey,    setGstRateKey]    = useState<'5' | '12' | '18' | '28' | 'custom'>(() => {
+    // Compute GST rate from scan amounts and snap to nearest standard rate
+    const pf = fromScanState?.prefill
+    if (!pf?.taxable_value || !pf?.total_gst || pf.taxable_value === 0) return '18'
+    const rate = Math.round((pf.total_gst / pf.taxable_value) * 100)
+    const snapped = ([5, 12, 18, 28] as const).reduce((p, c) =>
+      Math.abs(c - rate) < Math.abs(c - Number(p)) ? String(c) as typeof p : p,
+    '18' as '5' | '12' | '18' | '28' | 'custom')
+    return snapped
+  })
   const [gstCustomRate, setGstCustomRate] = useState('')
-  const [gstSupply,     setGstSupply]     = useState<'intra' | 'inter'>('intra')
+  const [gstSupply,     setGstSupply]     = useState<'intra' | 'inter'>(() =>
+    fromScanState?.prefill?.gst_type === 'inter' ? 'inter' : 'intra'
+  )
   const [partyGstin,    setPartyGstin]    = useState<string | null>(null)
 
   // ── Init: voucher types are global — load once independently ───────────────
@@ -280,20 +299,23 @@ export default function VoucherEntry() {
     setEntries(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e))
   }
 
-  // ── Auto-trigger entity search when arriving from an invoice scan ──────────────
-  // Fires when the activeType is set and needsEntity becomes true.
-  // Pre-populates the entity search field with the scanned party name.
+  // ── Auto-generate GST entries from scan prefill ───────────────────────────
+  // Fires once after tax ledgers load when arriving from a scan with GST data.
+  // Uses handleAddGSTEntries so the rows are identical to clicking ⚡ GST Quick-Add.
+  const scanEntriesApplied = useRef(false)
   useEffect(() => {
-    const partyName = fromScanState?.prefill?.party_name
-    if (!needsEntity || !partyName) return
-    setEntitySearch(partyName)
-    searchEntities(partyName)
-  }, [needsEntity]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (scanEntriesApplied.current) return
+    const pf = fromScanState?.prefill
+    if (!pf?.taxable_value || pf.taxable_value === 0) return
+    if (taxLedgers.length === 0) return
+    if (entries.some(e => e.ledger_id)) return  // already has real entries
+    scanEntriesApplied.current = true
+    handleAddGSTEntries()
+  }, [taxLedgers.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-trigger entity search when arriving from an invoice scan ──────────────
-  // Fires when the activeType is set and needsEntity becomes true.
-  // Pre-populates the entity search field with the scanned party name so the
-  // user just has to confirm from the dropdown without retyping.
+  // ── Auto-trigger entity search when arriving from an invoice scan ─────────
+  // Fires when activeType is set and needsEntity becomes true.
+  // Pre-populates the entity search field with the scanned party name.
   useEffect(() => {
     const partyName = fromScanState?.prefill?.party_name
     if (!needsEntity || !partyName) return

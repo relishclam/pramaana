@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback } from 'react'
-import { saveDraftVoucher, type VoucherPayload } from '@/lib/vouchers'
+import { saveDraftVoucher, fetchTaxLedgers, type VoucherPayload } from '@/lib/vouchers'
 import { uploadVoucherAttachments } from '@/lib/attachments'
 import { supabase } from '@/lib/supabase'
 import type { OcrResult, OcrLineItem } from '../../api/ocr'
@@ -391,8 +391,34 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
     }
 
     try {
-      // Save draft with no entries (user completes ledger entries in VoucherEdit)
-      const draftId = await saveDraftVoucher(payload, [])
+      // Build accounting entry rows from scan GST breakdown.
+      // Only create rows for tax components where we have confirmed ledger IDs
+      // (from fetchTaxLedgers). The income/expense and entity rows are left
+      // for the user to fill in VoucherEdit — we don’t know those ledger IDs.
+      let entryRows: { ledger_id: string; entry_type: 'Dr' | 'Cr'; amount: number; narration: string | null; sort_order: number }[] = []
+      try {
+        const taxLedgers = await fetchTaxLedgers(companyId)
+        const isSales    = form.voucherType === 'sales'
+        // For sales: tax components are Cr (income side); for purchase: Dr (expense/ITC side)
+        const taxSide: 'Dr' | 'Cr' = isSales ? 'Cr' : 'Dr'
+
+        const cgstAmt  = parseFloat(form.cgst)  || 0
+        const sgstAmt  = parseFloat(form.sgst)  || 0
+        const igstAmt  = parseFloat(form.igst)  || 0
+
+        if (form.gstType === 'intra') {
+          const cgstL = taxLedgers.find(l => l.tax_type === 'CGST')
+          const sgstL = taxLedgers.find(l => l.tax_type === 'SGST')
+          if (cgstL && cgstAmt > 0) entryRows.push({ ledger_id: cgstL.id, entry_type: taxSide, amount: cgstAmt, narration: `CGST`, sort_order: 0 })
+          if (sgstL && sgstAmt > 0) entryRows.push({ ledger_id: sgstL.id, entry_type: taxSide, amount: sgstAmt, narration: `SGST`, sort_order: 1 })
+        } else if (form.gstType === 'inter') {
+          const igstL = taxLedgers.find(l => l.tax_type === 'IGST')
+          if (igstL && igstAmt > 0) entryRows.push({ ledger_id: igstL.id, entry_type: taxSide, amount: igstAmt, narration: `IGST`, sort_order: 0 })
+        }
+      } catch { /* non-fatal: proceed with empty entries */ }
+
+      // Save draft with tax entry rows (empty if ledger IDs not found)
+      const draftId = await saveDraftVoucher(payload, entryRows)
 
       // Annotate with OCR metadata
       if (ocrConfidence != null) {

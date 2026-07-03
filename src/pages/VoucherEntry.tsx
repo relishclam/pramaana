@@ -162,6 +162,60 @@ export default function VoucherEntry() {
   )
   const [partyGstin,    setPartyGstin]    = useState<string | null>(null)
 
+  // ── Apply scan prefill imperatively whenever location.key changes ─────────
+  // useState initialisers only run on the first mount. If the user is already
+  // on /vouchers/new when they click Scan Invoice, navigating to /vouchers/new
+  // again updates location.state but does NOT remount the component. This
+  // useEffect detects that and imperatively updates all fields.
+  const scanPrefillApplied = useRef<string | null>(null)
+  useEffect(() => {
+    const ls = location.state as { fromScan?: boolean; prefill?: NonNullable<typeof fromScanState>['prefill'] } | null
+    if (!ls?.fromScan || !ls.prefill) return
+    if (scanPrefillApplied.current === location.key) return  // already applied for this navigation
+    scanPrefillApplied.current = location.key
+
+    const pf = ls.prefill
+
+    // Header fields
+    if (pf.bill_ref)   setRefNumber(pf.bill_ref)
+    if (pf.narration)  setNarration(pf.narration)
+
+    // Entity: use resolved entity_id if available, else search by name
+    if (pf.entity_id) {
+      setEntityId(pf.entity_id)
+      setEntityLabel(`${pf.entity_name ?? pf.party_name ?? ''} · (scan-verified)`)
+    } else if (pf.party_name) {
+      setEntitySearch(pf.party_name)
+      searchEntities(pf.party_name)
+    }
+
+    // GST Quick-Add fields
+    if (pf.taxable_value) setGstBase(String(pf.taxable_value))
+    if (pf.gst_type === 'inter') setGstSupply('inter')
+    else setGstSupply('intra')
+    if (pf.taxable_value && pf.total_gst && pf.taxable_value > 0) {
+      const rate    = Math.round((pf.total_gst / pf.taxable_value) * 100)
+      const snapped = ([5, 12, 18, 28] as const).reduce((p, c) =>
+        Math.abs(c - rate) < Math.abs(c - Number(p)) ? String(c) as typeof p : p,
+      '18' as '5' | '12' | '18' | '28' | 'custom')
+      setGstRateKey(snapped)
+    }
+
+    // Voucher type pre-selection
+    setVoucherTypes(prev => {
+      const match = prev.find(t => t.code === pf.voucher_type?.toUpperCase())
+      if (match) setActiveType(match)
+      return prev
+    })
+
+    // Stage the scan file if not already staged
+    const f = consumeScanFile()
+    if (f) setStagedFiles(prev => {
+      const existing = new Set(prev.map(x => x.name + x.size))
+      return existing.has(f.name + f.size) ? prev : [...prev, f]
+    })
+  }, [location.key]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Init: voucher types are global — load once independently ───────────────
   useEffect(() => {
     fetchVoucherTypes()

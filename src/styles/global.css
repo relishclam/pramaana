@@ -9,6 +9,15 @@
   initial-value: 120%;
 }
 
+/* fsReveal keyframe is global so both FoodStreamLoader and FoodStreamMini
+   can reference it — CSS module-scoped @keyframes can't be shared. */
+@keyframes fsReveal {
+  0%   { --fs-rev: -22%;  }
+  46%  { --fs-rev: 122%;  }
+  58%  { --fs-rev: 122%;  }
+  100% { --fs-rev: -22%;  }
+}
+
 /* Design tokens */
 :root {
   --bg:         #0e1117;

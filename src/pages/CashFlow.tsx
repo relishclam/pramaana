@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import FoodStreamMini from '@/components/FoodStreamMini'
 import { Loader2, Printer, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'

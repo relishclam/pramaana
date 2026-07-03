@@ -1,0 +1,81 @@
+/* ── FoodStream Mini Spinner ──────────────────────────────────────────────────
+   Compact, no-background version of the FoodStream loader.
+   Uses only the diagonal mask reveal (fsReveal) — no bobbing, no overlay.
+   Drop it into any content area; it sizes to the 'size' prop.
+
+   Requires: @property --fs-rev and @keyframes fsReveal in global.css
+             (registered by FoodStreamLoader.module.css / global.css).
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@keyframes fsMiniSwell {
+  0%   { transform: translateX(0)    translateY(0);    }
+  50%  { transform: translateX(-25%) translateY(-2px); }
+  100% { transform: translateX(-50%) translateY(0);    }
+}
+
+/* ── Wrapper ───────────────────────────────────────────────────────────────── */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 2.5rem 1rem;
+}
+
+/* ── Logo with reveal sweep — no bob ──────────────────────────────────────── */
+
+.shadow {
+  filter: drop-shadow(0 6px 12px rgba(9, 52, 80, 0.4));
+  flex-shrink: 0;
+}
+
+.logo {
+  display: block;
+  object-fit: contain;
+  /* Diagonal mask sweep — the "draw-on / wash-out" effect */
+  -webkit-mask-image: linear-gradient(
+    56deg,
+    #000 var(--fs-rev, 120%),
+    rgba(0, 0, 0, 0) calc(var(--fs-rev, 120%) + 15%)
+  );
+  mask-image: linear-gradient(
+    56deg,
+    #000 var(--fs-rev, 120%),
+    rgba(0, 0, 0, 0) calc(var(--fs-rev, 120%) + 15%)
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation-name: fsReveal;
+  animation-duration: 2.4s;
+  animation-timing-function: cubic-bezier(0.5, 0.02, 0.35, 1);
+  animation-iteration-count: infinite;
+  will-change: mask-image;
+}
+
+/* ── Wave progress bar ─────────────────────────────────────────────────────── */
+
+.barTrack {
+  height: 4px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: rgba(74, 158, 158, 0.15);
+  flex-shrink: 0;
+}
+
+.bar {
+  height: 100%;
+  width: 60%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #26e0c9, #2296d6);
+  animation: fsMiniSwell 2.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+/* ── Optional label ────────────────────────────────────────────────────────── */
+
+.label {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}

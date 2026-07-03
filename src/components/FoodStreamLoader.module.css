@@ -9,18 +9,16 @@
 
 /* ── Keyframes ─────────────────────────────────────────────────────────────── */
 
+/* fsReveal is defined globally in src/styles/global.css so it is shared
+   with FoodStreamMini without duplication. */
+
 @keyframes fsBob {
   0%   { transform: translateY(6px)  rotate(-3.5deg); }
   50%  { transform: translateY(-10px) rotate(3.5deg);  }
   100% { transform: translateY(6px)  rotate(-3.5deg); }
 }
 
-@keyframes fsReveal {
-  0%   { --fs-rev: -22%;  }
-  46%  { --fs-rev: 122%;  }
-  58%  { --fs-rev: 122%;  }
-  100% { --fs-rev: -22%;  }
-}
+/* fsReveal is global — defined in src/styles/global.css */
 
 @keyframes fsRipple {
   0%   { transform: scale(0.55); opacity: 0.55; }

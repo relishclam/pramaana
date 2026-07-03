@@ -13,8 +13,7 @@ import {
 import FoodStreamMini from '@/components/FoodStreamMini'
 import css from './Inventory.module.css'
 
-// ── helpers
-import css from './Inventory.module.css' ───────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined) {
   if (n == null) return '—'

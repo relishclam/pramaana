@@ -1,5 +1,14 @@
 /* ── Pramaana Global Styles ──────────────────────────────────────────────── */
 
+/* FoodStream Loader — @property registration (must be global for interpolation)
+   Animates the diagonal mask-sweep on the FoodStream_Wave.png logo.
+   Without this, --fs-rev would jump rather than interpolate in @keyframes. */
+@property --fs-rev {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 120%;
+}
+
 /* Design tokens */
 :root {
   --bg:         #0e1117;

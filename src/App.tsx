@@ -30,6 +30,7 @@ import RatioAnalysis from '@/pages/RatioAnalysis'
 import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
 import AdminPanel from '@/pages/AdminPanel'
+import FoodStreamLoader from '@/components/FoodStreamLoader'
 import DashboardPage from '@/pages/Dashboard'
 import AwaitingPayments from '@/pages/AwaitingPayments'
 import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
@@ -552,22 +553,7 @@ function AppRoutes() {
   const { user, loading, needsPasswordSet } = useAuth()
 
   if (loading) {
-    return (
-      <div style={{
-        height: '100vh', display: 'flex', alignItems: 'center',
-        justifyContent: 'center', background: 'var(--bg)',
-      }}>
-        <span style={{
-          width: 32, height: 32,
-          border: '3px solid var(--border)',
-          borderTopColor: 'var(--teal)',
-          borderRadius: '50%',
-          animation: 'spin 0.7s linear infinite',
-          display: 'inline-block',
-        }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      </div>
-    )
+    return <FoodStreamLoader label="Loading" />
   }
 
   if (!user) {

@@ -1,0 +1,207 @@
+/* ── FoodStream Wave Loading Spinner ─────────────────────────────────────────
+   Ported from the FoodStream Loader design (Claude Design handoff).
+   @property --fs-rev is registered globally in src/styles/global.css.
+   Speed is controlled via --fs-rev-dur and --fs-bob-dur CSS variables
+   set as inline styles on .logo and .bob respectively.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&display=swap');
+
+/* ── Keyframes ─────────────────────────────────────────────────────────────── */
+
+@keyframes fsBob {
+  0%   { transform: translateY(6px)  rotate(-3.5deg); }
+  50%  { transform: translateY(-10px) rotate(3.5deg);  }
+  100% { transform: translateY(6px)  rotate(-3.5deg); }
+}
+
+@keyframes fsReveal {
+  0%   { --fs-rev: -22%;  }
+  46%  { --fs-rev: 122%;  }
+  58%  { --fs-rev: 122%;  }
+  100% { --fs-rev: -22%;  }
+}
+
+@keyframes fsRipple {
+  0%   { transform: scale(0.55); opacity: 0.55; }
+  80%  { opacity: 0; }
+  100% { transform: scale(1.7);  opacity: 0;    }
+}
+
+@keyframes fsSwell {
+  0%   { transform: translateX(0)    translateY(0);    }
+  50%  { transform: translateX(-25%) translateY(-4px); }
+  100% { transform: translateX(-50%) translateY(0);    }
+}
+
+@keyframes fsDots {
+  0%, 20%   { opacity: 0.15; transform: translateY(0);    }
+  40%       { opacity: 1;    transform: translateY(-3px); }
+  60%, 100% { opacity: 0.15; transform: translateY(0);    }
+}
+
+/* ── Root container ────────────────────────────────────────────────────────── */
+
+.root {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 52px;
+  overflow: hidden;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+/* ── Radial glow overlay ───────────────────────────────────────────────────── */
+
+.glow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 30%, rgba(46, 198, 214, 0.16), transparent 60%);
+  pointer-events: none;
+}
+
+/* ── Logo + ripple wrapper ─────────────────────────────────────────────────── */
+
+.logoWrap {
+  position: relative;
+  width: 340px;
+  height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Concentric ripple rings */
+.ripple1,
+.ripple2 {
+  position: absolute;
+  width: 230px;
+  height: 230px;
+  border-radius: 50%;
+  border: 2px solid rgba(46, 198, 214, 0.35);
+  animation: fsRipple 2.8s ease-out infinite;
+}
+.ripple2 {
+  border-color: rgba(46, 198, 214, 0.30);
+  animation-delay: 1.4s;
+}
+
+/* Bobbing wrapper */
+.bob {
+  position: relative;
+  width: 300px;
+  height: 236px;
+  animation-name: fsBob;
+  animation-duration: var(--fs-bob-dur, 6.48s);
+  animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+/* Drop-shadow filter wrapper */
+.shadow {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 22px 26px rgba(9, 52, 80, 0.55));
+}
+
+/* Logo with animated mask sweep (requires @property --fs-rev in global.css) */
+.logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  -webkit-mask-image: linear-gradient(
+    56deg,
+    #000 var(--fs-rev, 120%),
+    rgba(0, 0, 0, 0) calc(var(--fs-rev, 120%) + 15%)
+  );
+  mask-image: linear-gradient(
+    56deg,
+    #000 var(--fs-rev, 120%),
+    rgba(0, 0, 0, 0) calc(var(--fs-rev, 120%) + 15%)
+  );
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  animation-name: fsReveal;
+  animation-duration: var(--fs-rev-dur, 3.6s);
+  animation-timing-function: cubic-bezier(0.5, 0.02, 0.35, 1);
+  animation-iteration-count: infinite;
+  will-change: mask-image;
+}
+
+/* ── Label + dots + progress bar ───────────────────────────────────────────── */
+
+.bottom {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.label {
+  font-size: 15px;
+  letter-spacing: 0.32em;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #cfeef4;
+}
+
+.dots {
+  display: flex;
+  gap: 5px;
+}
+
+.dot {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3fd0e0;
+  animation: fsDots 1.4s ease-in-out infinite;
+}
+
+/* Progress bar */
+.barTrack {
+  position: relative;
+  width: 220px;
+  height: 5px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: rgba(207, 238, 244, 0.14);
+}
+
+.bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 60%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #26e0c9, #2296d6);
+  animation: fsSwell 2.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+/* ── Brand watermark ───────────────────────────────────────────────────────── */
+
+.watermark {
+  position: absolute;
+  bottom: 34px;
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  font-weight: 600;
+  color: rgba(207, 238, 244, 0.4);
+  text-transform: uppercase;
+}

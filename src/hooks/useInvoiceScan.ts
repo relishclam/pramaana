@@ -395,7 +395,7 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
       // Only create rows for tax components where we have confirmed ledger IDs
       // (from fetchTaxLedgers). The income/expense and entity rows are left
       // for the user to fill in VoucherEdit — we don’t know those ledger IDs.
-      let entryRows: { ledger_id: string; entry_type: 'Dr' | 'Cr'; amount: number; narration: string | null; sort_order: number }[] = []
+      let entryRows: { voucher_id: string; ledger_id: string; entry_type: 'Dr' | 'Cr'; amount: number; narration: string | null; sort_order: number }[] = []
       try {
         const taxLedgers = await fetchTaxLedgers(companyId)
         const isSales    = form.voucherType === 'sales'
@@ -409,11 +409,11 @@ export function useInvoiceScan({ companyGstin = '', companyName = '' }: { compan
         if (form.gstType === 'intra') {
           const cgstL = taxLedgers.find(l => l.tax_type === 'CGST')
           const sgstL = taxLedgers.find(l => l.tax_type === 'SGST')
-          if (cgstL && cgstAmt > 0) entryRows.push({ ledger_id: cgstL.id, entry_type: taxSide, amount: cgstAmt, narration: `CGST`, sort_order: 0 })
-          if (sgstL && sgstAmt > 0) entryRows.push({ ledger_id: sgstL.id, entry_type: taxSide, amount: sgstAmt, narration: `SGST`, sort_order: 1 })
+          if (cgstL && cgstAmt > 0) entryRows.push({ voucher_id: '', ledger_id: cgstL.id, entry_type: taxSide, amount: cgstAmt, narration: `CGST`, sort_order: 0 })
+          if (sgstL && sgstAmt > 0) entryRows.push({ voucher_id: '', ledger_id: sgstL.id, entry_type: taxSide, amount: sgstAmt, narration: `SGST`, sort_order: 1 })
         } else if (form.gstType === 'inter') {
           const igstL = taxLedgers.find(l => l.tax_type === 'IGST')
-          if (igstL && igstAmt > 0) entryRows.push({ ledger_id: igstL.id, entry_type: taxSide, amount: igstAmt, narration: `IGST`, sort_order: 0 })
+          if (igstL && igstAmt > 0) entryRows.push({ voucher_id: '', ledger_id: igstL.id, entry_type: taxSide, amount: igstAmt, narration: `IGST`, sort_order: 0 })
         }
       } catch { /* non-fatal: proceed with empty entries */ }
 

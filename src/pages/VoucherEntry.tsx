@@ -27,7 +27,8 @@ import styles from './VoucherEntry.module.css'
 const PAYMENT_MODES = ['Cash', 'Bank', 'UPI', 'Cheque', 'NEFT', 'RTGS', 'IMPS']
 const BANK_MODES    = new Set(['Bank', 'Cheque', 'NEFT', 'RTGS', 'IMPS'])
 const UTR_MODES     = new Set(['NEFT', 'RTGS', 'IMPS', 'UPI'])
-const NEEDS_ENTITY   = new Set(['payment', 'receipt'])
+const NEEDS_ENTITY    = new Set(['payment', 'receipt', 'purchase', 'sales']) // shows the entity field
+const REQUIRES_ENTITY = new Set(['payment', 'receipt'])                       // entity is mandatory
 const NEEDS_PAYMENT  = new Set(['payment', 'receipt', 'contra'])         // payment mode required
 const SHOWS_PAYMENT  = new Set(['payment', 'receipt', 'contra', 'purchase', 'sales']) // field visible
 
@@ -80,7 +81,7 @@ export default function VoucherEntry() {
   const [voucherTypes,  setVoucherTypes]  = useState<VoucherType[]>([])
   const [activeType,    setActiveType]    = useState<VoucherType | null>(null)
   const [voucherDate,   setVoucherDate]   = useState(() => new Date().toISOString().slice(0, 10))
-  const [refNumber,     setRefNumber]     = useState('')
+  const [refNumber,     setRefNumber]     = useState(() => fromScanState?.prefill?.bill_ref ?? '')
   const [narration,     setNarration]     = useState(() => fromScanState?.prefill?.narration ?? '')
   const [paymentMode,   setPaymentMode]   = useState('')
   const [costCentreId,  setCostCentreId]  = useState('')
@@ -120,7 +121,10 @@ export default function VoucherEntry() {
 
   // ── GST Quick-Add panel ───────────────────────────────────────────────────
   const [taxLedgers,    setTaxLedgers]    = useState<TaxLedger[]>([])
-  const [gstBase,       setGstBase]       = useState('')
+  const [gstBase,       setGstBase]       = useState(() =>
+    // Pre-fill from scan amount for purchase/sales (GST quick-add uses this)
+    fromScanState?.prefill?.amount ? String(fromScanState.prefill.amount) : ''
+  )
   const [gstRateKey,    setGstRateKey]    = useState<'5' | '12' | '18' | '28' | 'custom'>('18')
   const [gstCustomRate, setGstCustomRate] = useState('')
   const [gstSupply,     setGstSupply]     = useState<'intra' | 'inter'>('intra')
@@ -161,7 +165,8 @@ export default function VoucherEntry() {
   }, [companyId])
 
   // ── Derived flags ─────────────────────────────────────────────────────────
-  const needsEntity  = activeType ? NEEDS_ENTITY.has(activeType.nature)  : false
+  const needsEntity    = activeType ? NEEDS_ENTITY.has(activeType.nature)    : false  // shows entity field
+  const requiresEntity = activeType ? REQUIRES_ENTITY.has(activeType.nature) : false  // entity is mandatory
   const needsPayment    = activeType ? SHOWS_PAYMENT.has(activeType.nature) : false
   const requiresPayment = activeType ? NEEDS_PAYMENT.has(activeType.nature) : false
   const needsBank    = needsPayment && BANK_MODES.has(paymentMode)
@@ -196,13 +201,23 @@ export default function VoucherEntry() {
       const entityIds = (entities as RawEntity[]).map(e => e.id)
 
       // Step 2: find which of those have a role in the active company
+      // Role filter is context-aware: customers for sales, vendors for purchase, broader for payment/receipt
+      const roleFilter =
+        activeType?.nature === 'sales'
+          ? ['Customer', 'Client']
+          : activeType?.nature === 'purchase'
+            ? ['Vendor', 'Supplier']
+            : activeType?.nature === 'receipt'
+              ? ['Customer', 'Vendor', 'Supplier']
+              : ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor', 'Fisher']
+
       const { data: roles } = await supabase
         .schema('registry')
         .from('entity_roles')
         .select('entity_id, role')
         .eq('company_id', companyId)
         .eq('is_active', true)
-        .in('role', ['Vendor', 'Supplier', 'Staff', 'Management', 'Contractor', 'Government', 'Auditor'])
+        .in('role', roleFilter)
         .in('entity_id', entityIds)
 
       if (!roles?.length) { setEntityOptions([]); return }
@@ -236,7 +251,7 @@ export default function VoucherEntry() {
     } finally {
       setEntityLoading(false)
     }
-  }, [companyId])
+  }, [companyId, activeType?.nature]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEntityInput = (val: string) => {
     setEntitySearch(val)
@@ -264,6 +279,27 @@ export default function VoucherEntry() {
   const updateEntry = (index: number, field: keyof VoucherEntryRow, value: string) => {
     setEntries(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e))
   }
+
+  // ── Auto-trigger entity search when arriving from an invoice scan ──────────────
+  // Fires when the activeType is set and needsEntity becomes true.
+  // Pre-populates the entity search field with the scanned party name.
+  useEffect(() => {
+    const partyName = fromScanState?.prefill?.party_name
+    if (!needsEntity || !partyName) return
+    setEntitySearch(partyName)
+    searchEntities(partyName)
+  }, [needsEntity]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Auto-trigger entity search when arriving from an invoice scan ──────────────
+  // Fires when the activeType is set and needsEntity becomes true.
+  // Pre-populates the entity search field with the scanned party name so the
+  // user just has to confirm from the dropdown without retyping.
+  useEffect(() => {
+    const partyName = fromScanState?.prefill?.party_name
+    if (!needsEntity || !partyName) return
+    setEntitySearch(partyName)
+    searchEntities(partyName)
+  }, [needsEntity]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load tax ledgers when switching to sales/purchase voucher type ─────────
   useEffect(() => {
@@ -342,7 +378,7 @@ export default function VoucherEntry() {
   const validate = () => {
     if (!activeType)                              { toast.error('Select a voucher type');               return false }
     if (!voucherDate)                             { toast.error('Voucher date is required');            return false }
-    if (needsEntity && !entityId)                 { toast.error('Party is required for this voucher type'); return false }
+    if (needsEntity && !entityId && requiresEntity)  { toast.error('Party is required for this voucher type'); return false }
     if (requiresPayment && !paymentMode)           { toast.error('Payment mode is required');            return false }
     if (needsBank && !bankLedgerId)               { toast.error('Bank ledger is required');             return false }
     if (entries.length < 2)                       { toast.error('At least 2 entry rows required');      return false }
@@ -572,10 +608,18 @@ export default function VoucherEntry() {
             />
           </div>
 
-          {/* Entity (Party) — only for Receipt */}
+          {/* Entity field: payment=Payee, receipt=Received From, sales=Customer, purchase=Vendor */}
           {needsEntity && (
             <div className={styles.field}>
-              <label className={styles.label}>Party <span className={styles.req}>*</span></label>
+              <label className={styles.label}>
+                {activeType?.nature === 'sales'    ? 'Customer / Billed To' :
+                 activeType?.nature === 'purchase' ? 'Vendor / Supplier' :
+                 activeType?.nature === 'receipt'  ? 'Received From' :
+                                                     'Payee / Beneficiary'}
+                {requiresEntity
+                  ? <span className={styles.req}> *</span>
+                  : <span className={styles.labelOpt}> (optional — needed for bill tracking)</span>}
+              </label>
               {entityId ? (
                 <div className={styles.entitySelected}>
                   <span>{entityLabel}</span>
@@ -588,7 +632,12 @@ export default function VoucherEntry() {
                     className={`${styles.input} ${styles.typeaheadInput}`}
                     value={entitySearch}
                     onChange={e => handleEntityInput(e.target.value)}
-                    placeholder="Search vendors, staff, contractors…"
+                    placeholder={
+                      activeType?.nature === 'sales'    ? 'Search customers…' :
+                      activeType?.nature === 'purchase' ? 'Search vendors, suppliers…' :
+                      activeType?.nature === 'receipt'  ? 'Search customers…' :
+                      'Search vendors, staff, contractors…'
+                    }
                   />
                   {entityLoading && <Loader2 size={13} className={`${styles.spin} ${styles.typeaheadSpinner}`} />}
                   {entityOptions.length > 0 && (

@@ -1,5 +1,5 @@
 # Relish Platform — Master Reference Document
-**Last Updated:** June 19, 2026  
+**Last Updated:** July 4, 2026  
 **Maintained by:** Motty Philip · motty.philip@gmail.com  
 **Update this file** after every significant build session in Suite or Pramaana.
 
@@ -40,6 +40,9 @@ This is the single source of truth for the entire Relish digital platform. It li
 │                        approval_actions, vouchers,              │
 │                        voucher_entries, voucher_line_items,     │
 │                        suspense_settlements, voucher_attachments│
+│                        voucher_allocations,                     │
+│                        company_payment_accounts,                │
+│                        invoice_scans, invoice_scan_items,       │
 │                        capture_sessions, notifications,         │
 │                        push_subscriptions, otp_sessions,        │
 │                        settlement_sessions, gst_details,        │
@@ -308,15 +311,19 @@ For China and Japan the tax number is the same as the company registration numbe
 | Company Select | `/select-company` | Authenticated |
 | Dashboard | `/` | All roles |
 | Ledger Master | `/ledgers` | admin, accounts, auditor, super_admin |
-| Voucher Entry | `/vouchers/new` | admin, accounts, super_admin |
+| Voucher Entry (advanced + simplified) | `/vouchers/new` | admin, accounts, super_admin |
 | Voucher Register | `/vouchers` | All authenticated roles |
 | Voucher Search | `/vouchers/search` | All authenticated roles |
 | Voucher Edit | `/vouchers/:id/edit` | admin, accounts, super_admin |
 | Approval Queue | `/approvals` | admin, accounts, auditor, super_admin |
+| Awaiting Payments | `/payments` | admin, accounts, super_admin |
 | Suspense Register | `/suspense` | All authenticated roles |
 | New Suspense | `/suspense/new` | admin, accounts, super_admin |
 | Settlement Page | `/settle/:token` | **Public — no login** |
 | Bill Relay Capture | `/relay` | **Public — no login** |
+| Invoice Scan — Upload | `/invoices/scan` | admin, accounts, super_admin |
+| Invoice Scan — Inbox | `/invoices/inbox` | admin, accounts, super_admin |
+| Invoice Scan — Detail | `/invoices/inbox/:id` | admin, accounts, super_admin |
 | Day Book | `/reports/day-book` | admin, accounts, auditor, super_admin |
 | Ledger Statement | `/reports/ledger` | admin, accounts, auditor, super_admin |
 | Trial Balance | `/reports/trial-balance` | admin, accounts, auditor, super_admin |
@@ -328,6 +335,7 @@ For China and Japan the tax number is the same as the company registration numbe
 | Ratio Analysis | `/reports/ratios` | admin, accounts, auditor, super_admin |
 | Exception Reports | `/reports/exceptions` | admin, accounts, auditor, super_admin |
 | Inventory (ClamFlow) | `/inventory` | admin, accounts, auditor, super_admin |
+| Admin Panel | `/admin` | super_admin only — Pay-From Accounts, CSV ledger import, data reset |
 
 ### 8.2 Modules Pending — Phase 4+
 
@@ -337,7 +345,8 @@ For China and Japan the tax number is the same as the company registration numbe
 | TDS Reports | `/reports/tds` | Phase 5 |
 | Schedule III Financials | `/reports/schedule-iii` | Phase 6 — ROC filing format for RFPL |
 | Pramaana Dashboard KPIs | `/` | Replace placeholder with live cards: Today's Payments, Pending Approvals, Bank Balance, Open Suspense |
-| UPI Pay Now | Approval Queue + Voucher Register | Phase 3.1 |
+| Multi-level Approval Hierarchy | `/approvals` | Phase 3 — approval escalation chain |
+| Period Lock | `/admin` | Phase 4 — prevent editing vouchers before lock date |
 
 ### 8.3 Pramaana Key Lib Files
 
@@ -392,6 +401,22 @@ supabase.schema('registry').rpc('next_fy_sequence', {...})
 | 009_ledger_bank_fields.sql | ✅ Applied | is_bank_account, bank_name, account_number, ifsc on pramaana.ledgers |
 | 010_seed_test_ledgers.sql | ✅ Applied | Test ledgers for RHHF (SBI, Cash, Creditors, Expenses) |
 | 021_suspense_schema_extension.sql | ✅ Applied | is_suspense, suspense_balance on vouchers; token, advance_voucher_id on settlement_sessions; entry_type, description on suspense_settlements; anon RLS policies |
+| 025_fix_status_enums_and_payment_columns.sql | ✅ Applied | Expanded voucher status CHECK enum; added paid_at, paid_by on vouchers (IF NOT EXISTS) |
+| 030_inventory_valuations.sql | ✅ Applied | pramaana.inventory_valuations table for ClamFlow stock valuation |
+| 031_reset_rpc.sql | ✅ Applied | Dev-only reset RPC (super_admin only) |
+| 032_grant_pramaana_schema_to_postgrest_roles.sql | ✅ Applied | GRANT USAGE on pramaana schema to anon/authenticated PostgREST roles |
+| 033_ocr_confidence.sql | ✅ Applied | ocr_confidence NUMERIC(5,2) + source TEXT ('manual'\|'ocr') on pramaana.vouchers; idx_vouchers_source |
+| 034_scan_ref_sequence.sql | ⏳ **PENDING** | pramaana.scan_sequence_counters + pramaana.next_scan_ref() RPC; also adds our_gstin to invoice_scans |
+| 035_suspense_submitted_by.sql | ✅ Applied | submitted_by UUID on pramaana.suspense_settlements |
+| 036_pay_now.sql | ✅ Applied | pramaana.company_payment_accounts table; paid_from_account TEXT on pramaana.vouchers |
+| 037_profile_mobile.sql | ✅ Applied | mobile TEXT on registry.profiles (admin mobile lookup for Pay Now modal) |
+| 038_attachment_type.sql | ✅ Applied | attachment_type TEXT CHECK ('invoice'\|'transfer_receipt'\|'other') on pramaana.voucher_attachments |
+| 039_awaiting_payment_status.sql | ✅ Applied | Added 'awaiting_payment' to voucher status enum; queued_at + queued_for_payment_by on pramaana.vouchers |
+| 040_bill_allocations.sql | ✅ Applied | pramaana.voucher_allocations table — links payment/receipt vouchers to purchase/sales bills |
+| 041_create_linked_vouchers.sql | ✅ Applied | Linked voucher creation RPC — atomically creates a paired Payment + Purchase voucher in a single transaction |
+| 042_ledger_pending_review.sql | ✅ Applied | is_pending_review BOOLEAN on pramaana.ledger_groups AND pramaana.ledgers — flags records created by accounts role for admin review |
+| 044_posted_voucher_immutability.sql | ✅ Applied | trg_prevent_posted_voucher_update trigger (belt-and-suspenders UPDATE guard for posted/cancelled vouchers) |
+| 20260625000000_invoice_scan_module.sql | ✅ Applied | pramaana.invoice_scans + pramaana.invoice_scan_items tables; RLS policies; Storage bucket bill-attachments |
 
 ### 8.7 Storage
 
@@ -721,6 +746,18 @@ Auth, company switching, RBAC, Purchase Orders, Commercial Invoices, GST Invoice
 ### ✅ Phase 2 — Pramaana Core (Complete)
 Ledger Master, Voucher Entry (simplified + advanced mode), Approval Queue, Voucher Register, Suspense Advances, Settlement Page (public), Bill Relay Capture, SMS Integration (2Factor), WhatsApp interim share (wa.me)
 
+### ✅ Phase 3 — Pramaana Payments & Financial Reports (Complete — July 2026)
+- **Pay Now** — PayNowModal on Voucher Register; bank transfer, UPI, cheque support; `paid_from_account` recorded; migrations 036+037
+- **Awaiting Payments page** (`/payments`) — completed-but-unpaid vouchers oldest first; ⚠ overdue flag after 48h
+- **Bill Allocations** — `voucher_allocations` table (migration 040); `BillAllocPanel` in Simplified Payment Entry links payment to open purchase bills
+- **Linked Vouchers** — migration 041 RPC creates Purchase + Payment atomically in one transaction
+- **Posted Voucher Immutability** — migration 044 DB trigger; posted/cancelled vouchers are permanently locked
+- **Ledger Pending Review** — migration 042; ledgers and groups created by `accounts` role flagged for admin approval
+- **Invoice Scan Module** — `/invoices/scan` + `/invoices/inbox` + `/invoices/inbox/:id`; OCR via `api/ocr-edge.ts` (GPT-4o Vision); results stored in `pramaana.invoice_scans`; "Create Draft Voucher" prefills VoucherEntry
+- **Admin Panel** (`/admin`) — super_admin only: Pay-From Accounts CRUD, CSV ledger-group import, CSV ledger import, data reset
+- **All Financial Reports** — Day Book, Ledger Statement, Trial Balance, P&L, Balance Sheet, Receivables/Payables, Cash Flow, GST Reports, Ratio Analysis, Exception Reports
+- **VoucherRegister detail panel** — now a centered modal overlay with traceability stamps: created by, approved by, OTP verified by, completed by
+
 ### 🔲 Immediate — Pramaana Dashboard (replaces placeholder)
 Four KPI cards:
 - **Today's Payments** — sum of payment vouchers posted today
@@ -777,13 +814,7 @@ Dedicated onboarding flow inside Suite for plant employees, daily wage workers, 
 - Supabase Storage bucket `worker-photos` created (private, signed URLs)
 - **Shift schema reference:** ClamFlow's `shift_definitions` + `shift_assignments` tables (reviewed June 12 2026) serve as the design reference for `registry.shifts`. Same structure: definition rows (name/times/type) + assignment rows (staff_id, date, status).
 
-### 🔲 Phase 3 — Pramaana Financial Reports
-Trial Balance, Ledger Statement, Day Book, P&L, Balance Sheet
-
-### 🔲 Phase 3 — UPI Pay Now (Pramaana)
-"Pay Now" button on Approval Queue + Voucher Register detail panels, shown when status=posted, payee has upi_id, amount>0. Mobile → UPI deep link (`upi://pay?...`) opens GPay/PhonePe chooser. Desktop → QR code via `qrcode` npm package. "Mark Paid" button records payment_mode + utr_number after manual payment.
-
-### 🔲 Phase 3 — Tally Import Tool
+### 🔲 Phase 4 — Tally Import Tool
 CSV import for Ledger Groups, Ledgers, and historical Vouchers
 
 ### 🔲 Phase 4 — GST Module
@@ -804,11 +835,11 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 | Entity payee search is intentionally GLOBAL | `VoucherEntry.tsx`, `SimplifiedPaymentEntry.tsx` | Resolved June 12 2026 | Removed company_id filter — entities from either company visible as payees in any voucher. Voucher itself remains company-scoped. |
 | `rfid_tag` column missing from `registry.biometrics` | DB Schema | Medium | Required before Phase 2.5. Pending migration 023: ADD COLUMN rfid_tag TEXT UNIQUE + rfid_issued_at + rfid_issued_by |
 | Plant workers not yet in `registry.entities` | Phase 2.5 | High | ClamFlow is not in production — no data to migrate. All plant workers will be onboarded fresh via the Phase 2.5 form. Blocks Pramaana payee access for plant staff until Phase 2.5 is built. |
-| Dashboard is placeholder | Both apps | Medium | No live KPI cards yet |
+| Dashboard is placeholder | Pramaana only | Medium | No live KPI cards yet — `src/lib/dashboard.ts` exists but page shows static placeholder |
 | CalciWorks sync button | Suite | Low | Query proven, no plant data yet |
 | `fp_forms` table empty | ClamFlow | — | Plant not processing batches yet. Sync will work when data exists. |
 | WhatsApp Business API onboarding (2Factor) | Both | Medium | Initiated June 12 2026 via 2Factor's official WhatsApp onboarding form. Awaiting connect/approval (~24-48h). Interim `wa.me` share is live in the meantime — see Section 8.8. |
-| `/vouchers/:id/edit` route | Pramaana | Medium | **FIXED** — VoucherEdit.tsx built, route added to App.tsx (draft status only) |
+| 034_scan_ref_sequence.sql not applied | Pramaana DB | Medium | Pending — `pramaana.next_scan_ref()` RPC not yet available in production; invoice scan uses a fallback ref format until applied |
 | Voucher Edit form not tested end-to-end | Pramaana | Medium | VoucherEdit.tsx built but no confirmation it saves correctly — test with a real draft voucher |
 | VCT Traders mobile number anomaly | `registry.entities` | Low | Mobile stored as `99947151524` (11 digits) — likely data-entry error. Needs manual verification against source records before standardising to `+91` format. |
 | ClamFlow Rekognition collection mismatch | ClamFlow backend + Suite Phase 2.5 | Medium | ClamFlow uses `clamflow-staff` and `clamflow-visitors`. Suite Phase 2.5 will use `relish-registry`. Before Phase 3 (ClamFlow reads from Suite), all existing ClamFlow face enrolments must be deleted from `clamflow-staff` and re-indexed into `relish-registry` from `registry.biometrics`. No action needed until Phase 3. |
@@ -851,7 +882,7 @@ Balance Sheet and P&L in Companies Act format for RFPL ROC filing
 11. Voucher Dr must equal Cr before posting — enforced by DB trigger `fn_validate_voucher_balance`
 12. Entity select for payment vouchers is a typeahead — never free text
 13. `tally_ledger_name` on ledgers is required — warn prominently if blank
-14. OTP hash is stored via bcrypt — plain OTP is NEVER stored anywhere
+14. OTP hash uses SHA-256 with a random 16-byte salt (`salt:hash` format, both hex) via Web Crypto API — bcrypt is NOT used (Vercel Edge runtime lacks Node.js crypto). Plain OTP is NEVER stored anywhere.
 15. Settlement page `/settle/:token` is public — no auth required. Token possession is the credential.
 16. `anon` role has SELECT on `settlement_sessions` + `vouchers` (suspense only) + INSERT on `suspense_settlements` with session guard
 17. Pramaana does not send payment confirmation messages of any kind (SMS or WhatsApp). If a payee believes a payment is missing, they contact the office directly.
@@ -1016,6 +1047,16 @@ Suite onboarding form camera → JPEG → POST /api/enroll-face (Vercel Edge Fun
 | 2026-06-12 | pramaana | — | design: UPI Pay Now feature spec — deep link + QR code for Approval Queue / Voucher Register detail panels (not yet built — Phase 3) |
 | 2026-06-12 | both | — | arch: ClamFlow backend code reviewed — Section 21.1 A-H fully answered. Key decisions: Suite is source of truth from day one (ClamFlow pre-production, all data is test data); OpenCV face recognition is replaced by AWS Rekognition (`relish-registry` collection, ap-south-1); RFID in ClamFlow is product-box only; no migration needed; Phase 2.5 plan corrected to fresh onboarding not migration. Visitor Pass + Gate Vehicle Log modules added to roadmap. RELISH_PLATFORM_MASTER.md updated. |
 | 2026-06-12 | clamflow_backend | `41805f6` | fix: replace OpenCV histogram face recognition with AWS Rekognition across all call sites. Rewrote `face_recognition_unified.py` as thin wrapper around `utils/aws_rekognition.py`. Fixed `api/attendance/routes.py` (SearchFacesByImage via STAFF collection). Fixed `api/visitors/routes.py` register (IndexFaces via VISITOR collection) and verify (SearchFacesByImage). Fixed `api/onboarding/routes.py` approve (auto-enroll face on Admin approval). Updated `api/visitors/schemas.py`: `face_embedding` List[float] → `face_image_b64` str. Updated RELISH_PLATFORM_MASTER.md with full Rekognition configuration, IAM policy, collection setup, and end-to-end flow. |
+| 2026-06-25 | pramaana | — | feat: Invoice Scan module — migration 20260625000000_invoice_scan_module.sql (pramaana.invoice_scans + invoice_scan_items); api/ocr-edge.ts Vercel Edge Function (GPT-4o Vision OCR); src/hooks/useInvoiceScan.ts state machine; InvoiceScanModal; ScanUpload, ScanInbox, ScanDetail pages under /invoices; "Create Draft Voucher" prefills VoucherEntry from OCR results |
+| 2026-07-03 | pramaana | — | feat: Pay Now workflow — migration 036 (company_payment_accounts + paid_from_account); migration 037 (profile mobile); PayNowModal; AwaitingPayments page (/payments); pay-now.ts lib; Pay Now button on VoucherRegister detail panel (super_admin + admin + accounts-bank-only); Admin Panel Pay-From Accounts tab |
+| 2026-07-03 | pramaana | — | feat: Bill allocations — migration 040 (voucher_allocations); BillAllocPanel; allocations.ts; Simplified Payment Entry wires open purchase bills to payment voucher |
+| 2026-07-03 | pramaana | — | feat: Linked vouchers — migration 041 RPC; creates Purchase + Payment atomically in single DB transaction |
+| 2026-07-03 | pramaana | — | feat: Ledger pending review — migration 042 (is_pending_review on ledger_groups + ledgers); accounts-role creations flagged for admin approval; Ledger Master shows pending badge |
+| 2026-07-03 | pramaana | — | feat: Posted voucher immutability — migration 044 belt-and-suspenders UPDATE trigger; trg_prevent_posted_voucher_update |
+| 2026-07-03 | pramaana | — | feat: Admin Panel (/admin, super_admin only) — Pay-From Accounts CRUD, CSV ledger-group import, CSV ledger import (admin.ts), data reset RPC |
+| 2026-07-03 | pramaana | — | feat: VoucherRegister detail panel refactored to centered modal overlay; traceability stamps (created_by, approved_by, otp_verified_by, completed_by) rendered in print copy; fetchVoucherFull returns all posted_*/otp_verified_*/completed_* fields + resolver names |
+| 2026-07-03 | pramaana | — | feat: all financial reports complete — Day Book, Ledger Statement, Trial Balance, P&L, Balance Sheet, Receivables/Payables, Cash Flow, GST Reports (GSTR-1 + GSTR-3B), Ratio Analysis (8 ratios), Exception Reports (5 categories) |
+| 2026-07-04 | pramaana | — | docs: RELISH_PLATFORM_MASTER.md updated — schema diagram, Section 8 modules/lib/migrations, Phase 3 roadmap marked complete, Known Issues updated, session log entries added |
 
 ---
 
@@ -1195,16 +1236,18 @@ Pramaana is active and in use. This sub-section tracks features that exist in th
 |---|---------|-------------------|----------|--------|
 | P1 | WhatsApp share button for settlement links (wa.me interim) | User request (June 2026) | High | ✅ Done June 12 2026 |
 | P2 | Payment Confirmed action in Voucher Register | User request (June 2026) | High | ❌ Dropped June 12 2026 — no payment-confirmed message is sent; payees contact the office if a payment is missing |
-| P3 | Trial Balance report | Accounting standard | High | 🔲 |
-| P4 | Ledger Statement (date-range, per ledger) | Accounting standard | High | 🔲 |
-| P5 | Day Book (all vouchers in date order) | Accounting standard | Medium | 🔲 |
-| P6 | Profit & Loss Statement | Accounting standard | Medium | 🔲 |
-| P7 | Balance Sheet | Accounting standard | Medium | 🔲 |
-| P8 | Multi-level payment approval hierarchy | Approvals app | Medium | 🔲 |
+| P3 | Trial Balance report | Accounting standard | High | ✅ Done July 2026 |
+| P4 | Ledger Statement (date-range, per ledger) | Accounting standard | High | ✅ Done July 2026 |
+| P5 | Day Book (all vouchers in date order) | Accounting standard | Medium | ✅ Done July 2026 |
+| P6 | Profit & Loss Statement | Accounting standard | Medium | ✅ Done July 2026 |
+| P7 | Balance Sheet | Accounting standard | Medium | ✅ Done July 2026 |
+| P8 | Multi-level payment approval hierarchy | Approvals app | Medium | 🔲 Phase 4 |
 | P9 | Receipt / proof upload by payee at settlement | Approvals app | Medium | 🔲 |
 | P10 | Period lock (prevent editing posted vouchers before lock date) | Accounting standard | Low | 🔲 |
-| P11 | UPI Pay Now — deep link + QR code on voucher detail panels | User request (June 2026) | Medium | 🔲 Designed, not built |
+| P11 | Pay Now — bank transfer + UPI + cheque + NEFT/RTGS/IMPS | User request (June 2026) | High | ✅ Done July 2026 — PayNowModal + AwaitingPayments page |
 | P12 | WhatsApp Business API via 2Factor — replaces wa.me interim | User request (June 2026) | Medium | 🔲 Onboarding initiated, awaiting 2Factor approval |
+| P13 | Invoice Scan (OCR) — GPT-4o Vision → draft voucher prefill | User request (June 2026) | High | ✅ Done June 2026 — /invoices/scan + /invoices/inbox |
+| P14 | Pramaana Dashboard — live KPI cards | User request | Medium | 🔲 lib/dashboard.ts exists; page still shows placeholder |
 
 ---
 

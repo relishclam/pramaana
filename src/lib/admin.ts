@@ -291,3 +291,61 @@ export function downloadCsvTemplate(filename: string, content: string): void {
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+
+// ── Period Lock ───────────────────────────────────────────────────────────────
+// One row per company in pramaana.period_locks. Vouchers dated on or before
+// lock_date are blocked from INSERT / UPDATE / DELETE by DB trigger.
+
+export interface PeriodLock {
+  id:        string
+  company_id: string
+  lock_date:  string   // ISO date: 'YYYY-MM-DD'
+  locked_by:  string   // auth.users.id
+  locked_at:  string   // ISO timestamptz
+  note:       string | null
+}
+
+/** Returns the current lock for a company, or null if unlocked. */
+export async function fetchPeriodLock(companyId: string): Promise<PeriodLock | null> {
+  const { data, error } = await supabase
+    .schema('pramaana')
+    .from('period_locks')
+    .select('*')
+    .eq('company_id', companyId)
+    .maybeSingle()
+  if (error) throw new Error('Failed to load period lock: ' + error.message)
+  return (data as PeriodLock | null) ?? null
+}
+
+/** Set (or move) the lock date for a company. Uses upsert on company_id. */
+export async function setPeriodLock(
+  companyId: string,
+  lockDate:  string,
+  lockedBy:  string,
+  note?:     string,
+): Promise<void> {
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('period_locks')
+    .upsert(
+      {
+        company_id: companyId,
+        lock_date:  lockDate,
+        locked_by:  lockedBy,
+        locked_at:  new Date().toISOString(),
+        note:       note ?? null,
+      },
+      { onConflict: 'company_id' },
+    )
+  if (error) throw new Error('Failed to set period lock: ' + error.message)
+}
+
+/** Remove the lock for a company (unlock). */
+export async function clearPeriodLock(companyId: string): Promise<void> {
+  const { error } = await supabase
+    .schema('pramaana')
+    .from('period_locks')
+    .delete()
+    .eq('company_id', companyId)
+  if (error) throw new Error('Failed to clear period lock: ' + error.message)
+}

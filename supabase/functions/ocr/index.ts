@@ -280,23 +280,21 @@ serve(async (req) => {
   const companyName  = (company.name  as string) ?? ''
 
   // ── Determine media type for OpenAI ───────────────────────────────────────
-  // GPT-4o accepts image/* and application/pdf natively
+  // GPT-4o Chat Completions Vision accepts image/* only — not application/pdf.
+  // Clients must convert PDFs to JPEG before calling this function.
+  // (useOcr.ts and useInvoiceScan.ts both do this via PDF.js page 1 → 2× JPEG.)
   const mediaType = (fileType ?? 'image/jpeg') as string
-  const isPdf = mediaType === 'application/pdf'
 
-  // For PDFs: use document source type; for images: use image_url
+  if (mediaType === 'application/pdf') {
+    return json({
+      error: 'Raw PDF files are not accepted. Convert to JPEG client-side (PDF.js page 1 render) before uploading.',
+    }, 400)
+  }
+
   // deno-lint-ignore no-explicit-any
-  let contentItem: any
-  if (isPdf) {
-    contentItem = {
-      type:   'document',
-      source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 },
-    }
-  } else {
-    contentItem = {
-      type:      'image_url',
-      image_url: { url: `data:${mediaType};base64,${fileBase64}`, detail: 'high' },
-    }
+  const contentItem: any = {
+    type:      'image_url',
+    image_url: { url: `data:${mediaType};base64,${fileBase64}`, detail: 'high' },
   }
 
   // ── Call GPT-4o Vision ────────────────────────────────────────────────────

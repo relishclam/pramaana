@@ -576,7 +576,7 @@ WITH CHECK (user_id = auth.uid() OR registry.is_super_admin());
 | company_id | UUID | FK → registry.companies(id) NOT NULL |
 | initiated_by | UUID | FK → auth.users(id) NOT NULL |
 | mobile | TEXT | NOT NULL. Number OTP was sent to |
-| otp_hash | TEXT | NOT NULL. bcrypt hash. Plain OTP never stored. |
+| otp_hash | TEXT | NOT NULL. SHA-256+salt hash (format: `salt:hash`, both hex-encoded). Plain OTP never stored. |
 | expires_at | TIMESTAMPTZ | NOT NULL |
 | verified_at | TIMESTAMPTZ | |
 | status | TEXT | CHECK IN ('pending','verified','expired','cancelled') |
@@ -1065,10 +1065,10 @@ OTP-based payment verification. Called by `approvals.ts` (initiate) and `Approva
 
 | Function | Signature | Tables | Operation |
 |---|---|---|---|
-| `initiatePaymentOtp` | `(voucherId, companyId, initiatedBy, entityId) → OtpInitResult` | registry.entities, pramaana.otp_sessions | Fetches entity mobile; cancels existing pending OTP sessions for this voucher; generates 6-digit OTP; calls `POST /api/otp` to bcrypt-hash it; INSERTs `pramaana.otp_sessions` row (10-min expiry); sends SMS via `sendPaymentOtpSms()`. Returns `{sent:true, mobile_masked}` or `{sent:false, reason}`. |
-| `verifyPaymentOtp` | `(voucherId, plainOtp, verifiedBy) → OtpVerifyResult` | pramaana.otp_sessions, pramaana.vouchers | Fetches active pending session; checks attempt limit (max 3); calls `POST /api/otp` to verify OTP against bcrypt hash; on match: marks session `verified`, UPDATEs voucher to `status='completed'` with `otp_verified_at`, `completed_at`. On mismatch: increments `failed_attempts`. |
+| `initiatePaymentOtp` | `(voucherId, companyId, initiatedBy, entityId) → OtpInitResult` | registry.entities, pramaana.otp_sessions | Fetches entity mobile; cancels existing pending OTP sessions for this voucher; generates 6-digit OTP; calls `POST /api/otp` to hash it (SHA-256+salt via Web Crypto); INSERTs `pramaana.otp_sessions` row (10-min expiry); sends SMS via `sendPaymentOtpSms()`. Returns `{sent:true, mobile_masked}` or `{sent:false, reason}`. |
+| `verifyPaymentOtp` | `(voucherId, plainOtp, verifiedBy) → OtpVerifyResult` | pramaana.otp_sessions, pramaana.vouchers | Fetches active pending session; checks attempt limit (max 3); calls `POST /api/otp` to verify OTP against stored SHA-256+salt hash (constant-time XOR compare); on match: marks session `verified`, UPDATEs voucher to `status='completed'` with `otp_verified_at`, `completed_at`. On mismatch: increments `failed_attempts`. |
 
-**`/api/otp` Vercel Edge Function:** Handles both `action:'hash'` (bcrypt hash generation) and `action:'verify'` (bcrypt compare). Uses `VITE_OTP_INTERNAL_SECRET` as anti-abuse header. Plain OTP is NEVER stored — only the bcrypt hash is persisted in `pramaana.otp_sessions`.
+**`/api/otp` Vercel Edge Function:** Handles both `action:'hash'` (SHA-256+salt generation via Web Crypto) and `action:'verify'` (constant-time XOR compare against stored hash). bcrypt is NOT used — the Vercel Edge runtime does not support Node.js crypto modules. Plain OTP is NEVER stored — only the `salt:hash` string is persisted in `pramaana.otp_sessions`.
 
 **OTP session row:** `{voucher_id, company_id, initiated_by, mobile, otp_hash, expires_at: now+10min, status:'pending', failed_attempts:0}`
 
@@ -1680,18 +1680,18 @@ Payment vouchers (PYMT, RCPT) go through a two-step approval after being submitt
 2. Calls `approveVoucher(voucherId, companyId, userId, comments, entityId)`
 3. Voucher: `pending_approval → approved`
 4. `initiatePaymentOtp()` sends a 6-digit OTP via SMS to payee's registered mobile
-5. OTP is bcrypt-hashed; only hash is stored in `pramaana.otp_sessions` (10-min expiry)
+5. OTP is SHA-256+salt hashed (Web Crypto); only `salt:hash` stored in `pramaana.otp_sessions` (10-min expiry)
 6. UI shows masked mobile (e.g. `******1234`) — admin asks payee to read OTP aloud
 
 **Step 2 — OTP Verification (in `/approvals` OTP panel):**
 1. Admin receives OTP verbally from payee, enters it in the UI
 2. `verifyPaymentOtp(voucherId, plainOtp, verifiedBy)` called
-3. `/api/otp` edge function bcrypt-compares against stored hash
+3. `/api/otp` edge function compares plain OTP against stored SHA-256+salt hash (constant-time XOR)
 4. On match: voucher `approved → completed`; writes `otp_verified_at`, `completed_at`
 5. On mismatch: `failed_attempts` incremented; max 3 attempts before session locked
 
 **Security properties:**
-- Plain OTP never stored (bcrypt hash only)
+- Plain OTP never stored (SHA-256+salt hash only; bcrypt NOT used — Vercel Edge runtime lacks Node.js crypto stdlib)
 - OTP expires after 10 minutes
 - Max 3 attempts per session
 - `VITE_OTP_INTERNAL_SECRET` header prevents direct calls to `/api/otp` from outside the Vercel deployment

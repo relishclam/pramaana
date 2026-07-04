@@ -14,6 +14,7 @@ import {
   type RecentVoucher,
 } from '@/lib/dashboard'
 import css from './Dashboard.module.css'
+import FoodStreamMini from '@/components/FoodStreamMini'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -295,7 +296,7 @@ export default function DashboardPage() {
         <div className={css.section}>
           <div className={css.sectionHead}>Recent Vouchers</div>
           {loading ? (
-            <div className={css.emptyState}>Loading…</div>
+            <FoodStreamMini label="Loading recent vouchers…" size={48} />
           ) : vouchers.length === 0 ? (
             <div className={css.emptyState}>
               No vouchers yet for this company.<br />

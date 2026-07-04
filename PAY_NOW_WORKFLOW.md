@@ -44,9 +44,9 @@ Existing columns used by Pay Now: `utr_number`, `cheque_number`, `payment_mode`,
 | `ifsc` | `TEXT` | IFSC code |
 | `bank_name` | `TEXT` | Bank name — used for net banking URL lookup |
 
-### `pramaana.company_payment_accounts` (created by `036_pay_now.sql`)
+### `pramaana.company_payment_accounts` (created by `036_pay_now.sql`) — SUPERSEDED
 
-Managed list of "Pay From" accounts per company. Populates the datalist autocomplete in the Pay Now modal.
+> **Note:** This table exists in the DB but is **not queried by any app code**. The application evolved to use `registry.company_bank_accounts` (richer schema with full banking detail). The table below is retained as a DB artefact only.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -55,7 +55,23 @@ Managed list of "Pay From" accounts per company. Populates the datalist autocomp
 | `label` | `TEXT` | Display name, e.g. `HDFC Current A/C`, `Federal Bank OD A/C` |
 | `created_at` | `TIMESTAMPTZ` | |
 
-RLS enabled; authenticated users have full access.
+### `registry.company_bank_accounts` (active table used by the app)
+
+Managed via **Admin Panel → Payment Accounts**. Populates the Pay-From datalist in the Pay Now modal. Queried by `fetchCompanyPaymentAccounts()` in `src/lib/pay-now.ts`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `company_id` | `UUID` | FK → `registry.companies(id)` |
+| `label` | `TEXT` | Display name, e.g. `HDFC Current A/C`, `Federal Bank OD A/C` |
+| `account_holder_name` | `TEXT` | Legal name on the account |
+| `bank_name` | `TEXT` | Used for mobile bank app launcher lookup |
+| `bank_account_number` | `TEXT` | Account number |
+| `bank_ifsc` | `TEXT` | IFSC code |
+| `upi_id` | `TEXT` | Company UPI VPA (sender reference) |
+| `is_primary` | `BOOLEAN` | Primary account shown first in datalist |
+| `is_active` | `BOOLEAN` | Soft-delete flag |
+| `created_at` | `TIMESTAMPTZ` | |
 
 ---
 

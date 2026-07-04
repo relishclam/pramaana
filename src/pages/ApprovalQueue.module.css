@@ -831,6 +831,17 @@
   color: var(--text-dim);
 }
 
+.rejectLinkedNote {
+  font-size: 0.8125rem;
+  color: var(--warning, #b45309);
+  background: color-mix(in srgb, var(--warning, #b45309) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning, #b45309) 30%, transparent);
+  border-radius: var(--radius);
+  padding: 0.375rem 0.625rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
 .rejectError {
   font-size: 0.8125rem;
   color: var(--error);

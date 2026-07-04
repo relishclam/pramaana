@@ -1,5 +1,25 @@
 import { supabase } from '@/lib/supabase'
 
+// ── Supported currencies (ISO 4217) ──────────────────────────────────────────────────
+// INR is always the functional / reporting currency for all companies.
+// All amounts stored in DB are INR equivalents; foreign_amount holds the original.
+
+export const FX_CURRENCIES = [
+  { code: 'INR', name: 'Indian Rupee' },
+  { code: 'USD', name: 'US Dollar' },
+  { code: 'EUR', name: 'Euro' },
+  { code: 'GBP', name: 'British Pound' },
+  { code: 'HKD', name: 'Hong Kong Dollar' },
+  { code: 'JPY', name: 'Japanese Yen' },
+  { code: 'CNY', name: 'Chinese Yuan (RMB)' },
+  { code: 'AED', name: 'UAE Dirham' },
+  { code: 'SGD', name: 'Singapore Dollar' },
+  { code: 'AUD', name: 'Australian Dollar' },
+  { code: 'CAD', name: 'Canadian Dollar' },
+] as const
+
+export type FXCurrencyCode = typeof FX_CURRENCIES[number]['code']
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface VoucherType {
@@ -27,7 +47,7 @@ export interface VoucherPayload {
   voucher_date: string            // ISO date
   narration: string | null
   entity_id: string | null
-  amount: number                  // total Dr side (= total Cr side)
+  amount: number                  // total Dr side in INR (= total Cr side)
   payment_mode: string | null
   bank_ledger_id: string | null
   cheque_number: string | null
@@ -37,13 +57,16 @@ export interface VoucherPayload {
   ref_document_number: string | null
   status: 'draft' | 'pending_approval'
   created_by: string
+  currency?:      string   // ISO 4217 code, default 'INR'
+  exchange_rate?: number   // INR per 1 unit of currency; default 1.0; always > 0
 }
 
 export interface VoucherEntryPayload {
   voucher_id: string
   ledger_id: string
   entry_type: 'Dr' | 'Cr'
-  amount: number
+  amount: number          // always INR
+  foreign_amount?: number | null  // original-currency amount; NULL for INR entries
   narration: string | null
   sort_order: number
 }

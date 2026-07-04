@@ -73,6 +73,42 @@ async function fileToBase64(file: File): Promise<string> {
   })
 }
 
+// ── PDF → JPEG helper (page 1 at 2× scale, mirrors useInvoiceScan) ────────────
+//
+// The OCR Edge Function only accepts images (OpenAI image_url). Render the first
+// page to a JPEG canvas client-side before uploading so the edge function always
+// receives an image — not a raw PDF binary.
+
+async function pdfToJpegBase64(file: File): Promise<{ base64: string; mimeType: string }> {
+  if (file.type !== 'application/pdf') {
+    const base64 = await fileToBase64(file)
+    return { base64, mimeType: file.type }
+  }
+  try {
+    const pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/build/pdf.worker.min.mjs',
+      import.meta.url,
+    ).toString()
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf         = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const page        = await pdf.getPage(1)
+    const viewport    = page.getViewport({ scale: 2.0 })
+    const canvas      = document.createElement('canvas')
+    canvas.width      = viewport.width
+    canvas.height     = viewport.height
+    const ctx         = canvas.getContext('2d')!
+    await page.render({ canvasContext: ctx, canvas, viewport }).promise
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+    return { base64: dataUrl.split(',')[1] ?? '', mimeType: 'image/jpeg' }
+  } catch {
+    // PDF.js unavailable — fall back to raw base64.
+    // The edge function will return a 400 with a clear message.
+    const base64 = await fileToBase64(file)
+    return { base64, mimeType: 'application/pdf' }
+  }
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
 export function useOcr() {
@@ -113,10 +149,13 @@ export function useOcr() {
       // Non-fatal — proceed without storage_path
     }
 
-    // ── 2. Convert to base64 ────────────────────────────────────────────────
+    // ── 2. Convert to base64 (PDFs rendered to JPEG first) ───────────────────
     let fileBase64: string
+    let fileType:   string
     try {
-      fileBase64 = await fileToBase64(file)
+      const converted = await pdfToJpegBase64(file)
+      fileBase64      = converted.base64
+      fileType        = converted.mimeType
     } catch (err) {
       setState(s => ({ ...s, loading: false, error: 'Failed to read file.' }))
       return null
@@ -126,7 +165,7 @@ export function useOcr() {
     const { data, error: fnErr } = await supabase.functions.invoke<OcrResult & { duplicate?: boolean; scanRef?: string }>('ocr', {
       body: {
         fileBase64,
-        fileType:    file.type,
+        fileType,           // image/jpeg for PDFs (converted above), original type for images
         invoiceType,
         companyId,
         userId,

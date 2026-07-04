@@ -789,6 +789,11 @@ function DetailPanel({
         <div className={styles.panelFooter}>
           {showRejectForm ? (
             <div className={styles.rejectForm}>
+              {voucher.voucher_type.nature === 'payment' && (
+                <p className={styles.rejectLinkedNote}>
+                  ⚠ Rejecting this payment returns it to Draft. If a purchase invoice was created alongside it, that voucher will remain in Pending Approval — it is not removed automatically.
+                </p>
+              )}
               <label className={styles.footerLabel}>
                 Rejection reason <span className={styles.req}>*</span>
               </label>

@@ -527,7 +527,7 @@ initiatePaymentOtp()
   1. Fetch entity.mobile from registry.entities
   2. Cancel any existing pending OTP session for this voucher
   3. Generate 6-digit random OTP
-  4. Hash OTP via /api/otp edge function (HMAC-SHA256 + PRAMAANA_OTP_SECRET)
+  4. Hash OTP via /api/otp edge function (SHA-256 with random 16-byte salt; Web Crypto API — no bcrypt, Edge runtime compatible)
   5. INSERT pramaana.otp_sessions {
        voucher_id, company_id, initiated_by,
        mobile, otp_hash, expires_at (+10 min),
@@ -641,7 +641,7 @@ Admin completes payment in their banking app / UPI app
         │
         ▼
 Mark Paid panel:
-  paid_from_account  — company bank account used (datalist from company_payment_accounts)
+  paid_from_account  — company bank account used (datalist from `registry.company_bank_accounts`)
                        Required for bank transfer modes; optional for UPI
   paid_at            — date of payment (default: today)
   utr_number         — transaction reference (UPI, NEFT, RTGS, IMPS, Bank modes)
@@ -747,7 +747,7 @@ Managed in **Relish Suite → Master Data → Entities**.
 | `company_id` | UUID | |
 | `initiated_by` | UUID | Admin who triggered |
 | `mobile` | TEXT | Payee mobile number |
-| `otp_hash` | TEXT | HMAC-SHA256 hash (never stored plain) |
+| `otp_hash` | TEXT | SHA-256+salt hash (format: `salt:hash`, both hex-encoded). Constant-time XOR comparison on verify. Plain OTP never stored. |
 | `expires_at` | TIMESTAMPTZ | 10 minutes from creation |
 | `status` | TEXT | `pending` → `verified` / `expired` / `cancelled` |
 | `failed_attempts` | INT | 0–3; locked at 3 |
@@ -896,31 +896,39 @@ The risk depends on how `registry.next_fy_sequence` is implemented:
 - **If it uses a Postgres `SEQUENCE` object (`NEXTVAL`):** Each concurrent call gets a guaranteed-unique value. Two simultaneous submits cannot get the same number. Gaps on rollback are acceptable per standard accounting practice. ✅ Safe.
 - **If it uses `SELECT MAX(seq_num) + 1`:** Two concurrent submits can read the same max and produce a duplicate number. ❌ Not safe — must be replaced with `SELECT ... FOR UPDATE` on the counter row, or migrated to a real Postgres `SEQUENCE`.
 
-**Action:** Confirm which implementation `registry.next_fy_sequence` uses. The `041_create_linked_vouchers.sql` comment describes it as a "non-transactional counter" which is consistent with a Postgres `SEQUENCE` (sequences are non-transactional by design). If it is `MAX+1`, file a bug and fix before go-live.
+**Action:** ✅ Confirmed safe — `registry.next_fy_sequence` uses `INSERT ... ON CONFLICT DO UPDATE RETURNING last_number` on `registry.sequence_counters`. This is an atomic upsert; Postgres row-level locking prevents duplicate numbers on concurrent submits. No fix needed. (Verified July 2026 in `relish-business-suite/supabase/migrations/002_registry_schema.sql` line 431.)
 
 **Gap behaviour:** Gaps in voucher numbering are normal — they occur when a draft with an assigned number is recalled and deleted, or when a transaction rolls back after a sequence call. This is acceptable under accounting convention; auditors accept gaps with explanation.
 
 ---
 
-### 13.2 Multi-Currency / FX — Not Yet Modelled
+### 13.2 Multi-Currency / FX — Implemented (Migration 045)
 
-The current schema has **no `currency` or `exchange_rate` column** anywhere in `pramaana.vouchers`, `pramaana.voucher_entries`, or `registry.entities`.
+**Status: ✅ Built July 2026.** Deploy `supabase/migrations/045_multi_currency.sql` before entering any FX voucher.
 
-All amounts are implicitly INR.
-
-**If RFPL ever invoices in USD or another foreign currency** (e.g. for cocopeat exports), the following schema additions will be needed before any FX transaction is entered:
+**Schema additions (migration 045):**
 
 | Column | Table | Notes |
 |---|---|---|
-| `currency` | `pramaana.vouchers` | ISO 4217 code, default `'INR'` |
-| `exchange_rate` | `pramaana.vouchers` | INR per 1 unit of foreign currency at transaction date |
-| `foreign_amount` | `pramaana.voucher_entries` | Amount in original currency; `amount` column remains INR equivalent |
+| `currency` | `pramaana.vouchers` | ISO 4217 code, `NOT NULL DEFAULT 'INR'` |
+| `exchange_rate` | `pramaana.vouchers` | INR per 1 unit of currency. `NOT NULL DEFAULT 1.0`. Positive constraint enforced. |
+| `foreign_amount` | `pramaana.voucher_entries` | Amount in original invoice currency. `NULL` for INR entries. |
 
-GST reporting always requires INR values (converted at the RBI reference rate on the invoice date), so the `amount` column in `voucher_entries` must remain in INR regardless.
+**Invariant:** `voucher_entries.amount` is **always INR**. For FX entries: `amount = round(foreign_amount × exchange_rate, 2)`. All existing report queries (Trial Balance, PäL, Balance Sheet, Day Book, Receivables/Payables) continue working without modification.
 
-**This is a breaking schema change** — all existing report queries assume INR throughout. Do not bolt this on as an afterthought. If export invoicing in USD is likely before the next financial year, model it now while the schema is still young.
+**UI (VoucherEntry.tsx — full two-column form only):**
+- Currency selector (INR, USD, EUR, GBP, HKD, JPY, CNY, AED, SGD, AUD, CAD)
+- Exchange rate input appears when currency ≠ INR (labelled "INR per 1 {currency}" — use the RBI reference rate on the invoice date)
+- FX banner shown in amber when active
+- Entry amount column header shows "Amt (HKD)" etc. in FX mode
+- Totals show foreign currency total + INR approximate
+- Validation enforces exchange rate > 0 before submit
 
-**Immediate action required:** Confirm with RFPL management whether any FY 26-27 invoices will be in a foreign currency. If yes, add the columns above before Tally cutover on July 31.
+**Scope:** Full double-entry form (Purchase, Sales, Journal, Contra). The Simplified Payment Entry (Payment, Receipt) is INR-only — Indian bank transfers always settle in INR even for foreign vendor invoices.
+
+**GST reporting note:** GST reporting always requires INR values. The `amount` column (INR equivalent) feeds all GST reports unchanged. For export sales (zero-rated or LUT-based), the GSTR-1 export table requires separate handling — this is a GST Reports module concern, not the voucher schema.
+
+**Exchange rate source:** Manual entry by the accountant. The RBI reference rate on the invoice date is the legally required rate for GST and income tax purposes. No automatic rate fetch is implemented.
 
 ---
 
@@ -932,7 +940,7 @@ GST reporting always requires INR values (converted at the RBI reference rate on
 | **GST ledger routing** (Payable vs Input Credit, CGST/SGST/IGST split) | ✅ **Day-one critical** | Wrong GST return figures for July filing |
 | **Posted voucher immutability** (`044` trigger) | ✅ **Day-one critical** | Filed-period data can be edited retroactively |
 | **OTP flow** (SMS delivery, 10-min expiry, 3-attempt lock) | ✅ **Day-one critical** | Payment authorisation can be bypassed |
-| **Sequence uniqueness** (confirm `NEXTVAL` not `MAX+1`) | ✅ **Day-one critical** | Duplicate voucher numbers break audit trail |
+| **Sequence uniqueness** (confirm `NEXTVAL` not `MAX+1`) | ✅ **Confirmed safe** — atomic upsert on `sequence_counters` | — |
 | **Bill allocations** (BillAllocPanel, voucher_allocations) | ✅ **Day-one critical** for Receivables/Payables accuracy | Outstanding balances wrong from first month |
 | **Atomic linked-voucher creation** (`create_linked_vouchers`) | ✅ **Day-one critical** | Partial state: Purchase created, Payment not (or vice versa) |
 | **Combined approval UX** (approver sees both linked vouchers) | ⚠️ **Important but can ship rough** | Approver confusion; workaround via two separate approvals |
@@ -941,3 +949,41 @@ GST reporting always requires INR values (converted at the RBI reference rate on
 | **Net Banking / Bank App deep links** | ⚠️ **Nice to have** | Accounts staff open banking app manually |
 | **QR Relay cross-device flow** | ⚠️ **Nice to have** | Standard UPI QR on same device covers most cases |
 | **Multi-currency / FX columns** | ❌ **Not needed July 31** unless FX invoices exist | See §13.2 — plan before FX transaction occurs |
+
+---
+
+## 14. Pending Design Notes
+
+> Preserved from UNIFIED_ENTRY_FLOW.md (retired July 2026). Sections §1–§5 and §7 of that document are now built and closed. The three items below remain open.
+
+---
+
+### 14.1 Partial Allocation — Many-to-Many (unverified)
+
+The design supports:
+- One **Payment** settling multiple open **Purchase** bills
+- One **Purchase** settled across multiple **Payments** (installments)
+
+`pramaana.voucher_allocations` has no constraint preventing either — the table is already many-to-many. `BillAllocPanel` appears to support multi-bill allocation (its `AllocRow[]` array accumulates multiple rows), but this has not been explicitly tested. Before go-live, confirm:
+
+1. `fetchOpenBills()` correctly nets out partial allocations already applied to a bill (so the same bill can't be over-allocated)
+2. `BillAllocPanel` renders all open bills for an entity in one session, not just the first match
+3. A single `saveAllocations()` call with multiple rows inserts them atomically
+
+---
+
+### 14.2 Failure / Rollback UX for Linked Vouchers
+
+When a Payment is rejected or the user abandons mid-flow after `create_linked_vouchers` RPC fires, the paired Purchase voucher stays in `pending_approval`. This is **accounting-correct** — the liability is real regardless of whether the payment cleared.
+
+**What is built:** ApprovalQueue.tsx now shows a warning on Payment rejections: *"If a purchase invoice was created alongside this payment, it will remain in Pending Approval."*
+
+**What is still missing:** The warning does not distinguish between standalone payments and linked payments. It always shows for payment-type vouchers. A more precise UX would check `voucher_allocations` for the voucher being rejected and only show the note if a linked purchase exists. This is a polish item, not a correctness issue.
+
+Additionally: if a staff member abandons a linked-voucher flow (both vouchers created but no approval initiated), both sit in `pending_approval` indefinitely. The Approvals queue surfaces them, but there is no "Cancel linked pair" action. An orphaned Purchase voucher sitting in pending_approval will appear in the Payables report as an open liability. Resolution: reject both vouchers manually.
+
+---
+
+### 14.3 Multi-Currency / FX — ✅ Resolved
+
+See §13.2 — implemented July 2026 (migration 045). Deploy the migration before entering any FX invoice.

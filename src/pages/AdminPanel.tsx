@@ -9,12 +9,16 @@ import {
   parseLedgersCsv,
   importLedgers,
   downloadCsvTemplate,
+  fetchPeriodLock,
+  setPeriodLock,
+  clearPeriodLock,
   LEDGER_GROUPS_TEMPLATE,
   LEDGERS_TEMPLATE,
   type ResetPreview,
   type LedgerGroupRow,
   type LedgerRow,
   type ImportResult,
+  type PeriodLock,
 } from '@/lib/admin'
 import {
   fetchCompanyPaymentAccounts,
@@ -392,14 +396,162 @@ function PaymentAccountsManagement({ companyId }: { companyId: string }) {
   )
 }
 
+// ── Period Lock management ────────────────────────────────────────────────────
+
+function PeriodLockManagement({ companyId, userId }: { companyId: string; userId: string }) {
+  const [lock,       setLock]       = useState<PeriodLock | null | undefined>(undefined)
+  const [loading,    setLoading]    = useState(true)
+  const [saving,     setSaving]     = useState(false)
+  const [lockDate,   setLockDate]   = useState('')
+  const [lockNote,   setLockNote]   = useState('')
+  const [confirming, setConfirming] = useState(false)
+
+  useState(() => {
+    fetchPeriodLock(companyId)
+      .then(l => { setLock(l); setLoading(false) })
+      .catch(e => { toast.error(e.message); setLoading(false) })
+  })
+
+  async function handleLock() {
+    if (!lockDate) { toast.error('Select a lock date'); return }
+    setSaving(true)
+    try {
+      await setPeriodLock(companyId, lockDate, userId, lockNote || undefined)
+      const updated = await fetchPeriodLock(companyId)
+      setLock(updated)
+      setConfirming(false)
+      setLockNote('')
+      toast.success('Period locked to ' + new Date(lockDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }))
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleUnlock() {
+    setSaving(true)
+    try {
+      await clearPeriodLock(companyId)
+      setLock(null)
+      setLockDate('')
+      toast.success('Period unlocked')
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (loading) return <div className={css.empty}>Loading…</div>
+
+  return (
+    <div className={css.lockWrap}>
+      <p className={css.lockDesc}>
+        Vouchers dated <strong>on or before the lock date</strong> cannot be created,
+        edited, or deleted. Use this after filing GST returns or year-end closing to
+        protect historical data. Unlock at any time to make corrections, then re-lock.
+      </p>
+
+      {lock ? (
+        <div className={css.lockStatus}>
+          <div className={css.lockStatusIcon}>\ud83d\udd12</div>
+          <div className={css.lockStatusBody}>
+            <div className={css.lockStatusLabel}>Period locked</div>
+            <div className={css.lockStatusDate}>
+              All vouchers dated on or before{' '}
+              <strong>
+                {new Date(lock.lock_date + 'T00:00:00').toLocaleDateString('en-IN', {
+                  day: 'numeric', month: 'long', year: 'numeric',
+                })}
+              </strong>{' '}
+              are protected.
+            </div>
+            {lock.note && <div className={css.lockNote}>\u201c{lock.note}\u201d</div>}
+            <div className={css.lockMeta}>
+              Locked {new Date(lock.locked_at).toLocaleDateString('en-IN', {
+                day: 'numeric', month: 'short', year: 'numeric',
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={css.lockStatus} style={{ opacity: 0.6 }}>
+          <div className={css.lockStatusIcon}>\ud83d\udd13</div>
+          <div className={css.lockStatusBody}>
+            <div className={css.lockStatusLabel}>Unlocked</div>
+            <div className={css.lockStatusDate}>All vouchers are editable.</div>
+          </div>
+        </div>
+      )}
+
+      <div className={css.lockActions}>
+        {lock ? (
+          <button
+            className={css.lockUnlockBtn}
+            onClick={handleUnlock}
+            disabled={saving}
+          >
+            {saving ? <Loader2 size={13} className={css.spin} /> : null}
+            Unlock Period
+          </button>
+        ) : confirming ? (
+          <div className={css.lockConfirm}>
+            <div className={css.lockConfirmRow}>
+              <div className={css.field}>
+                <label className={css.fieldLabel}>
+                  Lock all vouchers dated on or before <span className={css.req}>*</span>
+                </label>
+                <input
+                  type="date"
+                  className={css.input}
+                  value={lockDate}
+                  onChange={e => setLockDate(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className={css.lockConfirmRow}>
+              <div className={css.field}>
+                <label className={css.fieldLabel}>
+                  Reason <span className={css.fieldOpt}>(optional, e.g. "Q2 FY2627 GST filed")</span>
+                </label>
+                <input
+                  className={css.input}
+                  value={lockNote}
+                  onChange={e => setLockNote(e.target.value)}
+                  placeholder='e.g. "FY2526 year-end closed"'
+                />
+              </div>
+            </div>
+            <div className={css.lockConfirmBtns}>
+              <button className={css.lockCancelBtn} onClick={() => setConfirming(false)}>
+                Cancel
+              </button>
+              <button className={css.lockApplyBtn} onClick={handleLock} disabled={saving || !lockDate}>
+                {saving ? <Loader2 size={13} className={css.spin} /> : null}
+                Lock Period
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className={css.lockSetBtn} onClick={() => setConfirming(true)}>
+            Set Lock Date\u2026
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'reset' | 'groups' | 'ledgers' | 'payments'
+type Tab = 'reset' | 'groups' | 'ledgers' | 'payments' | 'lock'
 
 export default function AdminPanel() {
   const { user } = useAuth()
   const company   = user?.activeCompany
   const companyId = company?.id ?? ''
+  const userId    = user?.id ?? ''
 
   const [tab, setTab] = useState<Tab>('reset')
 
@@ -433,6 +585,12 @@ export default function AdminPanel() {
       </div>
 
       <div className={css.tabs}>
+        <button
+          className={tab === 'lock' ? css.tabActive : css.tab}
+          onClick={() => setTab('lock')}
+        >
+          🔒 Period Lock
+        </button>
         <button
           className={tab === 'reset' ? css.tabDangerActive : css.tabDanger}
           onClick={() => setTab('reset')}
@@ -534,6 +692,10 @@ export default function AdminPanel() {
 
       {tab === 'payments' && (
         <PaymentAccountsManagement companyId={companyId} />
+      )}
+
+      {tab === 'lock' && (
+        <PeriodLockManagement companyId={companyId} userId={userId} />
       )}
     </div>
   )

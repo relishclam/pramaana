@@ -30,6 +30,7 @@ import RatioAnalysis from '@/pages/RatioAnalysis'
 import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
 import AdminPanel from '@/pages/AdminPanel'
+import TallyExport from '@/pages/TallyExport'
 import FoodStreamLoader from '@/components/FoodStreamLoader'
 import DashboardPage from '@/pages/Dashboard'
 import AwaitingPayments from '@/pages/AwaitingPayments'
@@ -279,6 +280,17 @@ function AppShell({ children }: { children: React.ReactNode }) {
               }
             >
               ⚙ Admin Panel
+            </NavLink>
+          )}
+          {user?.profile.is_super_admin && (
+            <NavLink
+              to="/tally-export"
+              end={false}
+              className={({ isActive }) =>
+                `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`
+              }
+            >
+              📄 Tally Export
             </NavLink>
           )}
           <button className={css.signOut} onClick={signOut}>Sign out</button>
@@ -553,7 +565,7 @@ function AppRoutes() {
   const { user, loading, needsPasswordSet } = useAuth()
 
   if (loading) {
-    return <FoodStreamLoader label="Loading" />
+    return <FoodStreamLoader label="Loading Pramaana" />
   }
 
   if (!user) {
@@ -612,6 +624,7 @@ function AppRoutes() {
         <Route path="/invoices/inbox/:id"         element={<InvoiceScanDetailGuard />} />
         <Route path="/invoices"                   element={<Navigate to="/invoices/inbox" replace />} />
         <Route path="/admin"          element={<AdminGuard />} />
+        <Route path="/tally-export"   element={<TallyExport />} />
         <Route path="/reports/day-book"             element={<ReportGuard><DayBook /></ReportGuard>} />
         <Route path="/reports/ledger"               element={<ReportGuard><LedgerStatement /></ReportGuard>} />
         <Route path="/reports/trial-balance"        element={<ReportGuard><TrialBalance /></ReportGuard>} />

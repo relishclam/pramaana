@@ -12,6 +12,7 @@ import {
   submitVoucher,
   formatIndianCurrency,
   fetchTaxLedgers,
+  FX_CURRENCIES,
   type VoucherType,
   type VoucherEntryRow,
   type TaxLedger,
@@ -90,6 +91,9 @@ export default function VoucherEntry() {
   // ── Header state ──────────────────────────────────────────────────────────
   const [voucherTypes,  setVoucherTypes]  = useState<VoucherType[]>([])
   const [activeType,    setActiveType]    = useState<VoucherType | null>(null)
+  // intentSet: false = intent gate showing; true = gate dismissed, form visible.
+  // Bypassed immediately when arriving from an invoice scan (type is pre-known).
+  const [intentSet,     setIntentSet]     = useState<boolean>(() => !!fromScanState?.fromScan)
   const [voucherDate,   setVoucherDate]   = useState(() => new Date().toISOString().slice(0, 10))
   const [refNumber,     setRefNumber]     = useState(() => fromScanState?.prefill?.bill_ref ?? '')
   const [narration,     setNarration]     = useState(() => fromScanState?.prefill?.narration ?? '')
@@ -163,6 +167,39 @@ export default function VoucherEntry() {
   )
   const [partyGstin,    setPartyGstin]    = useState<string | null>(null)
 
+  // ── Multi-currency / FX ───────────────────────────────────────────────────
+  // currency !== 'INR' activates FX mode. Amounts typed by user are in the
+  // foreign currency; on save they are multiplied by exchange_rate and stored
+  // as INR equivalents in the DB (voucher_entries.amount is always INR).
+  const [currency,     setCurrency]     = useState('INR')
+  const [exchangeRate, setExchangeRate] = useState('1')
+  const [rateLoading,  setRateLoading]  = useState(false)
+  const [rateAsOf,     setRateAsOf]     = useState<string | null>(null)
+
+  // Auto-fetch live rate from exchangerate-api.com when currency changes.
+  // VITE_EXCHANGERATE_API_KEY is bundled at build time (safe — exchangerate-api.com
+  // is a read-only public API; quota abuse would only exhaust the free tier).
+  useEffect(() => {
+    if (currency === 'INR') {
+      setExchangeRate('1')
+      setRateAsOf(null)
+      return
+    }
+    const apiKey = import.meta.env.VITE_EXCHANGERATE_API_KEY as string | undefined
+    if (!apiKey) return  // key not configured — user enters rate manually
+    setRateLoading(true)
+    fetch(`https://v6.exchangerate-api.com/v6/${apiKey}/pair/${currency}/INR`)
+      .then(r => r.json())
+      .then((data: { result?: string; conversion_rate?: number; time_last_update_utc?: string }) => {
+        if (data.result === 'success' && data.conversion_rate && data.conversion_rate > 0) {
+          setExchangeRate(String(Math.round(data.conversion_rate * 10000) / 10000))
+          setRateAsOf(data.time_last_update_utc ?? null)
+        }
+      })
+      .catch(() => { /* silent — user can enter rate manually */ })
+      .finally(() => setRateLoading(false))
+  }, [currency])
+
   // ── Apply scan prefill imperatively whenever location.key changes ─────────
   // useState initialisers only run on the first mount. If the user is already
   // on /vouchers/new when they click Scan Invoice, navigating to /vouchers/new
@@ -227,9 +264,8 @@ export default function VoucherEntry() {
         if (scanVoucherType && types.length > 0) {
           const match = types.find(t => t.code === scanVoucherType) ?? types[0]
           setActiveType(match)
-        } else if (types.length > 0) {
-          setActiveType(types.find(t => t.code === 'PYMT') ?? types[0])
         }
+        // No default selection — the intent gate drives type selection
       })
       .catch(err => toast.error('Failed to load voucher types: ' + err.message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -259,6 +295,38 @@ export default function VoucherEntry() {
   const needsBank    = needsPayment && BANK_MODES.has(paymentMode)
   const needsUtr     = needsPayment && UTR_MODES.has(paymentMode)
   const needsCheque  = needsPayment && paymentMode === 'Cheque'
+
+  // ── Intent gate handlers ──────────────────────────────────────────
+
+  // selectIntent: sets type and dismisses the gate.
+  // Clears type-specific fields. Preserves date, narration, entity, ref.
+  const selectIntent = (vt: VoucherType) => {
+    setActiveType(vt)
+    setIntentSet(true)
+    setPaymentMode('')
+    setEntries([emptyEntry(), emptyEntry()])
+    setBankLedgerId('')
+    setUtrNumber('')
+    setChequeNumber('')
+    setChequeDate('')
+    setCurrency('INR')
+    setExchangeRate('1')
+  }
+
+  // handleChangeType: returns to the intent gate. OPPOSITE of selectIntent.
+  // Clears type-specific fields. Preserves date, narration, entity, ref.
+  const handleChangeType = () => {
+    setIntentSet(false)
+    setActiveType(null)
+    setPaymentMode('')
+    setEntries([emptyEntry(), emptyEntry()])
+    setBankLedgerId('')
+    setUtrNumber('')
+    setChequeNumber('')
+    setChequeDate('')
+    setCurrency('INR')
+    setExchangeRate('1')
+  }
 
   // ── Entity search ─────────────────────────────────────────────────────────
   // PostgREST does not support ilike on embedded resource columns, so we do
@@ -471,6 +539,7 @@ export default function VoucherEntry() {
     if (needsEntity && !entityId && requiresEntity)  { toast.error('Party is required for this voucher type'); return false }
     if (requiresPayment && !paymentMode)           { toast.error('Payment mode is required');            return false }
     if (needsBank && !bankLedgerId)               { toast.error('Bank ledger is required');             return false }
+    if (currency !== 'INR' && !(parseFloat(exchangeRate) > 0)) { toast.error('Enter a valid exchange rate (INR per 1 ' + currency + ')'); return false }
     if (entries.length < 2)                       { toast.error('At least 2 entry rows required');      return false }
     if (entries.some(e => !e.ledger_id))          { toast.error('All entry rows must have a ledger');   return false }
     if (entries.some(e => !(parseFloat(e.amount) > 0))) { toast.error('All amounts must be greater than 0'); return false }
@@ -574,9 +643,90 @@ export default function VoucherEntry() {
     return <FoodStreamLoader label="Loading voucher types" />
   }
 
+  // ── Intent gate: shown on first load before type is selected ──────────────
+  // Bypassed when intentSet starts true (arriving from invoice scan).
+  if (!intentSet) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.pageHeader}>
+          <h1 className={styles.pageTitle}>New Voucher</h1>
+          <button
+            type="button"
+            className={styles.scanBtn ?? ''}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+              background: 'var(--surface)', border: '1px solid var(--border-2)',
+              borderRadius: '8px', padding: '0.4375rem 0.875rem',
+              fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer',
+              color: 'var(--text)', fontFamily: 'inherit',
+            }}
+            onClick={() => setScanOpen(true)}
+          >
+            <ScanLine size={15} /> Scan Invoice
+          </button>
+        </div>
+        <InvoiceScanModal
+          open={scanOpen}
+          onClose={() => setScanOpen(false)}
+          companyId={companyId}
+          companyCode={companyCode}
+          companyGstin={user?.activeCompany?.gstin ?? ''}
+          companyName={user?.activeCompany?.name ?? ''}
+          userId={userId}
+          voucherTypes={voucherTypes}
+        />
+        <div className={styles.intentGate}>
+          <p className={styles.intentHeading}>What kind of entry is this?</p>
+          <div className={styles.intentCards}>
+            <button
+              type="button"
+              className={styles.intentCard}
+              onClick={() => { const t = voucherTypes.find(v => v.nature === 'payment'); if (t) selectIntent(t) }}
+            >
+              <span aria-hidden="true" className={styles.intentCardEmoji}>💸</span>
+              <strong className={styles.intentCardLabel}>Money going OUT</strong>
+              <span className={styles.intentCardSub}>Cash or bank payment — money actually left the account</span>
+            </button>
+            <button
+              type="button"
+              className={styles.intentCard}
+              onClick={() => { const t = voucherTypes.find(v => v.nature === 'receipt'); if (t) selectIntent(t) }}
+            >
+              <span aria-hidden="true" className={styles.intentCardEmoji}>💰</span>
+              <strong className={styles.intentCardLabel}>Money coming IN</strong>
+              <span className={styles.intentCardSub}>Cash or bank receipt — money actually arrived</span>
+            </button>
+          </div>
+          <div className={styles.intentDivider}><span>or</span></div>
+          <div className={styles.intentChips}>
+            {[
+              { nature: 'purchase', label: 'Purchase',   caption: 'Vendor invoice received — payment due later' },
+              { nature: 'sales',    label: 'Sales',      caption: 'Invoice issued to customer — payment expected later' },
+              { nature: 'journal',  label: 'Journal',    caption: 'Manual adjustment or correction' },
+              { nature: 'contra',   label: '↔ Transfer', caption: 'Bank-to-bank or cash deposit/withdrawal' },
+            ].map(({ nature, label, caption }) => {
+              const t = voucherTypes.find(v => v.nature === nature)
+              if (!t) return null
+              return (
+                <button key={nature} type="button" className={styles.intentChip} onClick={() => selectIntent(t)}>
+                  <span className={styles.intentChipLabel}>{label}</span>
+                  <span className={styles.intentChipCaption}>{caption}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const isPayment = activeType?.nature === 'payment'
   const isReceipt  = activeType?.nature === 'receipt'
   const useSimplifiedForm = isPayment || isReceipt
+
+  // FX derived values (only relevant in the full two-column form)
+  const isFX   = currency !== 'INR'
+  const fxRate = isFX ? (parseFloat(exchangeRate) || 1) : 1
 
   return (
     <div className={styles.page}>
@@ -628,21 +778,15 @@ export default function VoucherEntry() {
         </div>
       )}
 
-      {/* ── Type selector — always visible ─────────────────────────────── */}
-      <div className={styles.section} style={{ maxWidth: useSimplifiedForm ? 640 : undefined }}>
-        <div className={styles.segmented}>
-          {voucherTypes.map(vt => (
-            <button
-              key={vt.id}
-              type="button"
-              className={`${styles.seg} ${activeType?.id === vt.id ? styles.segActive : ''}`}
-              onClick={() => { setActiveType(vt); setPaymentMode(''); setEntries([emptyEntry(), emptyEntry()]) }}
-            >
-              {vt.name}
-            </button>
-          ))}
+      {/* ── Change type breadcrumb (not shown for scan prefills) ─────────── */}
+      {!fromScanState?.fromScan && activeType && (
+        <div className={styles.changeTypeBreadcrumb}>
+          <button type="button" className={styles.changeTypeBtn} onClick={handleChangeType}>
+            ← {activeType.nature === 'contra' ? '↔ Transfer' : activeType.name}
+            <span className={styles.changeTypeHint}> · change type</span>
+          </button>
         </div>
-      </div>
+      )}
 
       {/* ── Date — always visible ──────────────────────────────────────── */}
       <div style={{ maxWidth: useSimplifiedForm ? 640 : undefined, marginBottom: '0.25rem' }}>
@@ -808,6 +952,56 @@ export default function VoucherEntry() {
                 <label className={styles.label}>Cheque Date</label>
                 <input type="date" className={styles.input} value={chequeDate} onChange={e => setChequeDate(e.target.value)} />
               </div>
+            </div>
+          )}
+
+          {/* Currency & Exchange Rate (full form only — not relevant for simplified payment/receipt) */}
+          <div className={styles.row2} style={{ alignItems: 'flex-end' }}>
+            <div className={styles.field}>
+              <label className={styles.label}>Currency</label>
+              <select
+                className={styles.select}
+                value={currency}
+                onChange={e => {
+                  setCurrency(e.target.value)
+                  if (e.target.value === 'INR') setExchangeRate('1')
+                }}
+              >
+                {FX_CURRENCIES.map(c => (
+                  <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+                ))}
+              </select>
+            </div>
+            {isFX && (
+              <div className={styles.field}>
+                <label className={styles.label}>
+                  Rate <span className={styles.labelOpt}>(INR per 1 {currency})</span>
+                  {rateLoading && <Loader2 size={11} className={styles.spin} style={{ marginLeft: 4, opacity: 0.5 }} />}
+                </label>
+                <input
+                  className={styles.input}
+                  type="number"
+                  step="0.0001"
+                  min="0.0001"
+                  value={exchangeRate}
+                  onChange={e => { setExchangeRate(e.target.value); setRateAsOf(null) }}
+                  placeholder="e.g. 10.55"
+                />
+                {rateAsOf && !rateLoading && (
+                  <span className={styles.fxRateDate}>
+                    Live · {new Date(rateAsOf).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                     — adjust for invoice date if different
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {isFX && (
+            <div className={styles.fxBanner}>
+              ⚠ FX mode — amounts in <strong>{currency}</strong>.
+              {parseFloat(exchangeRate) > 0 && <> 1 {currency} = ₹{Number(exchangeRate).toFixed(4)}. </>}
+              Stored amounts are INR equivalents (RBI reference rate on invoice date).
             </div>
           )}
 
@@ -990,7 +1184,7 @@ export default function VoucherEntry() {
             <div className={styles.entryHeader}>
               <span style={{ flex: 3 }}>Ledger</span>
               <span style={{ width: 68, textAlign: 'center' }}>Dr / Cr</span>
-              <span style={{ width: 110, textAlign: 'right' }}>Amount</span>
+              <span style={{ width: 110, textAlign: 'right' }}>{isFX ? `Amt (${currency})` : 'Amount'}</span>
               <span style={{ flex: 2 }}>Narration</span>
               <span style={{ width: 32 }} />
             </div>
@@ -1013,18 +1207,41 @@ export default function VoucherEntry() {
 
           {/* Totals */}
           <div className={styles.totals}>
-            <div className={styles.totalRow}>
-              <span className={styles.totalLabel}>Dr Total</span>
-              <span className={styles.totalAmount}>{formatIndianCurrency(drTotal)}</span>
-            </div>
-            <div className={styles.totalRow}>
-              <span className={styles.totalLabel}>Cr Total</span>
-              <span className={styles.totalAmount}>{formatIndianCurrency(crTotal)}</span>
-            </div>
+            {isFX ? (
+              <>
+                <div className={styles.totalRow}>
+                  <span className={styles.totalLabel}>Dr Total ({currency})</span>
+                  <span className={styles.totalAmount}>{drTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className={styles.totalRow}>
+                  <span className={styles.totalLabel}>Cr Total ({currency})</span>
+                  <span className={styles.totalAmount}>{crTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+                {fxRate !== 1 && (
+                  <div className={styles.totalRow} style={{ opacity: 0.7, fontSize: '0.8125rem' }}>
+                    <span className={styles.totalLabel}>Dr Total (INR ≈)</span>
+                    <span className={styles.totalAmount}>{formatIndianCurrency(Math.round(drTotal * fxRate * 100) / 100)}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className={styles.totalRow}>
+                  <span className={styles.totalLabel}>Dr Total</span>
+                  <span className={styles.totalAmount}>{formatIndianCurrency(drTotal)}</span>
+                </div>
+                <div className={styles.totalRow}>
+                  <span className={styles.totalLabel}>Cr Total</span>
+                  <span className={styles.totalAmount}>{formatIndianCurrency(crTotal)}</span>
+                </div>
+              </>
+            )}
             <div className={`${styles.totalRow} ${styles.totalDiff}`}>
               <span className={styles.totalLabel}>Difference</span>
               <span className={styles.totalAmount} style={{ color: diff === 0 ? 'var(--success)' : 'var(--error)' }}>
-                {formatIndianCurrency(diff)}
+                {isFX
+                  ? diff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                  : formatIndianCurrency(diff)}
               </span>
             </div>
             <div className={`${styles.balanceStatus} ${balanced ? styles.balanced : styles.unbalanced}`}>

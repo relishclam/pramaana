@@ -174,16 +174,25 @@ export function useOcr() {
     })
 
     if (fnErr) {
-      // Parse the error body — supabase.functions.invoke puts it in fnErr.context
+      // supabase.functions.invoke puts the raw Response object in fnErr.context —
+      // must await .json() to get the actual body from the edge function.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const errBody: Record<string, unknown> = (fnErr as any)?.context ?? {}
+      let errBody: Record<string, unknown> = {}
+      try {
+        const ctx = (fnErr as any)?.context
+        if (ctx instanceof Response) {
+          errBody = await ctx.clone().json().catch(() => ({}))
+        } else if (ctx && typeof ctx === 'object') {
+          errBody = ctx
+        }
+      } catch { /* ignore */ }
+
       console.error('[useOcr] Edge function error:', fnErr.message, errBody)
 
       if (errBody?.error === 'COMPANY_MISMATCH') {
         setState(s => ({ ...s, loading: false, error: `Wrong company: ${errBody.message}` }))
         return null
       }
-      // Show the actual error string returned by the edge function when available
       const msg = (typeof errBody?.error === 'string' && errBody.error)
         ? errBody.error
         : (fnErr.message ?? 'OCR failed. Please try again.')

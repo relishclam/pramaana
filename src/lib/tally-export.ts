@@ -205,7 +205,7 @@ export async function runAutoMatch(companyId: string): Promise<{
   // Process parties
   const seenEntityIds = new Set<string>()
   for (const er of entityRoles ?? []) {
-    const entity = (er.entity as { id: string; display_name: string } | null)
+    const entity = (er.entity as unknown as { id: string; display_name: string } | null)
     if (!entity) continue
     if (seenEntityIds.has(entity.id)) continue
     seenEntityIds.add(entity.id)
@@ -360,7 +360,7 @@ export async function validateExport(
   // Build set of ledger names that need mapping
   const unmapped: string[] = []
   for (const el of entryLedgers ?? []) {
-    const name = (el.ledger as { name: string })?.name
+    const name = (el.ledger as unknown as { name: string } | null)?.name
     if (name && !verifiedByDisplayName.has(name.toLowerCase())) {
       if (!unmapped.includes(name)) unmapped.push(name)
     }
@@ -502,7 +502,7 @@ export async function generateTallyXML(
   let totalDebit = 0
 
   for (const v of vouchers) {
-    const nature  = (v.voucher_type as { nature: string })?.nature ?? ''
+    const nature  = (v.voucher_type as unknown as { nature: string } | null)?.nature ?? ''
     const vchType = TALLY_VOUCHER_TYPE[nature] ?? nature
     const vEntries = entriesByVoucher.get(v.id) ?? []
 
@@ -518,7 +518,7 @@ export async function generateTallyXML(
     // Build entry lines
     const entryLines: string[] = []
     for (const e of vEntries) {
-      const ledger = (e.ledger as { id: string; name: string } | null)
+      const ledger = (e.ledger as unknown as { id: string; name: string } | null)
       if (!ledger) continue
       const tallyName  = resolveByName(ledger.name)
       const isDr       = e.entry_type === 'Dr'

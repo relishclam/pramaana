@@ -39,7 +39,28 @@ async function fetchTdsData(companyId: string, from: string, to: string): Promis
   // 2. Find voucher entries hitting those ledgers in the date range
   const tdsLedgerIds = tdsLedgers.map(l => l.id)
 
-  const { data: entries, error: ee } = await supabase
+  // Supabase's TS parser cannot handle a cross-schema sub-join (registry.entities)
+  // nested inside a renamed !inner relation, so we cast through unknown.
+  type RawEntry = {
+    ledger_id:  string
+    entry_type: string
+    amount:     number | string
+    voucher:    {
+      id:           string
+      voucher_date: string
+      entity_id:    string | null
+      status:       string
+      entity:       { display_name: string | null; pan: string | null } | { display_name: string | null; pan: string | null }[] | null
+    } | {
+      id:           string
+      voucher_date: string
+      entity_id:    string | null
+      status:       string
+      entity:       { display_name: string | null; pan: string | null } | { display_name: string | null; pan: string | null }[] | null
+    }[] | null
+  }
+
+  const { data: entries, error: ee } = (await supabase
     .schema('pramaana')
     .from('voucher_entries')
     .select(`
@@ -55,6 +76,7 @@ async function fetchTdsData(companyId: string, from: string, to: string): Promis
     .gte('voucher.voucher_date', from)
     .lte('voucher.voucher_date', to)
     .in('voucher.status', ['approved', 'completed', 'awaiting_payment', 'posted'])
+  ) as unknown as { data: RawEntry[] | null; error: { message: string } | null }
 
   if (ee) throw new Error('Failed to load TDS entries: ' + ee.message)
   if (!entries?.length) return []

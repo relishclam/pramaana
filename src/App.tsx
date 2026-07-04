@@ -27,6 +27,8 @@ import ReceivablesPayables from '@/pages/ReceivablesPayables'
 import GSTReports from '@/pages/GSTReports'
 import CashFlow from '@/pages/CashFlow'
 import RatioAnalysis from '@/pages/RatioAnalysis'
+import ScheduleIII   from '@/pages/ScheduleIII'
+import TdsReports    from '@/pages/TdsReports'
 import ExceptionReports from '@/pages/ExceptionReports'
 import Inventory from '@/pages/Inventory'
 import AdminPanel from '@/pages/AdminPanel'
@@ -97,6 +99,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/reports/gst',                  label: 'GST Reports'          },
     { to: '/reports/ratios',               label: 'Ratio Analysis'       },
     { to: '/reports/exceptions',           label: 'Exception Reports'    },
+    { to: '/reports/schedule-iii',         label: 'Schedule III'         },
+    { to: '/reports/tds',                  label: 'TDS Reports'          },
   ]
 
   const canViewReports =
@@ -634,8 +638,8 @@ function AppRoutes() {
         <Route path="/reports/cash-flow"            element={<ReportGuard><CashFlow /></ReportGuard>} />
         <Route path="/reports/gst"                  element={<ReportGuard><GSTReports /></ReportGuard>} />
         <Route path="/reports/ratios"               element={<ReportGuard><RatioAnalysis /></ReportGuard>} />
-        <Route path="/reports/exceptions"           element={<ReportGuard><ExceptionReports /></ReportGuard>} />
-        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+        <Route path="/reports/exceptions"           element={<ReportGuard><ExceptionReports /></ReportGuard>} />        <Route path="/reports/schedule-iii"          element={<ReportGuard><ScheduleIII /></ReportGuard>} />
+        <Route path="/reports/tds"                   element={<ReportGuard><TdsReports /></ReportGuard>} />        <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/select-company" element={<Navigate to="/" replace />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

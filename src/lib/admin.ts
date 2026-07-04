@@ -42,6 +42,7 @@ export interface LedgerRow {
 
 export interface ImportResult {
   imported: number
+  reused:   number   // row already existed — matched, nothing inserted (idempotent re-run)
   skipped:  number
   errors:   { line: number; name: string; reason: string }[]
 }
@@ -127,7 +128,7 @@ export async function importLedgerGroups(
   rows: LedgerGroupRow[],
   onProgress: (done: number, total: number) => void,
 ): Promise<ImportResult> {
-  const result: ImportResult = { imported: 0, skipped: 0, errors: [] }
+  const result: ImportResult = { imported: 0, reused: 0, skipped: 0, errors: [] }
   const valid = rows.filter(r => !r._error)
 
   // Build name→id map: system groups first
@@ -139,49 +140,65 @@ export async function importLedgerGroups(
   const nameToId = new Map<string, string>()
   ;[...(sysGroups ?? []), ...(coGroups ?? [])].forEach(g => nameToId.set(g.name.toLowerCase(), g.id))
 
-  // Two-pass: root groups (no parent) before child groups
-  const sorted = [
-    ...valid.filter(r => !r.parent_name),
-    ...valid.filter(r =>  r.parent_name),
-  ]
+  // Multi-pass topological insert: roots first, then children whose parents exist.
+  // Repeat until no more insertions are made in a pass — handles arbitrary nesting
+  // depth in a single CSV (e.g. Machinery → Custom Group → Fixed Assets, all new).
+  // Rows whose parents never resolve are collected as errors after convergence.
+  let pending = [...valid]
+  let progDone = 0
+  let prevLen  = pending.length + 1   // force at least one pass
 
-  for (let i = 0; i < sorted.length; i++) {
-    const row = sorted[i]
-    const parentId = row.parent_name ? (nameToId.get(row.parent_name.toLowerCase()) ?? null) : null
+  while (pending.length > 0 && pending.length < prevLen) {
+    prevLen = pending.length
+    const stillPending: LedgerGroupRow[] = []
 
-    if (row.parent_name && !parentId) {
-      result.errors.push({ line: row._line, name: row.name, reason: `Parent group "${row.parent_name}" not found — check spelling or add it first` })
-      result.skipped++
-      onProgress(i + 1, sorted.length)
-      continue
+    for (const row of pending) {
+      const parentId = row.parent_name ? (nameToId.get(row.parent_name.toLowerCase()) ?? null) : null
+
+      // Parent required but not yet in map — defer to next pass
+      if (row.parent_name && !parentId) {
+        stillPending.push(row)
+        continue
+      }
+
+      // Duplicate name: count as reused, not inserted
+      const existing = nameToId.get(row.name.toLowerCase())
+      if (existing) {
+        result.reused++
+        onProgress(++progDone, valid.length)
+        continue
+      }
+
+      const code = row.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+
+      const { data, error } = await supabase
+        .schema('pramaana').from('ledger_groups')
+        .insert({ company_id: companyId, code, name: row.name, nature: row.nature, parent_id: parentId })
+        .select('id, name')
+        .single()
+
+      if (error || !data) {
+        result.errors.push({ line: row._line, name: row.name, reason: error?.message ?? 'Insert failed' })
+        result.skipped++
+      } else {
+        nameToId.set(row.name.toLowerCase(), data.id)
+        result.imported++
+      }
+      onProgress(++progDone, valid.length)
     }
 
-    // Derive a stable code from the name
-    const code = row.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+    pending = stillPending
+  }
 
-    // Check if already exists by name
-    const existing = nameToId.get(row.name.toLowerCase())
-    if (existing) {
-      // Already present (e.g. re-running after partial import) — treat as success
-      result.imported++
-      onProgress(i + 1, sorted.length)
-      continue
-    }
-
-    const { data, error } = await supabase
-      .schema('pramaana').from('ledger_groups')
-      .insert({ company_id: companyId, code, name: row.name, nature: row.nature, parent_id: parentId })
-      .select('id, name')
-      .single()
-
-    if (error || !data) {
-      result.errors.push({ line: row._line, name: row.name, reason: error?.message ?? 'Insert failed' })
-      result.skipped++
-    } else {
-      nameToId.set(row.name.toLowerCase(), data.id)
-      result.imported++
-    }
-    onProgress(i + 1, sorted.length)
+  // Anything still pending after convergence has an unresolvable parent
+  for (const row of pending) {
+    result.errors.push({
+      line:   row._line,
+      name:   row.name,
+      reason: `Parent group "${row.parent_name}" not found and could not be created in this batch — check spelling, add the parent first, or include it earlier in the CSV`,
+    })
+    result.skipped++
+    onProgress(++progDone, valid.length)
   }
 
   return result
@@ -202,24 +219,33 @@ export function parseLedgersCsv(text: string): LedgerRow[] {
   const rows = parseCsvText(text)
   if (rows.length < 2) return []
   return rows.slice(1).map((cols, i) => {
-    // Strip ₹, commas, spaces from balance; handle Indian number format
     const balStr  = (cols[2] ?? '').replace(/[₹,\s]/g, '')
-    const balance = Math.abs(parseFloat(balStr) || 0)
+    const rawBal  = parseFloat(balStr)
+    const balance = Math.abs(rawBal || 0)
     const drCrRaw = (cols[3] ?? '').trim().toLowerCase()
+    const drCr: 'Dr' | 'Cr' = drCrRaw.startsWith('cr') ? 'Cr' : 'Dr'
     const row: LedgerRow = {
       _line:           i + 2,
       name:            (cols[0] ?? '').trim(),
       group_name:      (cols[1] ?? '').trim(),
       opening_balance: balance,
-      dr_cr:           drCrRaw.startsWith('cr') ? 'Cr' : 'Dr',
+      dr_cr:           drCr,
       gstin:           (cols[4] ?? '').trim(),
       is_bank_account: (cols[5] ?? '').toLowerCase().startsWith('y'),
       bank_name:       (cols[6] ?? '').trim(),
       account_number:  (cols[7] ?? '').trim(),
       ifsc:            (cols[8] ?? '').trim(),
     }
-    if (!row.name)       row._error = 'Name is required'
+    if (!row.name)            row._error = 'Name is required'
     else if (!row.group_name) row._error = 'Group Name is required'
+    // Flag when the CSV sign contradicts the Dr/Cr column — both directions:
+    //   ₹-5000 with Dr: likely meant to be Cr, or the sign is wrong.
+    //   ₹-5000 with Cr: equally ambiguous — positive Cr is the normal form.
+    // A negative sign with either column suggests a data-entry error rather
+    // than an intentionally negative balance.
+    else if (!isNaN(rawBal) && rawBal < 0) {
+      row._error = `Opening balance is negative (${rawBal}) — enter a positive amount and set Dr/Cr = ${drCr === 'Dr' ? 'Cr' : 'Dr'} instead, or check the sign`
+    }
     return row
   })
 }
@@ -229,7 +255,7 @@ export async function importLedgers(
   rows: LedgerRow[],
   onProgress: (done: number, total: number) => void,
 ): Promise<ImportResult> {
-  const result: ImportResult = { imported: 0, skipped: 0, errors: [] }
+  const result: ImportResult = { imported: 0, reused: 0, skipped: 0, errors: [] }
   const valid = rows.filter(r => !r._error)
 
   // Load all groups for this company (system + company-specific)

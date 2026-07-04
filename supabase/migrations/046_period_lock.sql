@@ -57,6 +57,8 @@ END $$;
 ALTER TABLE pramaana.period_locks ENABLE ROW LEVEL SECURITY;
 
 -- Authenticated users can read (to show lock status in the UI)
+DROP POLICY IF EXISTS period_locks_read  ON pramaana.period_locks;
+DROP POLICY IF EXISTS period_locks_write ON pramaana.period_locks;
 CREATE POLICY period_locks_read ON pramaana.period_locks
   FOR SELECT TO authenticated
   USING (
@@ -123,7 +125,8 @@ $$;
 -- row is written. Must come AFTER the existing immutability triggers so the
 -- error message is clear (though order doesn't matter functionally here).
 
-DROP TRIGGER IF EXISTS trg_period_lock ON pramaana.vouchers;
+DROP TRIGGER IF EXISTS trg_period_lock    ON pramaana.vouchers;
+DROP TRIGGER IF EXISTS trg_00_period_lock ON pramaana.vouchers;
 
 CREATE TRIGGER trg_00_period_lock
 BEFORE INSERT OR UPDATE OR DELETE

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -323,6 +323,7 @@ function ImportSection<T extends { _error?: string; _line: number; name: string 
           <p className={css.resultTitle}>{title} Import Complete</p>
           <p className={css.resultRow}>
             <span className={css.resultImported}>✓ {result.imported} imported</span>
+            {(result.reused ?? 0) > 0 && <span style={{ marginLeft: 12, color: 'var(--text-muted)', fontSize: '0.875rem' }}>↺ {result.reused} already existed</span>}
             {result.skipped > 0 && <span style={{ marginLeft: 12 }}><span className={css.resultSkipped}>⚠ {result.skipped} skipped</span></span>}
           </p>
           {result.errors.length > 0 && (
@@ -359,7 +360,7 @@ function PaymentAccountsManagement({ companyId }: { companyId: string }) {
     }
   }, [companyId])
 
-  if (!loaded && !loading) { void load() }
+  useEffect(() => { void load() }, [load])
 
   return (
     <div style={{ maxWidth: 600 }}>
@@ -407,11 +408,11 @@ function PeriodLockManagement({ companyId, userId }: { companyId: string; userId
   const [lockNote,   setLockNote]   = useState('')
   const [confirming, setConfirming] = useState(false)
 
-  useState(() => {
+  useEffect(() => {
     fetchPeriodLock(companyId)
       .then(l => { setLock(l); setLoading(false) })
       .catch(e => { toast.error(e.message); setLoading(false) })
-  })
+  }, [companyId])
 
   async function handleLock() {
     if (!lockDate) { toast.error('Select a lock date'); return }
@@ -456,7 +457,7 @@ function PeriodLockManagement({ companyId, userId }: { companyId: string; userId
 
       {lock ? (
         <div className={css.lockStatus}>
-          <div className={css.lockStatusIcon}>\ud83d\udd12</div>
+          <div className={css.lockStatusIcon}>🔒</div>
           <div className={css.lockStatusBody}>
             <div className={css.lockStatusLabel}>Period locked</div>
             <div className={css.lockStatusDate}>
@@ -468,7 +469,7 @@ function PeriodLockManagement({ companyId, userId }: { companyId: string; userId
               </strong>{' '}
               are protected.
             </div>
-            {lock.note && <div className={css.lockNote}>\u201c{lock.note}\u201d</div>}
+            {lock.note && <div className={css.lockNote}>"{lock.note}"</div>}
             <div className={css.lockMeta}>
               Locked {new Date(lock.locked_at).toLocaleDateString('en-IN', {
                 day: 'numeric', month: 'short', year: 'numeric',
@@ -478,7 +479,7 @@ function PeriodLockManagement({ companyId, userId }: { companyId: string; userId
         </div>
       ) : (
         <div className={css.lockStatus} style={{ opacity: 0.6 }}>
-          <div className={css.lockStatusIcon}>\ud83d\udd13</div>
+          <div className={css.lockStatusIcon}>🔓</div>
           <div className={css.lockStatusBody}>
             <div className={css.lockStatusLabel}>Unlocked</div>
             <div className={css.lockStatusDate}>All vouchers are editable.</div>
@@ -536,7 +537,7 @@ function PeriodLockManagement({ companyId, userId }: { companyId: string; userId
           </div>
         ) : (
           <button className={css.lockSetBtn} onClick={() => setConfirming(true)}>
-            Set Lock Date\u2026
+            Set Lock Date…
           </button>
         )}
       </div>
@@ -556,14 +557,6 @@ export default function AdminPanel() {
 
   const [tab, setTab] = useState<Tab>('reset')
 
-  if (!user?.profile.is_super_admin) {
-    return (
-      <div className={css.page}>
-        <div className={css.error}>Super Admin access required.</div>
-      </div>
-    )
-  }
-
   const groupImport = useCallback(
     (rows: LedgerGroupRow[], onProgress: (d: number, t: number) => void) =>
       importLedgerGroups(companyId, rows, onProgress),
@@ -575,6 +568,14 @@ export default function AdminPanel() {
       importLedgers(companyId, rows, onProgress),
     [companyId],
   )
+
+  if (!user?.profile.is_super_admin) {
+    return (
+      <div className={css.page}>
+        <div className={css.error}>Super Admin access required.</div>
+      </div>
+    )
+  }
 
   return (
     <div className={css.page}>

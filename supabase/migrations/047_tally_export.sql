@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS pramaana.tally_ledger_master_import (
 
 ALTER TABLE pramaana.tally_ledger_master_import ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS tally_master_access ON pramaana.tally_ledger_master_import;
 CREATE POLICY tally_master_access ON pramaana.tally_ledger_master_import
   FOR ALL TO authenticated
   USING  (registry.is_super_admin())
@@ -54,6 +55,8 @@ CREATE TABLE IF NOT EXISTS pramaana.tally_ledger_map (
 
 ALTER TABLE pramaana.tally_ledger_map ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS tally_map_read  ON pramaana.tally_ledger_map;
+DROP POLICY IF EXISTS tally_map_write ON pramaana.tally_ledger_map;
 CREATE POLICY tally_map_read ON pramaana.tally_ledger_map
   FOR SELECT TO authenticated
   USING (

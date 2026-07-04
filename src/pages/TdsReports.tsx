@@ -1,0 +1,295 @@
+import { useState } from 'react'
+import { Download, FileBarChart2, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
+import { currentFY, fmtAmt } from '@/lib/reports'
+import FoodStreamMini from '@/components/FoodStreamMini'
+import css from './Reports.module.css'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface TdsRow {
+  entity_name:       string
+  entity_pan:        string | null
+  tds_section_code:  string | null
+  ledger_name:       string
+  tds_rate:          number | null
+  payment_dates:     string[]
+  gross_amount:      number
+  tds_amount:        number
+  voucher_count:     number
+}
+
+// ── Query ─────────────────────────────────────────────────────────────────────
+
+async function fetchTdsData(companyId: string, from: string, to: string): Promise<TdsRow[]> {
+  // 1. Find all TDS-applicable ledgers for this company
+  const { data: tdsLedgers, error: le } = await supabase
+    .schema('pramaana')
+    .from('ledgers')
+    .select('id, name, tds_rate, tds_section_code')
+    .eq('company_id', companyId)
+    .eq('is_tds_applicable', true)
+    .eq('is_active', true)
+
+  if (le) throw new Error('Failed to load TDS ledgers: ' + le.message)
+  if (!tdsLedgers?.length) return []
+
+  // 2. Find voucher entries hitting those ledgers in the date range
+  const tdsLedgerIds = tdsLedgers.map(l => l.id)
+
+  const { data: entries, error: ee } = await supabase
+    .schema('pramaana')
+    .from('voucher_entries')
+    .select(`
+      ledger_id,
+      entry_type,
+      amount,
+      voucher:vouchers!inner(
+        id, voucher_date, entity_id, status,
+        entity:registry.entities(display_name, pan)
+      )
+    `)
+    .in('ledger_id', tdsLedgerIds)
+    .gte('voucher.voucher_date', from)
+    .lte('voucher.voucher_date', to)
+    .in('voucher.status', ['approved', 'completed', 'awaiting_payment', 'posted'])
+
+  if (ee) throw new Error('Failed to load TDS entries: ' + ee.message)
+  if (!entries?.length) return []
+
+  // 3. Aggregate by entity + section
+  const ledgerMap = new Map(tdsLedgers.map(l => [l.id, l]))
+
+  type AggKey = string
+  const agg = new Map<AggKey, TdsRow>()
+
+  for (const e of entries ?? []) {
+    const ledger  = ledgerMap.get(e.ledger_id)
+    if (!ledger) continue
+
+    // Supabase joins return arrays for 1:M — take first
+    const voucher = Array.isArray(e.voucher) ? e.voucher[0] : e.voucher
+    if (!voucher) continue
+    const entity  = Array.isArray(voucher.entity) ? voucher.entity[0] : voucher.entity
+
+    const entityName = entity?.display_name ?? 'Unknown'
+    const entityPan  = entity?.pan ?? null
+    const sectionCode = ledger.tds_section_code ?? 'Unclassified'
+    const key = `${voucher.entity_id ?? 'none'}__${sectionCode}`
+
+    if (!agg.has(key)) {
+      agg.set(key, {
+        entity_name:      entityName,
+        entity_pan:       entityPan,
+        tds_section_code: ledger.tds_section_code,
+        ledger_name:      ledger.name,
+        tds_rate:         ledger.tds_rate,
+        payment_dates:    [],
+        gross_amount:     0,
+        tds_amount:       0,
+        voucher_count:    0,
+      })
+    }
+
+    const row = agg.get(key)!
+    const amount = Number(e.amount) || 0
+
+    // TDS entries are usually Cr (TDS Payable → credit side)
+    // Gross payment = Dr side of the same voucher (reconstructed from amount)
+    if (e.entry_type === 'Cr') {
+      row.tds_amount += amount
+      row.voucher_count++
+      if (!row.payment_dates.includes(voucher.voucher_date)) {
+        row.payment_dates.push(voucher.voucher_date)
+      }
+    } else {
+      row.gross_amount += amount
+    }
+  }
+
+  return [...agg.values()].sort((a, b) =>
+    (a.tds_section_code ?? '').localeCompare(b.tds_section_code ?? '') ||
+    a.entity_name.localeCompare(b.entity_name)
+  )
+}
+
+// ── CSV export ────────────────────────────────────────────────────────────────
+
+function exportCsv(rows: TdsRow[], from: string, to: string, companyName: string) {
+  const header = [
+    'Deductee Name', 'PAN', 'Section', 'TDS Ledger', 'Rate %',
+    'No. of Payments', 'Gross Amount', 'TDS Deducted',
+    'Payment Dates',
+  ].join(',')
+
+  const lines = rows.map(r => [
+    `"${r.entity_name}"`,
+    r.entity_pan ?? 'N/A',
+    r.tds_section_code ?? 'Unclassified',
+    `"${r.ledger_name}"`,
+    r.tds_rate ?? '',
+    r.voucher_count,
+    r.gross_amount.toFixed(2),
+    r.tds_amount.toFixed(2),
+    `"${r.payment_dates.sort().join('; ')}"`,
+  ].join(','))
+
+  const csv = [
+    `# TDS Summary — ${companyName} — ${from} to ${to}`,
+    `# Form 26Q data (quarterly). File via TRACES/NSDL TDS Return filing.`,
+    '',
+    header,
+    ...lines,
+  ].join('\n')
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href     = url
+  a.download = `tds_26q_${from}_to_${to}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+// ── Section label helper ───────────────────────────────────────────────────────
+
+const SECTION_LABELS: Record<string, string> = {
+  '192':   '192 — Salary',
+  '194':   '194 — Dividends',
+  '194C':  '194C — Contractor / Sub-contractor',
+  '194J':  '194J — Professional / Technical / Royalty',
+  '194Q':  '194Q — Purchase of Goods (>₹50L)',
+  '194I':  '194I — Rent',
+  '194H':  '194H — Commission / Brokerage',
+  '194A':  '194A — Interest (other than securities)',
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
+export default function TdsReports() {
+  const { user }    = useAuth()
+  const companyId   = user?.activeCompany?.id   ?? ''
+  const companyName = user?.activeCompany?.name ?? '—'
+
+  const fy = currentFY()
+  const [from,    setFrom]    = useState(fy.from)
+  const [to,      setTo]      = useState(fy.to)
+  const [loading, setLoading] = useState(false)
+  const [rows,    setRows]    = useState<TdsRow[]>([])
+  const [hasRun,  setHasRun]  = useState(false)
+
+  const totalTds   = rows.reduce((s, r) => s + r.tds_amount, 0)
+  const totalGross = rows.reduce((s, r) => s + r.gross_amount, 0)
+
+  const runReport = async () => {
+    if (!companyId) return
+    setLoading(true)
+    try {
+      const data = await fetchTdsData(companyId, from, to)
+      setRows(data)
+      setHasRun(true)
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className={css.page}>
+      <div className={css.pageHeader}>
+        <h1 className={css.pageTitle}>TDS Reports — Form 26Q Data</h1>
+        <div className={css.headerActions}>
+          <input type="date" className={css.dateInput} value={from} onChange={e => { setFrom(e.target.value); setHasRun(false) }} />
+          <span style={{ color: 'var(--text-dim)', fontSize: '0.875rem' }}>to</span>
+          <input type="date" className={css.dateInput} value={to} onChange={e => { setTo(e.target.value); setHasRun(false) }} />
+          <button className={css.btnRun} onClick={runReport} disabled={loading}>
+            {loading ? <Loader2 size={14} className={css.spin} /> : <FileBarChart2 size={14} />}
+            Generate
+          </button>
+          {hasRun && rows.length > 0 && (
+            <button className={css.btnPrint} onClick={() => exportCsv(rows, from, to, companyName)}>
+              <Download size={13} /> Export CSV
+            </button>
+          )}
+        </div>
+      </div>
+
+      <p className={css.subNote}>
+        {companyName} · {from} to {to} · Ledgers tagged <em>is_tds_applicable = true</em>
+      </p>
+
+      {loading && <FoodStreamMini label="Loading TDS transactions…" size={48} />}
+
+      {!loading && hasRun && rows.length === 0 && (
+        <div className={css.emptyState}>
+          No TDS-applicable ledgers found, or no posted vouchers in this date range.
+          <br />
+          Tag ledgers with <strong>TDS Applicable = Yes</strong> and <strong>Section Code</strong> in the Ledger Master.
+        </div>
+      )}
+
+      {!loading && hasRun && rows.length > 0 && (
+        <>
+          <div className={css.summaryBar}>
+            <span>Deductees: <strong>{new Set(rows.map(r => r.entity_name)).size}</strong></span>
+            <span>Transactions: <strong>{rows.reduce((s, r) => s + r.voucher_count, 0)}</strong></span>
+            <span>Gross Payments: <strong>₹ {fmtAmt(totalGross)}</strong></span>
+            <span>Total TDS: <strong>₹ {fmtAmt(totalTds)}</strong></span>
+          </div>
+
+          <table className={css.table}>
+            <thead>
+              <tr>
+                <th>Deductee</th>
+                <th>PAN</th>
+                <th>Section</th>
+                <th>TDS Ledger</th>
+                <th className={css.numCol}>Rate %</th>
+                <th className={css.numCol}>Payments</th>
+                <th className={css.numCol}>Gross Amt</th>
+                <th className={css.numCol}>TDS Deducted</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.entity_name}</td>
+                  <td className={r.entity_pan ? '' : css.missing}>
+                    {r.entity_pan ?? '⚠ PAN missing'}
+                  </td>
+                  <td>
+                    <span title={SECTION_LABELS[r.tds_section_code ?? ''] ?? ''}>
+                      {r.tds_section_code ?? '⚠ Unclassified'}
+                    </span>
+                  </td>
+                  <td className={css.muted}>{r.ledger_name}</td>
+                  <td className={css.numCol}>{r.tds_rate ?? '—'}</td>
+                  <td className={css.numCol}>{r.voucher_count}</td>
+                  <td className={css.numCol}>{fmtAmt(r.gross_amount)}</td>
+                  <td className={css.numCol}>{fmtAmt(r.tds_amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={6}><strong>Total</strong></td>
+                <td className={css.numCol}><strong>{fmtAmt(totalGross)}</strong></td>
+                <td className={css.numCol}><strong>{fmtAmt(totalTds)}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <p className={css.footNote}>
+            Export the CSV and use it to fill Form 26Q via the TRACES portal or your TDS return filing software.
+            Challan details (BSR code, date of deposit, challan serial number) must be added manually from your bank records.
+          </p>
+        </>
+      )}
+    </div>
+  )
+}

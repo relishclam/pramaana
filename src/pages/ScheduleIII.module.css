@@ -1,0 +1,244 @@
+/* ── Schedule III specific layout ────────────────────────────────────────── */
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 900px) {
+  .twoCol { grid-template-columns: 1fr; }
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.colTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  margin-bottom: -1px;
+}
+
+/* ── Major head block ────────────────────────────────────────────────────── */
+
+.majorSection { margin-bottom: 0.5rem; }
+
+.headBlock {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+}
+
+.headLabel {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 0.4375rem 0.75rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.lineRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3125rem 0.75rem 0.3125rem 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.lineRow:last-of-type { border-bottom: none; }
+
+.lineName { flex: 1; }
+
+.lineAmt {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text);
+  min-width: 100px;
+  text-align: right;
+}
+
+.headTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.headTotal span:last-child {
+  font-family: var(--font-mono);
+  min-width: 100px;
+  text-align: right;
+}
+
+/* ── Net profit line in equity section ───────────────────────────────────── */
+
+.npLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+  background: color-mix(in srgb, var(--teal) 4%, transparent);
+}
+
+.npLine span:last-child {
+  font-family: var(--font-mono);
+  min-width: 100px;
+  text-align: right;
+}
+
+/* ── Grand total row ─────────────────────────────────────────────────────── */
+
+.grandTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.625rem 0.75rem;
+  border: 2px solid var(--teal);
+  border-radius: var(--radius);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 0.5rem;
+}
+
+.grandTotal span:last-child {
+  font-family: var(--font-mono);
+  color: var(--teal);
+}
+
+/* ── P&L section ─────────────────────────────────────────────────────────── */
+
+.plSection {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.plTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.625rem 0.875rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.plGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: 1rem;
+  gap: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .plGrid { grid-template-columns: 1fr; }
+}
+
+.plSubtotal {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.375rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 0.25rem;
+}
+
+.plSubtotal span:last-child { font-family: var(--font-mono); }
+
+.plNetProfit {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0.875rem;
+  background: var(--surface-2);
+  border-top: 2px solid var(--border);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.plNetProfit span:last-child { font-family: var(--font-mono); }
+
+.plNote {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  margin: 0;
+}
+
+/* ── Profit / Loss colours ───────────────────────────────────────────────── */
+
+.profit { color: var(--success, #4caf7d); }
+.loss   { color: var(--error); }
+
+/* ── Warnings ────────────────────────────────────────────────────────────── */
+
+.unmappedWarn {
+  font-size: 0.8125rem;
+  color: var(--warning, #b45309);
+  background: color-mix(in srgb, var(--warning, #b45309) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning, #b45309) 25%, transparent);
+  border-radius: var(--radius);
+  padding: 0.625rem 0.875rem;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.balanceWarn {
+  font-size: 0.8125rem;
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.5rem;
+}
+
+/* ── Filing disclaimer ───────────────────────────────────────────────────── */
+
+.filingDisclaimer {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-left: 3px solid var(--teal);
+  border-radius: var(--radius);
+  padding: 0.625rem 0.875rem;
+  margin-bottom: 1.25rem;
+  line-height: 1.55;
+}

@@ -394,12 +394,63 @@ serve(async (req) => {
   // ── Resolve party vs our-company fields based on invoice direction ─────────
   // purchase: supplier = party (vendor),  recipient = us
   // sale:     supplier = us,              recipient = party (customer)
-  const isSale     = invoiceType === 'sale'
-  const partyName  = isSale ? result.recipientName  : result.supplierName
-  const partyGstin = isSale ? result.recipientGstin : result.supplierGstin
-  const ourGstin   = companyGstin ||
+  const isSale         = invoiceType === 'sale'
+  let   partyName      = isSale ? result.recipientName  : result.supplierName
+  let   partyGstin     = isSale ? result.recipientGstin : result.supplierGstin
+  const ourGstin       = companyGstin ||
     (isSale ? result.supplierGstin : result.recipientGstin) ||
     null
+
+  // ── Entity lookup — correct OCR misreads from registry.entities ──────────
+  // Mirrors the 2-step strategy in useInvoiceScan.ts:
+  //   1. Exact GSTIN match  → use registry display_name + gstin
+  //   2. Name ilike fallback (strips "pvt ltd" noise) → use registry values
+  // This fixes misreads like "Fishers" → "Fisheries" before writing to DB.
+  try {
+    const cleanGstin = (partyGstin ?? '').replace(/\s/g, '').toUpperCase()
+    const GSTIN_RE   = /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}\d[Z][A-Z\d]$/i
+
+    type EntityRow = { id: string; display_name: string; gstin: string | null }
+    let matched: EntityRow | null = null
+
+    // Step 1: exact GSTIN match
+    if (cleanGstin && GSTIN_RE.test(cleanGstin)) {
+      const { data } = await supabase
+        .schema('registry')
+        .from('entities')
+        .select('id, display_name, gstin')
+        .ilike('gstin', cleanGstin)
+        .maybeSingle()
+      matched = (data as EntityRow | null)
+    }
+
+    // Step 2: name fallback (strip legal suffixes to reduce noise)
+    if (!matched && partyName && partyName.trim().length > 3) {
+      const searchTerm = partyName.trim()
+        .replace(/\bpvt\.?\s*ltd\.?\b/gi, '')
+        .replace(/\bprivate\s+limited\b/gi, '')
+        .replace(/\blimited\b/gi, '')
+        .trim()
+      if (searchTerm.length > 2) {
+        const { data } = await supabase
+          .schema('registry')
+          .from('entities')
+          .select('id, display_name, gstin')
+          .ilike('display_name', `%${searchTerm}%`)
+          .limit(1)
+          .maybeSingle()
+        matched = (data as EntityRow | null)
+      }
+    }
+
+    if (matched) {
+      partyName  = matched.display_name || partyName
+      partyGstin = matched.gstin        || partyGstin
+    }
+  } catch (entityErr) {
+    // Non-fatal — log and continue with OCR-extracted values
+    console.warn('Entity lookup failed (non-fatal):', entityErr)
+  }
 
   // ── Write to DB ───────────────────────────────────────────────────────────
   try {

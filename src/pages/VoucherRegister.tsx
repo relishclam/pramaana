@@ -847,6 +847,15 @@ function DetailPanel({
     const printEntityLabel = entityFieldLabel(detail.voucher_type.nature)
     const printVoucherTitle = detail.voucher_type.name.toUpperCase() + ' VOUCHER'
 
+    // Map stored-lowercase DB values to display labels
+    const PAYMENT_MODE_LABELS: Record<string, string> = {
+      bank: 'Bank', cash: 'Cash', upi: 'UPI',
+      cheque: 'Cheque', neft: 'NEFT', rtgs: 'RTGS', imps: 'IMPS',
+    }
+    const printPaymentMode = detail.payment_mode
+      ? (PAYMENT_MODE_LABELS[detail.payment_mode.toLowerCase()] ?? detail.payment_mode.toUpperCase())
+      : '—'
+
     const stampCards = traceabilityStamps.map((stamp) => `
       <div class="stampCard">
         <div class="stampName">${escapeHtml(stamp.name)}</div>
@@ -1010,7 +1019,7 @@ function DetailPanel({
                 <div class="metaItem"><span class="metaLabel">Voucher No:</span> ${escapeHtml(row.voucher_number)}</div>
                 <div class="metaItem"><span class="metaLabel">Date:</span> ${escapeHtml(fmtDateTimeLong(detail.voucher_date))}</div>
                 <div class="metaItem"><span class="metaLabel">${escapeHtml(printEntityLabel)}:</span> ${escapeHtml(beneficiaryName)}</div>
-                <div class="metaItem"><span class="metaLabel">Payment Mode:</span> ${escapeHtml(detail.payment_mode ?? '—')}</div>
+                <div class="metaItem"><span class="metaLabel">Payment Mode:</span> ${escapeHtml(printPaymentMode)}</div>
                 <div class="metaItem"><span class="metaLabel">Head of Account:</span> ${escapeHtml(detail.entries[0]?.group_name ?? detail.entries[0]?.ledger_name ?? '—')}</div>
                 <div class="metaItem"><span class="metaLabel">Status:</span> ${escapeHtml(row.status.toUpperCase())}</div>
               </div>

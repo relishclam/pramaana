@@ -385,8 +385,21 @@ serve(async (req) => {
   } catch (seqErr) {
     // Fallback to timestamp-based ref if RPC fails (e.g. migration not yet applied)
     console.warn('next_scan_ref RPC failed, using fallback:', seqErr)
-    scanRef = buildScanRef(companyCode, invoiceType, result.invoiceDate, result.invoiceNo, result.supplierName || result.recipientName)
+    const fallbackParty = invoiceType === 'sale'
+      ? (result.recipientName || result.supplierName)
+      : (result.supplierName  || result.recipientName)
+    scanRef = buildScanRef(companyCode, invoiceType, result.invoiceDate, result.invoiceNo, fallbackParty)
   }
+
+  // ── Resolve party vs our-company fields based on invoice direction ─────────
+  // purchase: supplier = party (vendor),  recipient = us
+  // sale:     supplier = us,              recipient = party (customer)
+  const isSale     = invoiceType === 'sale'
+  const partyName  = isSale ? result.recipientName  : result.supplierName
+  const partyGstin = isSale ? result.recipientGstin : result.supplierGstin
+  const ourGstin   = companyGstin ||
+    (isSale ? result.supplierGstin : result.recipientGstin) ||
+    null
 
   // ── Write to DB ───────────────────────────────────────────────────────────
   try {
@@ -399,9 +412,9 @@ serve(async (req) => {
         type:          invoiceType,
         invoice_no:    result.invoiceNo   || null,
         invoice_date:  result.invoiceDate || null,
-        party_name:    result.supplierName || result.recipientName || null,
-        party_gstin:   result.supplierGstin  || null,
-        our_gstin:     companyGstin || result.recipientGstin || null,
+        party_name:    partyName  || null,
+        party_gstin:   partyGstin || null,
+        our_gstin:     ourGstin,
         taxable_value: result.taxableValue,
         total_gst:     result.totalGst,
         cgst:          result.cgst,

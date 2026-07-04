@@ -175,13 +175,18 @@ export function useOcr() {
 
     if (fnErr) {
       // Parse the error body — supabase.functions.invoke puts it in fnErr.context
-      // deno-lint-ignore no-explicit-any
-      const errBody = (fnErr as any)?.context ?? {}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errBody: Record<string, unknown> = (fnErr as any)?.context ?? {}
+      console.error('[useOcr] Edge function error:', fnErr.message, errBody)
+
       if (errBody?.error === 'COMPANY_MISMATCH') {
         setState(s => ({ ...s, loading: false, error: `Wrong company: ${errBody.message}` }))
         return null
       }
-      const msg = fnErr.message ?? 'OCR failed. Please try again.'
+      // Show the actual error string returned by the edge function when available
+      const msg = (typeof errBody?.error === 'string' && errBody.error)
+        ? errBody.error
+        : (fnErr.message ?? 'OCR failed. Please try again.')
       setState(s => ({ ...s, loading: false, error: msg }))
       return null
     }

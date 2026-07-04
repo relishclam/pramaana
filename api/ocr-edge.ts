@@ -1,11 +1,10 @@
 /**
- * Vercel Edge Function — Invoice OCR via Anthropic Claude (Vision)
+ * Vercel Edge Function — Invoice OCR via OpenAI GPT-4o Vision
  * POST /api/ocr-edge
  *
  * Edge runtime: 25 s duration (Hobby + Pro).
- * Uses Claude 3.5 Haiku vision — plain JSON API, no AWS SigV4 or X-Amz-Target.
  *
- * Required Vercel env var: ANTHROPIC_API_KEY  (from console.anthropic.com)
+ * Required Vercel env var: OPENAI_API_KEY
  * Body (JSON): { fileBase64: string, fileType: string }
  * Returns: OcrResult JSON
  */
@@ -109,8 +108,8 @@ export default async function handler(req: Request): Promise<Response> {
   if (!fileBase64) return jsonRes({ error: 'Missing fileBase64' }, 400)
   if (fileBase64.length > 6_900_000) return jsonRes({ error: 'File exceeds the 5 MB limit' }, 413)
 
-  const apiKey = (process.env.ANTHROPIC_API_KEY ?? '').trim()
-  if (!apiKey) return jsonRes({ error: 'Server misconfigured: ANTHROPIC_API_KEY missing' }, 500)
+  const apiKey = (process.env.OPENAI_API_KEY ?? '').trim()
+  if (!apiKey) return jsonRes({ error: 'Server misconfigured: OPENAI_API_KEY missing' }, 500)
 
   const mimeType = (fileType && fileType.startsWith('image/')) ? fileType : 'image/jpeg'
 
@@ -158,7 +157,7 @@ export default async function handler(req: Request): Promise<Response> {
     const clean = textContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
     extracted = JSON.parse(clean)
   } catch {
-    return jsonRes({ error: `Could not parse Gemini response: ${textContent.slice(0, 300)}` }, 502)
+    return jsonRes({ error: `Could not parse OpenAI response: ${textContent.slice(0, 300)}` }, 502)
   }
 
   // ── Build OcrResult ──────────────────────────────────────────────────────

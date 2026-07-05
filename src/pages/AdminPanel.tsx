@@ -71,7 +71,7 @@ function DataReset({ companyId, companyName }: { companyId: string; companyName:
       setDone(true)
       setPreview(null)
       setConfirm('')
-      toast.success(`Reset complete — ${result.vouchers_deleted} vouchers, ${result.ledgers_deleted} ledgers deleted`)
+      toast.success(`Reset complete — ${result.vouchers_deleted} vouchers, ${result.ledgers_deleted} ledgers, ${result.scans_deleted ?? 0} scans deleted`)
     } catch (e: unknown) {
       setError((e as Error).message)
     } finally {
@@ -121,6 +121,10 @@ function DataReset({ companyId, companyName }: { companyId: string; companyName:
             <div className={css.previewCard}>
               <div className={css.previewLabel}>Suspense Sessions</div>
               <div className={preview.sessions > 0 ? css.previewCountRed : css.previewCount}>{preview.sessions}</div>
+            </div>
+            <div className={css.previewCard}>
+              <div className={css.previewLabel}>Invoice Scans</div>
+              <div className={preview.scans > 0 ? css.previewCountRed : css.previewCount}>{preview.scans}</div>
             </div>
           </div>
 

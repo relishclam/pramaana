@@ -7,6 +7,7 @@ export interface ResetPreview {
   ledgers:  number
   groups:   number
   sessions: number
+  scans:    number
 }
 
 export interface ResetResult {
@@ -16,6 +17,7 @@ export interface ResetResult {
   groups_deleted:   number
   sessions_deleted: number
   sequences_reset:  number
+  scans_deleted:    number
 }
 
 export interface LedgerGroupRow {

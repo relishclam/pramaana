@@ -442,22 +442,39 @@ serve(async (req) => {
       matched = (data as EntityRow | null)
     }
 
-    // Step 2: name fallback (strip legal suffixes to reduce noise)
+    // Step 2: name fallback — strip legal suffixes, search full cleaned name
     if (!matched && partyName && partyName.trim().length > 3) {
-      const searchTerm = partyName.trim()
+      const cleanedName = partyName.trim()
         .replace(/\bpvt\.?\s*ltd\.?\b/gi, '')
         .replace(/\bprivate\s+limited\b/gi, '')
         .replace(/\blimited\b/gi, '')
+        .replace(/\binc\.?\b/gi, '')
         .trim()
-      if (searchTerm.length > 2) {
+      if (cleanedName.length > 2) {
         const { data } = await supabase
           .schema('registry')
           .from('entities')
           .select('id, display_name, gstin')
-          .ilike('display_name', `%${searchTerm}%`)
+          .ilike('display_name', `%${cleanedName}%`)
           .limit(1)
           .maybeSingle()
         matched = (data as EntityRow | null)
+      }
+
+      // Step 3: first significant word only (handles OCR misreads like
+      // "Fishers" vs "Fisheries" — "Peninsular" still matches both)
+      if (!matched) {
+        const firstWord = cleanedName.split(/\s+/)[0] ?? ''
+        if (firstWord.length >= 5) {   // min 5 chars to avoid false positives
+          const { data } = await supabase
+            .schema('registry')
+            .from('entities')
+            .select('id, display_name, gstin')
+            .ilike('display_name', `%${firstWord}%`)
+            .limit(1)
+            .maybeSingle()
+          matched = (data as EntityRow | null)
+        }
       }
     }
 

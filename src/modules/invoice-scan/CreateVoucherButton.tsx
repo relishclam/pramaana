@@ -42,22 +42,43 @@ export default function CreateVoucherButton({ scan, onCreated }: Props) {
     }
 
     if (!resolvedEntityId && scan.party_name) {
-      const searchTerm = scan.party_name
+      const cleanedName = scan.party_name
         .replace(/\bpvt\.?\s*ltd\.?\b/gi, '')
         .replace(/\bprivate\s+limited\b/gi, '')
         .replace(/\blimited\b/gi, '')
+        .replace(/\binc\.?\b/gi, '')
         .trim()
-      if (searchTerm.length > 2) {
+
+      // Step 2: full cleaned name
+      if (cleanedName.length > 2) {
         const { data: byName } = await supabase
           .schema('registry')
           .from('entities')
           .select('id, display_name')
-          .ilike('display_name', `%${searchTerm}%`)
+          .ilike('display_name', `%${cleanedName}%`)
           .limit(1)
           .maybeSingle()
         if (byName) {
           resolvedEntityId   = byName.id
           resolvedEntityName = byName.display_name
+        }
+      }
+
+      // Step 3: first significant word fallback
+      if (!resolvedEntityId) {
+        const firstWord = cleanedName.split(/\s+/)[0] ?? ''
+        if (firstWord.length >= 5) {
+          const { data: byWord } = await supabase
+            .schema('registry')
+            .from('entities')
+            .select('id, display_name')
+            .ilike('display_name', `%${firstWord}%`)
+            .limit(1)
+            .maybeSingle()
+          if (byWord) {
+            resolvedEntityId   = byWord.id
+            resolvedEntityName = byWord.display_name
+          }
         }
       }
     }

@@ -105,7 +105,9 @@ function VoucherRow({
       </td>
       <td>{fmtDate(voucher.voucher_date)}</td>
       <td className={styles.partyCell}>
-        {voucher.entity_name ?? <span className={styles.dim}>—</span>}
+        {voucher.entity_name
+          ?? (voucher.narration ? voucher.narration.split(' · ')[0] : null)
+          ?? <span className={styles.dim}>—</span>}
       </td>
       <td className={styles.amountCell}>{formatIndianCurrency(voucher.amount)}</td>
       <td>{voucher.created_by_name}</td>

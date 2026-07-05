@@ -350,22 +350,40 @@ serve(async (req) => {
 
   const result = parseGptResponse(parsedRaw)
 
-  // ── GSTIN mismatch check ─────────────────────────────────────────────────
-  // For purchase invoices: our GSTIN should match recipientGstin
-  // For sale invoices: our GSTIN should match supplierGstin
+  // ── Our-GSTIN self-correction ────────────────────────────────────────────
+  // We know our own company GSTIN authoritatively from registry.companies.
+  // If OCR misreads it (common: A↔O, 1↔I, 0↔O), we self-correct rather than
+  // reject.  We only hard-reject when the FIRST TWO DIGITS (state code) differ,
+  // meaning the invoice genuinely belongs to a different state/company.
   if (companyGstin) {
-    const extractedOurGstin = invoiceType === 'sale'
-      ? result.supplierGstin?.trim().toUpperCase()
-      : result.recipientGstin?.trim().toUpperCase()
+    const extractedOurGstin = (invoiceType === 'sale'
+      ? result.supplierGstin
+      : result.recipientGstin
+    )?.trim().toUpperCase() ?? ''
     const knownGstin = companyGstin.trim().toUpperCase()
+
     if (extractedOurGstin && extractedOurGstin !== knownGstin) {
-      console.warn(`GSTIN mismatch: extracted=${extractedOurGstin} known=${knownGstin}`)
-      return json({
-        error:              'COMPANY_MISMATCH',
-        message:            `Invoice GSTIN ${extractedOurGstin} does not match active company ${companyName} (${knownGstin}). Switch company and re-scan.`,
-        extractedGstin:     extractedOurGstin,
-        activeCompanyGstin: knownGstin,
-      }, 422)
+      const extractedState = extractedOurGstin.slice(0, 2)
+      const knownState     = knownGstin.slice(0, 2)
+
+      if (extractedState !== knownState) {
+        // Different state code → genuinely wrong company
+        console.warn(`GSTIN state mismatch: extracted=${extractedOurGstin} known=${knownGstin}`)
+        return json({
+          error:              'COMPANY_MISMATCH',
+          message:            `Invoice GSTIN ${extractedOurGstin} (state ${extractedState}) does not match active company ${companyName} (${knownGstin}, state ${knownState}). Switch company and re-scan.`,
+          extractedGstin:     extractedOurGstin,
+          activeCompanyGstin: knownGstin,
+        }, 422)
+      }
+
+      // Same state, character-level OCR noise → self-correct silently
+      console.warn(`Our GSTIN OCR noise corrected: ${extractedOurGstin} → ${knownGstin}`)
+      if (invoiceType === 'sale') {
+        result.supplierGstin  = knownGstin
+      } else {
+        result.recipientGstin = knownGstin
+      }
     }
   }
 

@@ -185,10 +185,12 @@ function HistoryTimeline({
   submittedAt,
   submittedBy,
   history,
+  voucherNature,
 }: {
   submittedAt: string
   submittedBy: string
   history: ApprovalHistoryItem[]
+  voucherNature: string
 }) {
   const allItems: ApprovalHistoryItem[] = [
     {
@@ -213,7 +215,9 @@ function HistoryTimeline({
   }
   const LABEL: Record<string, string> = {
     submitted: 'Submitted for approval',
-    approved:  'Approved & posted',
+    approved:  voucherNature === 'payment'
+      ? 'Approved — OTP verification pending'
+      : 'Approved & posted',
     rejected:  'Rejected — returned to draft',
   }
 
@@ -668,6 +672,7 @@ function DetailPanel({
                 submittedAt={voucher.created_at}
                 submittedBy={voucher.created_by_name}
                 history={voucher.history}
+                voucherNature={voucher.voucher_type.nature}
               />
             </div>
 

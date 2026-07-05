@@ -49,7 +49,7 @@ function fmtRole(role: string | null | undefined): string {
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const { user, signOut, setActiveCompany } = useAuth()
-  const { pendingCount }      = useApprovalCount()
+  const { pendingCount, paymentsCount } = useApprovalCount()
   const location              = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
@@ -72,8 +72,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/ledgers',   label: 'Ledgers',   end: false, badge: 0            },
     { to: '/vouchers',  label: 'Vouchers',  end: false, badge: 0            },
     { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
-    { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount },
-    { to: '/payments',  label: 'Payments',  end: false, badge: 0            },
+    { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount  },
+    { to: '/payments',  label: 'Payments',  end: false, badge: paymentsCount },
+
     { to: '/invoices',  label: 'Invoices',  end: false, badge: 0            },
     { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
   ]

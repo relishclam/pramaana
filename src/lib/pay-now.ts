@@ -272,6 +272,17 @@ export interface AwaitingPaymentRow {
   voucher_type_code: string
 }
 
+export async function fetchAwaitingPaymentsCount(companyId: string): Promise<number> {
+  const { count, error } = await supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .select('id', { count: 'exact', head: true })
+    .eq('company_id', companyId)
+    .eq('status', 'awaiting_payment')
+  if (error) return 0
+  return count ?? 0
+}
+
 export async function fetchAwaitingPayments(
   companyId: string,
 ): Promise<AwaitingPaymentRow[]> {

@@ -7,16 +7,19 @@ import {
   type ReactNode,
 } from 'react'
 import { fetchPendingCount } from '@/lib/approvals'
+import { fetchAwaitingPaymentsCount } from '@/lib/pay-now'
 
 // ── Context shape ─────────────────────────────────────────────────────────────
 
 interface ApprovalContextValue {
-  pendingCount: number
+  pendingCount:   number
+  paymentsCount:  number
   refreshCount: (companyId: string) => Promise<void>
 }
 
 const ApprovalContext = createContext<ApprovalContextValue>({
-  pendingCount: 0,
+  pendingCount:  0,
+  paymentsCount: 0,
   refreshCount: async () => {},
 })
 
@@ -29,11 +32,16 @@ export function ApprovalProvider({
   children: ReactNode
   companyId: string
 }) {
-  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingCount,  setPendingCount]  = useState(0)
+  const [paymentsCount, setPaymentsCount] = useState(0)
 
   const refreshCount = useCallback(async (cid: string) => {
-    const n = await fetchPendingCount(cid)
-    setPendingCount(n)
+    const [approvals, payments] = await Promise.all([
+      fetchPendingCount(cid),
+      fetchAwaitingPaymentsCount(cid),
+    ])
+    setPendingCount(approvals)
+    setPaymentsCount(payments)
   }, [])
 
   useEffect(() => {
@@ -41,7 +49,7 @@ export function ApprovalProvider({
   }, [companyId, refreshCount])
 
   return (
-    <ApprovalContext.Provider value={{ pendingCount, refreshCount }}>
+    <ApprovalContext.Provider value={{ pendingCount, paymentsCount, refreshCount }}>
       {children}
     </ApprovalContext.Provider>
   )

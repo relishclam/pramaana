@@ -71,14 +71,26 @@ export interface VoucherFull extends PendingVoucher {
 // ── Fetch pending count (for sidebar badge) ───────────────────────────────────
 
 export async function fetchPendingCount(companyId: string): Promise<number> {
-  const { count, error } = await supabase
-    .schema('pramaana')
-    .from('vouchers')
-    .select('id', { count: 'exact', head: true })
-    .eq('company_id', companyId)
-    .in('status', ['pending_approval', 'approved'])
-  if (error) return 0
-  return count ?? 0
+  // Must mirror the filter in fetchPendingVouchers:
+  //   pending_approval  → always shown
+  //   approved          → only shown when voucher_type.nature = 'payment' (OTP pending)
+  // Count both groups separately to avoid a complex join on a head-only query.
+  const [pendingRes, approvedRes] = await Promise.all([
+    supabase
+      .schema('pramaana')
+      .from('vouchers')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('status', 'pending_approval'),
+    supabase
+      .schema('pramaana')
+      .from('vouchers')
+      .select('id, voucher_type:voucher_types!inner(nature)', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('status', 'approved')
+      .eq('voucher_types.nature', 'payment'),
+  ])
+  return (pendingRes.count ?? 0) + (approvedRes.count ?? 0)
 }
 
 // ── Fetch pending vouchers list ───────────────────────────────────────────────

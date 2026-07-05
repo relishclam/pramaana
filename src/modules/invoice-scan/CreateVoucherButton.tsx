@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { FileText }    from 'lucide-react'
 import { toast }       from 'sonner'
 import { useAuth }     from '@/contexts/AuthContext'
+import { supabase }    from '@/lib/supabase'
 import { updateScanStatus, type InvoiceScan } from './hooks/useInvoiceScans'
 import css from './ScanDetail.module.css'   // reuse ScanDetail button styles
 
@@ -20,9 +21,48 @@ export default function CreateVoucherButton({ scan, onCreated }: Props) {
   const handleClick = async () => {
     setSaving(true)
 
-    // Mark as voucher_created immediately so the scan_ref is "locked"
-    // The actual voucher is created by the existing VoucherEntry flow.
-    // We pass the scan data via navigation state so VoucherEntry can prefill.
+    // ── Resolve entity_id from party_gstin (fallback: name search) ──────────
+    // Without entity_id the voucher is saved with entity_id=null, so the
+    // Approval Queue PARTY column shows "—".  Look it up here so VoucherEntry
+    // receives a resolved entity_id and sets it automatically.
+    let resolvedEntityId:   string | null = null
+    let resolvedEntityName: string | null = scan.party_name ?? null
+
+    if (scan.party_gstin) {
+      const { data: byGstin } = await supabase
+        .schema('registry')
+        .from('entities')
+        .select('id, display_name')
+        .ilike('gstin', scan.party_gstin)
+        .maybeSingle()
+      if (byGstin) {
+        resolvedEntityId   = byGstin.id
+        resolvedEntityName = byGstin.display_name
+      }
+    }
+
+    if (!resolvedEntityId && scan.party_name) {
+      const searchTerm = scan.party_name
+        .replace(/\bpvt\.?\s*ltd\.?\b/gi, '')
+        .replace(/\bprivate\s+limited\b/gi, '')
+        .replace(/\blimited\b/gi, '')
+        .trim()
+      if (searchTerm.length > 2) {
+        const { data: byName } = await supabase
+          .schema('registry')
+          .from('entities')
+          .select('id, display_name')
+          .ilike('display_name', `%${searchTerm}%`)
+          .limit(1)
+          .maybeSingle()
+        if (byName) {
+          resolvedEntityId   = byName.id
+          resolvedEntityName = byName.display_name
+        }
+      }
+    }
+
+    // Mark scan as voucher_created
     const { error } = await updateScanStatus(scan.id, 'voucher_created', userId)
     setSaving(false)
 
@@ -39,6 +79,8 @@ export default function CreateVoucherButton({ scan, onCreated }: Props) {
         scanId:   scan.id,
         prefill: {
           voucher_type:  scan.type === 'purchase' ? 'PURCHASE' : 'SALE',
+          entity_id:     resolvedEntityId,
+          entity_name:   resolvedEntityName,
           party_name:    scan.party_name,
           party_gstin:   scan.party_gstin,
           // Taxable value drives GST Quick-Add; use it as 'amount', not total_amount

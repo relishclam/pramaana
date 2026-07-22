@@ -74,7 +74,20 @@ export async function fetchPendingCount(companyId: string): Promise<number> {
   // Must mirror the filter in fetchPendingVouchers:
   //   pending_approval  → always shown
   //   approved          → only shown when voucher_type.nature = 'payment' (OTP pending)
-  // Count both groups separately to avoid a complex join on a head-only query.
+  //
+  // NOTE: do NOT use .eq('voucher_types.nature', 'payment') on an aliased
+  // embedded join — PostgREST applies that as a resource-level column filter,
+  // not a WHERE on the parent row, so it counts ALL approved vouchers.
+  // Instead resolve payment voucher_type ids first, then filter by FK directly.
+
+  // Step 1: get all voucher_type ids whose nature = 'payment'
+  const { data: ptData } = await supabase
+    .schema('pramaana')
+    .from('voucher_types')
+    .select('id')
+    .eq('nature', 'payment')
+  const paymentTypeIds = (ptData ?? []).map((r: { id: string }) => r.id)
+
   const [pendingRes, approvedRes] = await Promise.all([
     supabase
       .schema('pramaana')
@@ -82,13 +95,15 @@ export async function fetchPendingCount(companyId: string): Promise<number> {
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId)
       .eq('status', 'pending_approval'),
-    supabase
-      .schema('pramaana')
-      .from('vouchers')
-      .select('id, voucher_type:voucher_types!inner(nature)', { count: 'exact', head: true })
-      .eq('company_id', companyId)
-      .eq('status', 'approved')
-      .eq('voucher_types.nature', 'payment'),
+    paymentTypeIds.length > 0
+      ? supabase
+          .schema('pramaana')
+          .from('vouchers')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', companyId)
+          .eq('status', 'approved')
+          .in('voucher_type_id', paymentTypeIds)
+      : Promise.resolve({ count: 0 }),
   ])
   return (pendingRes.count ?? 0) + (approvedRes.count ?? 0)
 }

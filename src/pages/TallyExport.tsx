@@ -83,7 +83,21 @@ function MastersTab({ companyId }: { companyId: string }) {
         Paste the Tally ledger master list below (CSV format: <code>Name,Parent Group</code>).
         In Tally: <strong>Gateway → Display More Reports → List of Accounts → Export (Alt+E) → CSV</strong>.
         Then click <strong>Auto-Match</strong> to find exact name matches against Pramaana.
+        <br />
+        <strong>For missing ledgers</strong>: export the relevant Tally <em>Group Summary</em> (for example Salary,
+        Building Renovation, or Indirect Incomes), note the ledger names that appear there but are missing in
+        Pramaana, create those ledgers in <strong>Ledgers</strong>, then re-run this import so they can be mapped.
       </p>
+
+      <div className={css.matchResult}>
+        <strong>Missing-ledger workflow</strong>
+        <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem' }}>
+          <li>Export the relevant Tally Group Summary report.</li>
+          <li>List the ledger names that exist in Tally but not yet in Pramaana.</li>
+          <li>Create those ledgers in Pramaana first, using the correct parent group.</li>
+          <li>Come back here, paste the full Tally master CSV, and run Auto-Match.</li>
+        </ol>
+      </div>
 
       <div className={css.field}>
         <label className={css.label}>Tally Ledger Master CSV <span className={css.req}>*</span></label>

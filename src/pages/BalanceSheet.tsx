@@ -15,7 +15,20 @@ import styles from './Reports.module.css'
 
 // ── Balance sheet derivation helpers ─────────────────────────────────────────
 
-interface BSGroup { name: string; rows: TrialBalanceLedgerRow[]; total: number }
+interface BSGroup {
+  name: string
+  nature: 'ASSET' | 'LIABILITY'
+  rows: TrialBalanceLedgerRow[]
+  total: number
+}
+
+function signedBalanceAmount(net: number, nature: 'ASSET' | 'LIABILITY'): number {
+  return nature === 'LIABILITY' ? -net : net
+}
+
+function fmtSignedAmount(amount: number): string {
+  return amount < 0 ? `-${fmtAmt(Math.abs(amount))}` : fmtAmt(amount)
+}
 
 function buildBSSide(
   tbRows: TrialBalanceLedgerRow[],
@@ -30,9 +43,8 @@ function buildBSSide(
     groupMap.get(r.group_name)!.push(r)
   }
   return [...groupMap.entries()].map(([name, rows]) => {
-    // Assets: use positive Dr net; Liabilities: use absolute of Cr net
-    const total = rows.reduce((s, r) => s + Math.abs(r.net), 0)
-    return { name, rows, total }
+    const total = rows.reduce((s, r) => s + signedBalanceAmount(r.net, nature), 0)
+    return { name, nature, rows, total }
   })
 }
 
@@ -55,15 +67,15 @@ function exportBalanceSheetCsv(
 
   for (const grp of liabilityGroups) {
     rows.push(['Liabilities & Capital', grp.name, '', ''])
-    for (const r of grp.rows) rows.push(['Liabilities & Capital', grp.name, r.ledger_name, Math.abs(r.net)])
+    for (const r of grp.rows) rows.push(['Liabilities & Capital', grp.name, r.ledger_name, signedBalanceAmount(r.net, grp.nature)])
     rows.push(['Liabilities & Capital', grp.name, 'Group Total', grp.total])
   }
-  rows.push(['Liabilities & Capital', netProfit >= 0 ? 'Add: Net Profit' : 'Less: Net Loss', '', Math.abs(netProfit)])
+  rows.push(['Liabilities & Capital', netProfit >= 0 ? 'Add: Net Profit' : 'Less: Net Loss', '', netProfit])
   rows.push(['Liabilities & Capital', 'Total', '', totalLiabilities])
 
   for (const grp of assetGroups) {
     rows.push(['Assets', grp.name, '', ''])
-    for (const r of grp.rows) rows.push(['Assets', grp.name, r.ledger_name, Math.abs(r.net)])
+    for (const r of grp.rows) rows.push(['Assets', grp.name, r.ledger_name, signedBalanceAmount(r.net, grp.nature)])
     rows.push(['Assets', grp.name, 'Group Total', grp.total])
   }
   rows.push(['Assets', 'Total', '', totalAssets])
@@ -196,14 +208,14 @@ export default function BalanceSheet() {
                         <tr key={r.ledger_id}>
                           <td style={{ paddingLeft: '1.5rem' }}>{r.ledger_name}</td>
                           <td className={`${styles.right} ${styles.mono}`} style={{ whiteSpace: 'nowrap' }}>
-                            {fmtAmt(Math.abs(r.net))}
+                            {fmtSignedAmount(signedBalanceAmount(r.net, grp.nature))}
                           </td>
                         </tr>
                       ))}
                       <tr>
                         <td className={styles.colGroupTotal}>{grp.name} Total</td>
                         <td className={`${styles.right} ${styles.mono} ${styles.colGroupTotal}`}>
-                          {fmtAmt(grp.total)}
+                          {fmtSignedAmount(grp.total)}
                         </td>
                       </tr>
                     </>
@@ -215,7 +227,7 @@ export default function BalanceSheet() {
                       {netProfit >= 0 ? 'Add: Net Profit' : 'Less: Net Loss'}
                     </td>
                     <td className={`${styles.right} ${styles.mono} ${netProfit >= 0 ? styles.colNetProfit : styles.colNetLoss}`}>
-                      {fmtAmt(Math.abs(netProfit))}
+                      {fmtSignedAmount(netProfit)}
                     </td>
                   </tr>
                 </tbody>
@@ -223,7 +235,7 @@ export default function BalanceSheet() {
                   <tr>
                     <td className={styles.colGrandTotal}>Total</td>
                     <td className={`${styles.right} ${styles.mono} ${styles.colGrandTotal}`}>
-                      {fmtAmt(totalLiabilities)}
+                      {fmtSignedAmount(totalLiabilities)}
                     </td>
                   </tr>
                 </tfoot>
@@ -244,14 +256,14 @@ export default function BalanceSheet() {
                         <tr key={r.ledger_id}>
                           <td style={{ paddingLeft: '1.5rem' }}>{r.ledger_name}</td>
                           <td className={`${styles.right} ${styles.mono}`} style={{ whiteSpace: 'nowrap' }}>
-                            {fmtAmt(Math.abs(r.net))}
+                            {fmtSignedAmount(signedBalanceAmount(r.net, grp.nature))}
                           </td>
                         </tr>
                       ))}
                       <tr>
                         <td className={styles.colGroupTotal}>{grp.name} Total</td>
                         <td className={`${styles.right} ${styles.mono} ${styles.colGroupTotal}`}>
-                          {fmtAmt(grp.total)}
+                          {fmtSignedAmount(grp.total)}
                         </td>
                       </tr>
                     </>
@@ -261,7 +273,7 @@ export default function BalanceSheet() {
                   <tr>
                     <td className={styles.colGrandTotal}>Total</td>
                     <td className={`${styles.right} ${styles.mono} ${styles.colGrandTotal}`}>
-                      {fmtAmt(totalAssets)}
+                      {fmtSignedAmount(totalAssets)}
                     </td>
                   </tr>
                 </tfoot>

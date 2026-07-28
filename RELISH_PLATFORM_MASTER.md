@@ -736,6 +736,92 @@ Save as: `RHHF_Vouchers_FY2526.xlsx`, `RFPL_Vouchers_FY2526.xlsx`
 Date range: April 1 2026 to July 31 2026  
 Save as: `RHHF_Vouchers_Apr_Jul_2026.xlsx`, `RFPL_Vouchers_Apr_Jul_2026.xlsx`
 
+### Export 5 — Group Summary for Missing Ledgers
+Use this only when Trial Balance / Balance Sheet is still off because Pramaana is missing ledgers that exist in Tally.
+
+*Gateway of Tally → Display More Reports → Group Summary*  
+Export the subgroup(s) that contain the missing ledgers, for example:
+- Salary
+- Building Renovation
+- Indirect Incomes
+
+Columns needed: `Ledger Name | Parent Group | Closing Balance | Dr/Cr`  
+Save as: `RHHF_MissingLedgers_GroupSummary.xlsx`, `RFPL_MissingLedgers_GroupSummary.xlsx`
+
+Workflow:
+1. Compare the Group Summary against Pramaana Ledgers.
+2. Create any missing Pramaana ledgers under the correct parent group.
+3. Re-run the Tally master export (`List of Accounts → CSV`).
+4. Paste that CSV into the **Tally XML Export → Import Tally Masters** tab.
+5. Click **Auto-Match** and verify the mappings before exporting XML.
+
+### Create These Ledgers First — RFPL Missing Ledger Checklist
+
+Use this table when Tally has the ledger but Pramaana does not. The suggested nature is the usual accounting side for the ledger.
+
+```csv
+Ledger Name,Suggested Parent Group,Suggested Nature,Notes
+Abdurahim & Co,Sundry Creditors,Cr,Vendor / payable
+Adarsh Salary A/c,Salary,Dr,Expense ledger
+Ajay S Salary A/c,Salary,Dr,Expense ledger
+Airwallex Hong Kong Limit,Bank Accounts,Dr,Bank / cash equivalent
+Alleppey Plywoods,Sundry Creditors,Cr,Vendor / payable
+Alleppy Computers,Sundry Creditors,Cr,Vendor / payable
+Amba Interiors,Sundry Creditors,Cr,Vendor / payable
+Application Fees,Indirect Expenses,Dr,Expense ledger
+Car Repair & Maintenance,Indirect Expenses,Dr,Expense ledger
+Certificate Fee,Indirect Expenses,Dr,Expense ledger
+Citadel Sarovar Portico,Sundry Creditors,Cr,Vendor / payable
+Consumables,Indirect Expenses,Dr,Expense ledger
+Foodstream,Sundry Debtors,Dr,Customer / receivable
+GST Payable,Current Liabilities,Cr,Statutory payable
+Jacab John & Co,Sundry Creditors,Cr,Vendor / payable
+Jithin Scaria,Sundry Creditors,Cr,Vendor / payable
+Kunjumol Maid Day Salary A/c,Salary,Dr,Expense ledger
+Kunjumol Maid Salary A/c (Night),Salary,Dr,Expense ledger
+Labour Charge,Building Renovation,Dr,Capital work-in-progress / project cost
+Land Survey Fee,Indirect Expenses,Dr,Expense ledger
+Land Tax,Indirect Expenses,Dr,Expense ledger
+Laundry,Indirect Expenses,Dr,Expense ledger
+Malabar Agencies,Sundry Creditors,Cr,Vendor / payable
+Marvel Cruise,Sundry Creditors,Cr,Vendor / payable
+Materials Purchase,Building Renovation,Dr,Capital work-in-progress / project cost
+Muncipality Charges,Indirect Expenses,Dr,Expense ledger
+Onam Bonus,Indirect Expenses,Dr,Expense ledger
+P.A George & Co,Sundry Creditors,Cr,Vendor / payable
+Payment Not Clear,Suspense A/c,Dr/Cr,Use Suspense; sign depends on balance
+Real Glass& Paints,Sundry Creditors,Cr,Vendor / payable
+Reji Traders,Sundry Creditors,Cr,Vendor / payable
+Rent Received,Direct Incomes / Indirect Incomes,Cr,Use the exact Tally parent group used in master
+Salary Advance,Current Assets,Dr,Recoverable advance
+Security Deposit(Commercial Tax),Deposits (Asset),Dr,Asset / deposit
+Service Cahrge,Indirect Expenses,Dr,Expense ledger
+Shan Tools & Hardware,Sundry Creditors,Cr,Vendor / payable
+Sold Scrap,Indirect Incomes,Cr,Income ledger
+S N Timber & Saw Mills,Sundry Creditors,Cr,Vendor / payable
+Tarun Philip Room Deposit,Current Assets,Dr,Deposit / receivable
+TDS,Current Assets,Dr,Tax receivable / asset
+TDS Refund,Indirect Incomes,Cr,Income ledger
+Telephone & Internet Charges,Indirect Expenses,Dr,Expense ledger
+Transportation Charge,Building Renovation,Dr,Capital work-in-progress / project cost
+Utensils Rent,Building Renovation,Dr,Capital work-in-progress / project cost
+Vehicle Repair & Maintenance,Indirect Expenses,Dr,Expense ledger
+```
+
+### Ready-to-Use Import Checklist
+
+1. **Create the missing ledgers in Pramaana** using the parent group from the table above.
+2. **Use the same spelling / spacing** as the Tally master wherever possible.
+3. **Set opening balances** from the Tally Group Summary or ledger report.
+4. **Re-export Tally master CSV** from `List of Accounts → Export (Alt+E) → CSV`.
+5. **Paste the CSV into** `Tally XML Export → Import Tally Masters`.
+6. **Click Auto-Match** and review exact + fuzzy matches.
+7. **Verify every mapping** in the Mapping tab.
+8. **Run Trial Balance** again to confirm the imbalance shrinks or disappears.
+9. **Only then re-run Balance Sheet / P&L / Schedule III exports**.
+
+**Rule of thumb:** if a ledger exists in Tally with a closing balance and it appears on the RFPL statements, create it before trying to fix reporting math. Reporting cannot heal missing source data — even the best spreadsheet can’t perform miracles without the ledger, alas.
+
 ---
 
 ## 15. Build Roadmap

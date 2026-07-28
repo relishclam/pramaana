@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, FileBarChart2, RefreshCw } from 'lucide-react'
+import { Loader2, Download, FileBarChart2, RefreshCw, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { fetchRatioAnalysis, currentFY, fmtDate, type RatioResult } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 // ── Ratio card data ────────────────────────────────────────────────────────────
@@ -106,6 +107,33 @@ function ratioColor(val: number, def: RatioDef): string {
   }
 }
 
+function exportRatioCsv(companyName: string, to: string, result: RatioResult): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['Ratio Analysis'],
+    ['Company', companyName],
+    ['As at', to],
+    [],
+    ['Category', 'Ratio', 'Value', 'Format'],
+  ]
+
+  const add = (category: string, keys: (keyof RatioResult)[]) => {
+    for (const key of keys) {
+      const def = RATIOS.find(r => r.key === key)!
+      const val = result[key]
+      rows.push([category, def.label, val == null ? 'N/A' : formatValue(val, def.format), def.format])
+    }
+  }
+
+  add('Liquidity', ['current_ratio', 'quick_ratio'])
+  add('Leverage', ['debt_to_equity'])
+  add('Profitability', ['net_profit_margin', 'return_on_assets', 'return_on_equity'])
+  add('Efficiency', ['debtors_days', 'creditors_days'])
+
+  const csv = buildCsv(rows)
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`ratio_analysis_${safeCompany}_${to}.csv`, csv)
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function RatioAnalysis() {
@@ -139,11 +167,18 @@ export default function RatioAnalysis() {
       {/* Header */}
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Ratio Analysis</h1>
-        {hasRun && company && (
-          <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-            {company.name} · As at {fmtDate(to)}
-          </span>
-        )}
+        <div className={styles.headerActions}>
+          {hasRun && result && (
+            <button className={styles.btnPrint} onClick={() => exportRatioCsv(company?.name ?? 'Company', to, result)}>
+              <Download size={13} /> CSV
+            </button>
+          )}
+          {hasRun && (
+            <button className={styles.btnPrint} onClick={() => window.print()}>
+              <Printer size={13} /> Print / PDF
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter bar */}

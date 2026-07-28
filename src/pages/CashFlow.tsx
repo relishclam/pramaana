@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2 } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -11,6 +11,7 @@ import {
   type CashFlowResult,
   type CashFlowItem,
 } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 // ── Section renderer ──────────────────────────────────────────────────────────
@@ -58,6 +59,35 @@ function CashFlowSection({
   )
 }
 
+function exportCashFlowCsv(companyName: string, from: string, to: string, result: CashFlowResult): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['Cash Flow Statement'],
+    ['Company', companyName],
+    ['From', from],
+    ['To', to],
+    [],
+    ['Section', 'Label', 'Amount'],
+  ]
+
+  const pushSection = (section: { title: string; items: CashFlowItem[]; total: number }) => {
+    for (const item of section.items) rows.push([section.title, item.label, item.amount])
+    rows.push([section.title, `Net ${section.title.replace('Cash Flow from ', '')}`, section.total])
+  }
+
+  pushSection(result.operating)
+  pushSection(result.investing)
+  pushSection(result.financing)
+
+  rows.push([])
+  rows.push(['Summary', 'Opening Cash & Bank Balance', result.opening_cash])
+  rows.push(['Summary', 'Net Increase / (Decrease) in Cash & Bank', result.net_change])
+  rows.push(['Summary', 'Closing Cash & Bank Balance', result.closing_cash])
+
+  const csv = buildCsv(rows)
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`cash_flow_${safeCompany}_${from}_to_${to}.csv`, csv)
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CashFlow() {
@@ -93,7 +123,10 @@ export default function CashFlow() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Cash Flow Statement</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button className={styles.btnPrint} onClick={() => result && exportCashFlowCsv(company?.name ?? 'Company', from, to, result)} disabled={!hasRun || loading || !result}>
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

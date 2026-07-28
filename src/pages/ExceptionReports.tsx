@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, FileBarChart2, AlertTriangle, Clock, Calendar, Hash, TrendingUp } from 'lucide-react'
+import { Loader2, Download, FileBarChart2, AlertTriangle, Clock, Calendar, Hash, TrendingUp, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -11,6 +11,7 @@ import {
   type ExceptionVoucher,
   type ExceptionReport,
 } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 type Section = 'stale_pending' | 'backdated' | 'round_figures' | 'no_narration' | 'high_value'
@@ -53,6 +54,21 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   pending_approval: { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b'          },
   posted:           { bg: 'rgba(34,197,94,0.12)',  color: '#22c55e'          },
   cancelled:        { bg: 'rgba(239,68,68,0.08)',  color: '#ef4444'          },
+}
+
+function exportExceptionCsv(companyName: string, from: string, to: string, tab: Section, rows: ExceptionVoucher[]): void {
+  const csv = buildCsv([
+    ['Exception Report'],
+    ['Company', companyName],
+    ['From', from],
+    ['To', to],
+    ['Category', SECTIONS.find(s => s.key === tab)?.label ?? tab],
+    [],
+    ['#', 'Voucher No.', 'Date', 'Type', 'Party', 'Amount', 'Status', 'Flag Reason'],
+    ...rows.map((r, idx) => [idx + 1, r.voucher_number, r.voucher_date, r.voucher_type, r.party_name ?? '', r.amount, r.status, r.reason]),
+  ])
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`exceptions_${tab}_${safeCompany}_${from}_to_${to}.csv`, csv)
 }
 
 // ── Exception table ───────────────────────────────────────────────────────────
@@ -188,6 +204,18 @@ export default function ExceptionReports() {
             {totalExceptions > 0 ? `${totalExceptions} exception${totalExceptions !== 1 ? 's' : ''} flagged` : 'No exceptions found'}
           </span>
         )}
+        <div className={styles.headerActions}>
+          {hasRun && result && (
+            <button className={styles.btnPrint} onClick={() => exportExceptionCsv(company?.name ?? 'Company', from, to, tab, result[tab])}>
+              <Download size={13} /> CSV
+            </button>
+          )}
+          {hasRun && (
+            <button className={styles.btnPrint} onClick={() => window.print()}>
+              <Printer size={13} /> Print / PDF
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filter bar */}

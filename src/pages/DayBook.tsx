@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2 } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -10,6 +10,7 @@ import {
   fmtAmt,
   type DayBookRow,
 } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -21,6 +22,29 @@ function groupByDate(rows: DayBookRow[]): [string, DayBookRow[]][] {
     map.get(r.voucher_date)!.push(r)
   }
   return [...map.entries()]
+}
+
+function exportDayBookCsv(companyName: string, from: string, to: string, rows: DayBookRow[]): void {
+  const csv = buildCsv([
+    ['Day Book'],
+    ['Company', companyName],
+    ['From', from],
+    ['To', to],
+    [],
+    ['Date', 'Voucher No.', 'Type', 'Party', 'Narration', 'Amount'],
+    ...rows.map((r) => [
+      r.voucher_date,
+      r.voucher_number,
+      r.voucher_type_name,
+      r.party_name ?? '',
+      r.narration ?? '',
+      r.amount,
+    ]),
+    [],
+    ['', '', '', '', 'Grand Total', rows.reduce((s, r) => s + r.amount, 0)],
+  ])
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`day_book_${safeCompany}_${from}_to_${to}.csv`, csv)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -61,7 +85,10 @@ export default function DayBook() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Day Book</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button className={styles.btnPrint} onClick={() => exportDayBookCsv(company?.name ?? 'Company', from, to, rows)} disabled={!hasRun || loading}>
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, FileBarChart2, Loader2 } from 'lucide-react'
+import { Download, FileBarChart2, Loader2, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
@@ -236,6 +236,11 @@ export default function TdsReports() {
           {hasRun && rows.length > 0 && (
             <button className={css.btnPrint} onClick={() => exportCsv(rows, from, to, companyName)}>
               <Download size={13} /> Export CSV
+            </button>
+          )}
+          {hasRun && (
+            <button className={css.btnPrint} onClick={() => window.print()}>
+              <Printer size={13} /> Print / PDF
             </button>
           )}
         </div>

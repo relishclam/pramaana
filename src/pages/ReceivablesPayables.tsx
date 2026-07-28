@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2, Search } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -12,6 +12,7 @@ import {
   type LedgerNature,
 } from '@/lib/reports'
 import { fetchAllOpenBills, type BillSummary } from '@/lib/allocations'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 type Mode = 'both' | 'receivable' | 'payable'
@@ -27,6 +28,60 @@ function totals(list: OutstandingLedger[]) {
     b61_90:  list.reduce((s, r) => s + r.aging.b61_90,  0),
     b90plus: list.reduce((s, r) => s + r.aging.b90plus, 0),
   }
+}
+
+function exportLedgerViewCsv(
+  companyName: string,
+  asAt: string,
+  mode: Mode,
+  rows: OutstandingLedger[],
+): void {
+  const filteredRows = rows.filter(r =>
+    mode === 'both' ? true : mode === 'receivable' ? r.group_nature === 'ASSET' : r.group_nature === 'LIABILITY'
+  )
+  const csv = buildCsv([
+    ['Receivables & Payables — Ledger View'],
+    ['Company', companyName],
+    ['As at', asAt],
+    ['Mode', mode],
+    [],
+    ['Nature', 'Ledger', 'Group', 'Total Outstanding', '0-30 Days', '31-60 Days', '61-90 Days', '90+ Days'],
+    ...filteredRows.map((r) => [
+      r.group_nature,
+      r.ledger_name,
+      r.group_name,
+      Math.abs(r.net_balance),
+      r.aging.current,
+      r.aging.b31_60,
+      r.aging.b61_90,
+      r.aging.b90plus,
+    ]),
+  ])
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`receivables_payables_ledger_${safeCompany}_${asAt}.csv`, csv)
+}
+
+function exportBillViewCsv(
+  companyName: string,
+  asAt: string,
+  mode: Mode,
+  billsByEntity: { name: string; bills: BillSummary[] }[],
+): void {
+  const csv = buildCsv([
+    ['Receivables & Payables — Bill View'],
+    ['Company', companyName],
+    ['As at', asAt],
+    ['Mode', mode],
+    [],
+    ['Party', 'Bill No.', 'Date', 'Ref / Narration', 'Bill Amount', 'Outstanding', 'Age (days)', 'Bucket'],
+    ...billsByEntity.flatMap(({ name, bills }) => bills.map((b) => {
+      const age = Math.floor((new Date().getTime() - new Date(b.voucher_date + 'T00:00:00').getTime()) / 86_400_000)
+      const bucket = age <= 30 ? '0-30' : age <= 60 ? '31-60' : age <= 90 ? '61-90' : '90+'
+      return [name, b.voucher_number, b.voucher_date, b.ref_document_number ?? b.narration ?? '', b.amount, b.outstanding, age, bucket]
+    })),
+  ])
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`receivables_payables_bills_${safeCompany}_${asAt}.csv`, csv)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -195,7 +250,17 @@ export default function ReceivablesPayables() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Receivables &amp; Payables</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button
+            className={styles.btnPrint}
+            onClick={() => viewMode === 'ledger'
+              ? exportLedgerViewCsv(company?.name ?? 'Company', asAt, mode, filtered)
+              : exportBillViewCsv(company?.name ?? 'Company', asAt, mode, billsByEntity)
+            }
+            disabled={!hasRun || loading}
+          >
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

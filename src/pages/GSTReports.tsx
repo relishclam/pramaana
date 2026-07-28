@@ -1,12 +1,71 @@
 import { useState, useMemo } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2, Info } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { fetchGSTVouchers, currentFY, fmtDate, fmtAmt, type GSTVoucherRow } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 type Tab = 'gstr1' | 'gstr3b'
+
+function exportGstCsv(
+  companyName: string,
+  from: string,
+  to: string,
+  tab: Tab,
+  salesRows: GSTVoucherRow[],
+  purchaseRows: GSTVoucherRow[],
+): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['GST Reports'],
+    ['Company', companyName],
+    ['From', from],
+    ['To', to],
+    ['Report', tab === 'gstr1' ? 'GSTR-1' : 'GSTR-3B'],
+    [],
+  ]
+
+  if (tab === 'gstr1') {
+    rows.push(['Sr.', 'Invoice No.', 'Invoice Date', 'Party', 'Invoice Value', 'Taxable Value', 'IGST', 'CGST', 'SGST'])
+    salesRows.forEach((r, i) => rows.push([
+      i + 1,
+      r.voucher_number,
+      r.voucher_date,
+      r.party_name ?? '',
+      r.amount,
+      r.taxable_value ?? '',
+      r.igst ?? '',
+      r.cgst ?? '',
+      r.sgst ?? '',
+    ]))
+  } else {
+    const totalSales         = salesRows.reduce((s, r) => s + r.amount, 0)
+    const totalSalesTaxable  = salesRows.reduce((s, r) => s + (r.taxable_value ?? r.amount), 0)
+    const totalSalesCGST     = salesRows.reduce((s, r) => s + (r.cgst ?? 0), 0)
+    const totalSalesSGST     = salesRows.reduce((s, r) => s + (r.sgst ?? 0), 0)
+    const totalSalesIGST     = salesRows.reduce((s, r) => s + (r.igst ?? 0), 0)
+    const totalPurchase      = purchaseRows.reduce((s, r) => s + r.amount, 0)
+    const totalPurchaseTax   = purchaseRows.reduce((s, r) => s + (r.taxable_value ?? r.amount), 0)
+    const totalPurchaseCGST  = purchaseRows.reduce((s, r) => s + (r.cgst ?? 0), 0)
+    const totalPurchaseSGST  = purchaseRows.reduce((s, r) => s + (r.sgst ?? 0), 0)
+    const totalPurchaseIGST  = purchaseRows.reduce((s, r) => s + (r.igst ?? 0), 0)
+    const netOutputTax       = totalSalesCGST + totalSalesSGST + totalSalesIGST
+    const netITC             = totalPurchaseCGST + totalPurchaseSGST + totalPurchaseIGST
+    const netTaxLiability    = netOutputTax - netITC
+
+    rows.push(['Section', 'Description', 'Taxable Value', 'IGST', 'CGST', 'SGST'])
+    rows.push(['3.1', 'Outward taxable supplies', totalSalesTaxable, totalSalesIGST, totalSalesCGST, totalSalesSGST])
+    rows.push(['4', 'ITC Available', totalPurchaseTax, totalPurchaseIGST, totalPurchaseCGST, totalPurchaseSGST])
+    rows.push(['Summary', 'Output Tax', totalSales, totalSalesIGST, totalSalesCGST, totalSalesSGST])
+    rows.push(['Summary', 'ITC Available', totalPurchase, totalPurchaseIGST, totalPurchaseCGST, totalPurchaseSGST])
+    rows.push(['Summary', 'Net Tax Liability', Math.abs(netTaxLiability), '', '', ''])
+  }
+
+  const csv = buildCsv(rows)
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`gst_${tab}_${safeCompany}_${from}_to_${to}.csv`, csv)
+}
 
 // ── GSTR-1 Table ──────────────────────────────────────────────────────────────
 
@@ -359,7 +418,10 @@ export default function GSTReports() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>GST Reports</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button className={styles.btnPrint} onClick={() => exportGstCsv(company?.name ?? 'Company', from, to, tab, salesRows, purchaseRows)} disabled={!hasRun || loading}>
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

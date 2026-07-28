@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Printer, FileBarChart2, Loader2 } from 'lucide-react'
+import { Printer, Download, FileBarChart2, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -12,6 +12,7 @@ import {
 import FoodStreamMini from '@/components/FoodStreamMini'
 import css from './Reports.module.css'
 import s3css from './ScheduleIII.module.css'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 
 // ── Schedule III mapping ───────────────────────────────────────────────────────
 // Maps Pramaana ledger group names to Companies Act Schedule III line items.
@@ -193,6 +194,52 @@ function S3Section({ heads, side }: { heads: S3Head[]; side: 'liab' | 'asset' | 
   )
 }
 
+function exportScheduleIIICsv(params: {
+  companyName: string
+  to: string
+  equity: S3Head[]
+  nonCurrLiab: S3Head[]
+  currLiab: S3Head[]
+  nonCurrAsset: S3Head[]
+  currAsset: S3Head[]
+  revenue: S3Head[]
+  expense: S3Head[]
+  totalEquityLiab: number
+  totalAssets: number
+  netProfit: number
+  totalRevenue: number
+  totalExpense: number
+}): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['Schedule III Financials'],
+    ['Company', params.companyName],
+    ['As at', params.to],
+    [],
+    ['Section', 'Heading', 'Line Item', 'Amount'],
+  ]
+  const pushHeads = (section: string, heads: S3Head[]) => {
+    for (const head of heads) {
+      for (const line of head.lines) rows.push([section, head.heading, line.subHeading, line.amount])
+      rows.push([section, head.heading, 'Total', head.total])
+    }
+  }
+  pushHeads('Equity', params.equity)
+  pushHeads('Non-Current Liabilities', params.nonCurrLiab)
+  pushHeads('Current Liabilities', params.currLiab)
+  rows.push(['Equity & Liabilities', '', 'Profit / (Loss) for the year', params.netProfit])
+  rows.push(['Equity & Liabilities', '', 'Total Equity & Liabilities', params.totalEquityLiab])
+  pushHeads('Non-Current Assets', params.nonCurrAsset)
+  pushHeads('Current Assets', params.currAsset)
+  rows.push(['Assets', '', 'Total Assets', params.totalAssets])
+  pushHeads('Revenue', params.revenue)
+  pushHeads('Expense', params.expense)
+  rows.push(['Profit & Loss', '', 'Total Revenue', params.totalRevenue])
+  rows.push(['Profit & Loss', '', 'Total Expense', params.totalExpense])
+  const csv = buildCsv(rows)
+  const safeCompany = params.companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`schedule_iii_${safeCompany}_${params.to}.csv`, csv)
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function ScheduleIII() {
@@ -282,9 +329,29 @@ export default function ScheduleIII() {
             Generate
           </button>
           {hasRun && (
-            <button className={css.btnPrint} onClick={() => window.print()}>
-              <Printer size={13} /> Print
-            </button>
+            <>
+              <button className={css.btnPrint} onClick={() => exportScheduleIIICsv({
+                companyName,
+                to,
+                equity,
+                nonCurrLiab,
+                currLiab,
+                nonCurrAsset,
+                currAsset,
+                revenue,
+                expense,
+                totalEquityLiab,
+                totalAssets,
+                netProfit,
+                totalRevenue,
+                totalExpense,
+              })}>
+                <Download size={13} /> CSV
+              </button>
+              <button className={css.btnPrint} onClick={() => window.print()}>
+                <Printer size={13} /> Print / PDF
+              </button>
+            </>
           )}
         </div>
       </div>

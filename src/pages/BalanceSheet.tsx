@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2 } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -10,6 +10,7 @@ import {
   fmtAmt,
   type TrialBalanceLedgerRow,
 } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 // ── Balance sheet derivation helpers ─────────────────────────────────────────
@@ -33,6 +34,43 @@ function buildBSSide(
     const total = rows.reduce((s, r) => s + Math.abs(r.net), 0)
     return { name, rows, total }
   })
+}
+
+function exportBalanceSheetCsv(
+  companyName: string,
+  to: string,
+  assetGroups: BSGroup[],
+  liabilityGroups: BSGroup[],
+  totalAssets: number,
+  totalLiabilities: number,
+  netProfit: number,
+): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['Balance Sheet'],
+    ['Company', companyName],
+    ['As at', to],
+    [],
+    ['Side', 'Group', 'Ledger', 'Amount'],
+  ]
+
+  for (const grp of liabilityGroups) {
+    rows.push(['Liabilities & Capital', grp.name, '', ''])
+    for (const r of grp.rows) rows.push(['Liabilities & Capital', grp.name, r.ledger_name, Math.abs(r.net)])
+    rows.push(['Liabilities & Capital', grp.name, 'Group Total', grp.total])
+  }
+  rows.push(['Liabilities & Capital', netProfit >= 0 ? 'Add: Net Profit' : 'Less: Net Loss', '', Math.abs(netProfit)])
+  rows.push(['Liabilities & Capital', 'Total', '', totalLiabilities])
+
+  for (const grp of assetGroups) {
+    rows.push(['Assets', grp.name, '', ''])
+    for (const r of grp.rows) rows.push(['Assets', grp.name, r.ledger_name, Math.abs(r.net)])
+    rows.push(['Assets', grp.name, 'Group Total', grp.total])
+  }
+  rows.push(['Assets', 'Total', '', totalAssets])
+
+  const csv = buildCsv(rows)
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`balance_sheet_${safeCompany}_${to}.csv`, csv)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -94,7 +132,10 @@ export default function BalanceSheet() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Balance Sheet</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button className={styles.btnPrint} onClick={() => exportBalanceSheetCsv(company?.name ?? 'Company', to, assetGroups, liabilityGroups, totalAssets, totalLiabilities, netProfit)} disabled={!hasRun || loading}>
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

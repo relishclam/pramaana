@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2 } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -13,6 +13,7 @@ import {
   type LedgerOption,
   type LedgerStatementResult,
 } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 // ── Balance display helper ────────────────────────────────────────────────────
@@ -24,6 +25,39 @@ function BalanceCell({ net }: { net: number }) {
       {fmtBalance(net)}
     </span>
   )
+}
+
+function exportLedgerStatementCsv(
+  companyName: string,
+  from: string,
+  to: string,
+  result: LedgerStatementResult,
+): void {
+  const csv = buildCsv([
+    ['Ledger Statement'],
+    ['Company', companyName],
+    ['Ledger', result.ledger_name],
+    ['Group', result.group_name],
+    ['From', from],
+    ['To', to],
+    [],
+    ['Date', 'Voucher No.', 'Type', 'Party', 'Narration', 'Dr', 'Cr', 'Running Balance'],
+    ['Opening Balance', '', '', '', '', '', '', result.opening_net],
+    ...result.rows.map((r) => [
+      r.voucher_date,
+      r.voucher_number,
+      r.voucher_type_name,
+      r.party_name ?? '',
+      r.narration ?? '',
+      r.entry_type === 'Dr' ? r.amount : '',
+      r.entry_type === 'Cr' ? r.amount : '',
+      r.running_balance,
+    ]),
+    ['Closing Balance', '', '', '', '', '', '', result.closing_net],
+  ])
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  const safeLedger = result.ledger_name.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Ledger'
+  downloadCsv(`ledger_statement_${safeCompany}_${safeLedger}_${from}_to_${to}.csv`, csv)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -74,7 +108,10 @@ export default function LedgerStatement() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Ledger Statement</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button className={styles.btnPrint} onClick={() => result && exportLedgerStatementCsv(company?.name ?? 'Company', from, to, result)} disabled={!hasRun || loading || !result}>
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

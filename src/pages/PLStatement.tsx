@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2 } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -10,6 +10,7 @@ import {
   fmtAmt,
   type TrialBalanceLedgerRow,
 } from '@/lib/reports'
+import { buildCsv, downloadCsv } from '@/lib/reportCsv'
 import styles from './Reports.module.css'
 
 // ── P&L derivation helpers ────────────────────────────────────────────────────
@@ -32,6 +33,47 @@ function buildPLSide(
     const total = rows.reduce((s, r) => s + (nature === 'INCOME' ? -r.net : r.net), 0)
     return { name, rows, total }
   })
+}
+
+function exportPLCsv(
+  companyName: string,
+  from: string,
+  to: string,
+  incomeGroups: PLGroup[],
+  expenseGroups: PLGroup[],
+  totalIncome: number,
+  totalExpense: number,
+  netProfit: number,
+): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['Profit & Loss Statement'],
+    ['Company', companyName],
+    ['From', from],
+    ['To', to],
+    [],
+    ['Side', 'Group', 'Ledger', 'Amount'],
+  ]
+
+  for (const grp of expenseGroups) {
+    rows.push(['Expenditure', grp.name, '', ''])
+    for (const r of grp.rows) rows.push(['Expenditure', grp.name, r.ledger_name, r.net > 0 ? r.net : 0])
+    rows.push(['Expenditure', grp.name, 'Group Total', grp.total])
+  }
+
+  rows.push(['Expenditure', 'Net Profit' + (netProfit < 0 ? ' / Loss' : ''), '', netProfit > 0 ? netProfit : ''])
+
+  for (const grp of incomeGroups) {
+    rows.push(['Income', grp.name, '', ''])
+    for (const r of grp.rows) rows.push(['Income', grp.name, r.ledger_name, -r.net > 0 ? -r.net : 0])
+    rows.push(['Income', grp.name, 'Group Total', grp.total])
+  }
+
+  rows.push(['Income', 'Net Loss', '', netProfit < 0 ? -netProfit : ''])
+  rows.push([], ['Expenditure Total', '', '', totalExpense], ['Income Total', '', '', totalIncome])
+
+  const csv = buildCsv(rows)
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`profit_and_loss_${safeCompany}_${from}_to_${to}.csv`, csv)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -85,7 +127,10 @@ export default function PLStatement() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Profit &amp; Loss Statement</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button className={styles.btnPrint} onClick={() => exportPLCsv(company?.name ?? 'Company', from, to, incomeGroups, expenseGroups, totalIncome, totalExpense, netProfit)} disabled={!hasRun || loading}>
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

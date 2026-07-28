@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
-import { Loader2, Printer, FileBarChart2, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Loader2, Printer, Download, FileBarChart2, CheckCircle, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
@@ -22,6 +22,84 @@ function groupRows(rows: TrialBalanceLedgerRow[]): [string, TrialBalanceLedgerRo
     map.get(r.group_name)!.push(r)
   }
   return [...map.entries()]
+}
+
+function csvCell(value: string | number | boolean | null | undefined): string {
+  const text = value == null ? '' : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function buildCsv(rows: (string | number | boolean | null | undefined)[][]): string {
+  return rows.map((row) => row.map(csvCell).join(',')).join('\r\n')
+}
+
+function downloadCsv(filename: string, content: string): void {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function exportTrialBalanceCsv(
+  companyName: string,
+  asAtDate: string,
+  result: TrialBalanceResult,
+): void {
+  const rows: (string | number | boolean | null | undefined)[][] = [
+    ['Trial Balance'],
+    ['Company', companyName],
+    ['As at', asAtDate],
+    [],
+    [
+      'Group',
+      'Ledger',
+      'Group Nature',
+      'Opening Side',
+      'Opening Amount',
+      'Period Dr',
+      'Period Cr',
+      'Closing Dr',
+      'Closing Cr',
+    ],
+    ...result.rows.map((row) => {
+      const openingAmount = Number(row.opening_balance || 0)
+      const closingDr = row.net > 0 ? row.net : ''
+      const closingCr = row.net < 0 ? Math.abs(row.net) : ''
+      return [
+        row.group_name,
+        row.ledger_name,
+        row.group_nature,
+        row.opening_dr_cr,
+        openingAmount,
+        row.period_dr,
+        row.period_cr,
+        closingDr,
+        closingCr,
+      ]
+    }),
+    [],
+    [
+      '',
+      'Grand Total',
+      '',
+      '',
+      '',
+      '',
+      '',
+      result.total_dr,
+      result.total_cr,
+    ],
+    ['', 'Balanced', '', '', '', '', '', result.balanced ? 'Yes' : 'No', ''],
+  ]
+
+  const content = buildCsv(rows)
+  const safeCompany = companyName.trim().replace(/[\\/:*?"<>|]+/g, '_') || 'Company'
+  downloadCsv(`trial_balance_${safeCompany}_${asAtDate}.csv`, content)
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -63,7 +141,14 @@ export default function TrialBalance() {
       <div className={`${styles.pageHeader} ${styles.noPrint}`}>
         <h1 className={styles.pageTitle}>Trial Balance</h1>
         <div className={styles.headerActions}>
-          <button className={styles.btnPrint} onClick={() => window.print()}>
+          <button
+            className={styles.btnPrint}
+            onClick={() => result && exportTrialBalanceCsv(company?.name ?? 'Company', to, result)}
+            disabled={!result || loading || !hasRun}
+          >
+            <Download size={13} /> CSV
+          </button>
+          <button className={styles.btnPrint} onClick={() => window.print()} disabled={!hasRun || loading}>
             <Printer size={13} /> Print / PDF
           </button>
         </div>

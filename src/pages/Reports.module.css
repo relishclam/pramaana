@@ -466,6 +466,10 @@
     color: #000;
   }
 
+  .tableWrap {
+    overflow: visible;
+  }
+
   .reportMeta {
     border-bottom: 1px solid #ccc;
   }
@@ -479,6 +483,23 @@
     border-color: #ccc;
     color: #000;
     background: #fff !important;
+  }
+
+  .table {
+    break-inside: auto;
+  }
+
+  .table thead {
+    display: table-header-group;
+  }
+
+  .table tfoot {
+    display: table-footer-group;
+  }
+
+  .table tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .dateGroupRow td,

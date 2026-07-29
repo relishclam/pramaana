@@ -152,12 +152,14 @@ export async function fetchSuspenseVouchers(
 
   if (rows.length === 0) return { rows: [], hasMore: false }
 
-  const creatorIds = [...new Set(rows.map(r => r.created_by))]
+  const creatorIds = [...new Set(rows.map(r => r.created_by).filter(Boolean) as string[])]
   const entityIds  = [...new Set(rows.map(r => r.entity_id).filter(Boolean) as string[])]
   const voucherIds = rows.map(r => r.id)
 
   const [profilesRes, entitiesRes, sessionsRes] = await Promise.all([
-    supabase.schema('registry').from('profiles').select('id, full_name').in('id', creatorIds),
+    creatorIds.length > 0
+      ? supabase.schema('registry').from('profiles').select('id, full_name').in('id', creatorIds)
+      : Promise.resolve({ data: [] as { id: string; full_name: string | null }[] }),
     entityIds.length > 0
       ? supabase.schema('registry').from('entities').select('id, display_name, mobile').in('id', entityIds)
       : Promise.resolve({ data: [] as { id: string; display_name: string; mobile: string | null }[] }),

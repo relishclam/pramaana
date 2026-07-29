@@ -26,6 +26,7 @@ import {
 } from '@/lib/vouchers-list'
 import {
   fetchVoucherAttachments,
+  getVoucherAttachmentSignedUrl,
   isImage,
   formatFileSize,
   type AttachmentWithUrl,
@@ -1175,6 +1176,15 @@ function DetailPanel({
     }
   }
 
+  const openAttachment = async (att: AttachmentWithUrl) => {
+    try {
+      const url = att.signed_url || await getVoucherAttachmentSignedUrl(att.storage_path)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Unable to open attachment')
+    }
+  }
+
   return (
     <div className={styles.modalBackdrop} onClick={onClose} role="presentation">
       <aside className={styles.modalShell} onClick={(e) => e.stopPropagation()}>
@@ -1446,11 +1456,10 @@ function DetailPanel({
             ) : (
               <div className={styles.attachGrid}>
                 {attachments.map(att => (
-                  <a
+                  <button
                     key={att.id}
-                    href={att.signed_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    type="button"
+                    onClick={() => { void openAttachment(att) }}
                     className={styles.attachItem}
                     title={att.file_name}
                   >
@@ -1470,7 +1479,7 @@ function DetailPanel({
                       )}
                       <span className={styles.attachLinkHint}>Open attachment ↗</span>
                     </div>
-                  </a>
+                  </button>
                 ))}
               </div>
             )}

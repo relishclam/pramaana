@@ -137,7 +137,7 @@ export async function fetchPendingVouchers(companyId: string): Promise<PendingVo
   const rows = (data ?? []) as unknown as RawRow[]
 
   // Batch-fetch profiles + entity names (cross-schema: registry)
-  const creatorIds = [...new Set(rows.map(r => r.created_by))]
+  const creatorIds = [...new Set(rows.map(r => r.created_by).filter(Boolean) as string[])]
   const entityIds  = [...new Set(rows.map(r => r.entity_id).filter(Boolean) as string[])]
 
   const [profilesRes, entitiesRes] = await Promise.all([
@@ -246,7 +246,7 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     v.otp_verified_by,
     v.completed_by,
     ...actions.map(a => a.actioned_by),
-  ].filter(Boolean) as string[])]
+  ].filter((id): id is string => typeof id === 'string' && id.length > 0))]
 
   const [profilesRes, entityRes, bankRes, costRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', profileIds),

@@ -110,7 +110,7 @@ export async function fetchVouchers(
   const rows    = hasMore ? rawRows.slice(0, PAGE_SIZE) : rawRows
 
   // Batch-fetch profiles + entity names (cross-schema)
-  const creatorIds = [...new Set(rows.map(r => r.created_by))]
+  const creatorIds = [...new Set(rows.map(r => r.created_by).filter(Boolean) as string[])]
   const entityIds  = [...new Set(rows.map(r => r.entity_id).filter(Boolean) as string[])]
 
   const [profilesRes, entitiesRes] = await Promise.all([

@@ -24,6 +24,16 @@ export interface AttachmentWithUrl extends VoucherAttachment {
 
 const BUCKET = 'voucher-attachments'
 
+export async function getVoucherAttachmentSignedUrl(storagePath: string): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(storagePath, 3600)
+
+  if (error) throw new Error('Failed to sign attachment URL: ' + error.message)
+  if (!data?.signedUrl) throw new Error('Attachment URL unavailable')
+  return data.signedUrl
+}
+
 // ── Upload files for a voucher ────────────────────────────────────────────────
 // Called after the voucher is created so we have a real voucher_id.
 // Fails gracefully per-file — does not throw if one file fails.
@@ -106,14 +116,27 @@ export async function fetchVoucherAttachments(
 
   if (signErr) throw new Error('Failed to sign attachment URLs: ' + signErr.message)
 
-  const urlMap = new Map(
-    (signed ?? []).map(s => [s.path, s.signedUrl ?? ''])
-  )
+  const urlMap = new Map((signed ?? []).map(s => [s.path, s.signedUrl ?? '']))
 
-  return rows.map(r => ({
-    ...r,
-    signed_url: urlMap.get(r.storage_path) ?? '',
+  // Some objects can intermittently return empty signedUrl in batch mode.
+  // Fallback to single-object signing so UI links always work when possible.
+  const enriched = await Promise.all(rows.map(async (r) => {
+    let signedUrl = urlMap.get(r.storage_path) ?? ''
+    if (!signedUrl) {
+      try {
+        signedUrl = await getVoucherAttachmentSignedUrl(r.storage_path)
+      } catch {
+        signedUrl = ''
+      }
+    }
+
+    return {
+      ...r,
+      signed_url: signedUrl,
+    }
   }))
+
+  return enriched
 }
 
 // ── Soft-delete an attachment ─────────────────────────────────────────────────

@@ -1,10 +1,17 @@
 /**
- * SMS client helpers — call the /api/send-sms Vercel Edge Function.
- * All functions are fire-and-forget safe: they never throw.
- * API key stays server-side in the Edge Function; never exposed to the browser.
+ * SMS + WhatsApp client helpers.
  *
- * DLT templates approved 2026-06-10 (Vilpower — Relish Hao Hao Chi Foods):
- *   Pramaana-Settlement-Link   | Pramaana-Payment-Confirmed | Pramaana-Payment Approval
+ * SMS  → /api/send-sms      (2Factor TSMS / OTP API)
+ * WA   → /api/send-whatsapp (MSG91 WhatsApp Business API)
+ *
+ * All functions are fire-and-forget safe: they never throw.
+ * API keys stay server-side in Edge Functions; never exposed to the browser.
+ *
+ * DLT templates (Vilpower — Relish Hao Hao Chi Foods):
+ *   Pramaana-Settlement-Link | Pramaana-Payment-Confirmed | Pramaana-Payment Approval
+ *
+ * MSG91 WhatsApp templates (pre-approved in MSG91 dashboard):
+ *   pramaana_payment_otp | pramaana_payment_confirmed | pramaana_settlement_link
  */
 import { supabase } from '@/lib/supabase'
 
@@ -16,7 +23,7 @@ export type SmsResult =
 
 const API_TIMEOUT_MS = 15000
 
-// ── Core caller ───────────────────────────────────────────────────────────────
+// ── Core SMS caller ───────────────────────────────────────────────────────────
 
 async function callApi(
   template: 'settlement-link' | 'payment-confirmed' | 'payment-otp',
@@ -131,4 +138,110 @@ export async function sendPaymentOtpSms(
     console.warn('[sms] OTP send failed:', e)
     return { sent: false, reason: e instanceof Error ? e.message : 'error' }
   }
+}
+
+// ── WhatsApp via MSG91 ────────────────────────────────────────────────────────
+
+async function callWhatsApp(
+  template: 'payment-otp' | 'payment-confirmed' | 'settlement-link',
+  mobile:   string,
+  vars:     string[],
+): Promise<SmsResult> {
+  try {
+    const ctrl  = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS)
+    const res = await fetch('/api/send-whatsapp', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ template, mobile, vars }),
+      signal:  ctrl.signal,
+    })
+    clearTimeout(timer)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string }
+      return { sent: false, reason: err.error ?? `HTTP ${res.status}` }
+    }
+    return { sent: true }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      return { sent: false, reason: 'WhatsApp request timed out' }
+    }
+    console.warn('[whatsapp] send failed:', e)
+    return { sent: false, reason: e instanceof Error ? e.message : 'error' }
+  }
+}
+
+// ── WhatsApp: Payment OTP ─────────────────────────────────────────────────────
+// Template: pramaana_payment_otp
+// Body:     "Relish Pramaana: Your payment OTP is {{1}}. Amount Rs.{{2}} for
+//            {{3}}. Valid for 10 minutes. Do not share this OTP."
+// Params:   {{1}}=OTP  {{2}}=amount  {{3}}=payee name
+
+export async function sendPaymentOtpWhatsApp(
+  mobile:    string,
+  otp:       string,
+  payeeName: string,
+  amount:    number,
+): Promise<SmsResult> {
+  return callWhatsApp('payment-otp', mobile, [
+    otp,
+    Math.round(amount).toLocaleString('en-IN'),
+    payeeName.slice(0, 30),
+  ])
+}
+
+// ── WhatsApp: Payment Confirmed ───────────────────────────────────────────────
+// Template: pramaana_payment_confirmed
+// Body:     "Relish Pramaana: Payment of Rs.{{1}} for voucher {{2}} has been
+//            processed successfully to your account."
+// Params:   {{1}}=amount  {{2}}=voucher#
+
+export async function sendPaymentConfirmedWhatsApp(
+  entityId:  string,
+  amount:    number,
+  voucherNo: string,
+): Promise<SmsResult> {
+  const { data: entity } = await supabase
+    .schema('registry')
+    .from('entities')
+    .select('mobile')
+    .eq('id', entityId)
+    .maybeSingle()
+
+  if (!entity?.mobile) return { sent: false, reason: 'no_mobile' }
+
+  return callWhatsApp('payment-confirmed', entity.mobile as string, [
+    Math.round(amount).toLocaleString('en-IN'),
+    voucherNo,
+  ])
+}
+
+// ── WhatsApp: Settlement Link ─────────────────────────────────────────────────
+// Template: pramaana_settlement_link
+// Body:     "Dear {{1}}, you have a pending advance of Rs.{{2}} from Relish.
+//            Please submit your expenses at: {{3}}"
+// Params:   {{1}}=first name  {{2}}=amount  {{3}}=url
+
+export async function sendSettlementLinkWhatsApp(
+  entityId: string,
+  amount:   number,
+  token:    string,
+): Promise<SmsResult> {
+  const { data: entity } = await supabase
+    .schema('registry')
+    .from('entities')
+    .select('display_name, mobile')
+    .eq('id', entityId)
+    .maybeSingle()
+
+  if (!entity?.mobile) return { sent: false, reason: 'no_mobile' }
+
+  const firstName = (entity.display_name as string ?? '').split(' ')[0]
+  const url       = `${window.location.origin}/settle/${token}`
+
+  return callWhatsApp('settlement-link', entity.mobile as string, [
+    firstName,
+    Math.round(amount).toLocaleString('en-IN'),
+    url,
+  ])
 }

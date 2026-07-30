@@ -89,17 +89,24 @@ serve(async (req: Request) => {
     const userId = data.user?.id
     if (userId) {
       // ── 4. Bootstrap a profile row so the user can log in ──────────────────
+      // Requires migration 055_grant_registry_profiles_write.sql to be applied.
       // ON CONFLICT DO NOTHING — safe to call even if profile already exists.
-      const { error: profileErr } = await admin
-        .schema('registry')
-        .from('profiles')
-        .upsert(
-          { id: userId, email, is_active: true, is_super_admin: false },
-          { onConflict: 'id', ignoreDuplicates: true },
-        )
-      if (profileErr) {
-        // Non-fatal: invite was sent. Log and continue.
-        console.error('invite-user: profile upsert failed:', profileErr.message)
+      // NON-FATAL: the invite email was already sent; a profile error must not
+      // block the response. The user can still log in; profile will be created
+      // on first sign-in via the auth hook.
+      try {
+        const { error: profileErr } = await admin
+          .schema('registry')
+          .from('profiles')
+          .upsert(
+            { id: userId, email, is_active: true, is_super_admin: false },
+            { onConflict: 'id', ignoreDuplicates: true },
+          )
+        if (profileErr) {
+          console.error('invite-user: profile upsert failed (non-fatal):', profileErr.message)
+        }
+      } catch (profileEx) {
+        console.error('invite-user: profile upsert threw (non-fatal):', profileEx)
       }
     }
 

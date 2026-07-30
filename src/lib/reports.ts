@@ -316,7 +316,9 @@ export async function fetchTrialBalance(
       period_cr:       pCr,
       net:             openNet + pDr - pCr,
     }
-  }).sort((a, b) =>
+  }).filter(r =>
+    r.net !== 0 || r.period_dr !== 0 || r.period_cr !== 0
+  ).sort((a, b) =>
     a.group_name.localeCompare(b.group_name) ||
     a.ledger_name.localeCompare(b.ledger_name)
   )

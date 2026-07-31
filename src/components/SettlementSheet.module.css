@@ -1,0 +1,457 @@
+/* ── Outer form container ────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* ── Card surface (shared) ───────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Card header (small-caps label row) */
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.cardLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+
+/* Card body */
+.cardBody {
+  padding: 1rem;
+}
+
+/* Card footer (totals row) */
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+
+.footerLabel {
+  color: var(--text-muted);
+}
+
+.footerValue {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--text);
+}
+
+.footerValueTeal  { composes: footerValue; color: var(--teal); }
+.footerValueAmber { composes: footerValue; color: var(--gold); }
+
+/* ── Picker section (party + document) ──────────────────────────────────── */
+
+.pickerCard {
+  composes: card;
+}
+
+.pickerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+  padding: 1rem;
+}
+
+@media (max-width: 560px) {
+  .pickerGrid { grid-template-columns: 1fr; }
+}
+
+/* ── Form field helpers ──────────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.select {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a90a0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  transition: border-color 0.15s;
+}
+
+.select:focus { border-color: var(--teal); }
+
+.select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.selectPlaceholder {
+  /* option color via browser — use JS to conditionally class */
+  color: var(--text-dim);
+}
+
+/* ── Party config banner ─────────────────────────────────────────────────── */
+
+.configBanner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.625rem 1.25rem;
+  padding: 0.625rem 1rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--teal) 8%, transparent);
+}
+
+.configItem {
+  font-size: 0.75rem;
+  color: var(--teal);
+  font-weight: 500;
+}
+
+.configItemLabel {
+  font-weight: 700;
+  margin-right: 0.25em;
+  color: var(--teal);
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  letter-spacing: 0.05em;
+}
+
+/* Loading skeleton for config */
+.configLoading {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Two-column zone layout (Zone A + Zone B side by side) ──────────────── */
+
+.zonesGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .zonesGrid { grid-template-columns: 1fr; }
+}
+
+/* ── Zone A — bank lines ─────────────────────────────────────────────────── */
+
+.bankLines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bankLine {
+  display: grid;
+  grid-template-columns: 1fr 116px 90px 1fr 28px;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+@media (max-width: 540px) {
+  .bankLine {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto;
+  }
+  .bankLineRef { grid-column: 1 / -1; }
+  .bankLineRemove { grid-row: 1; grid-column: 2; justify-self: end; }
+}
+
+/* Shared control style for bank line cells */
+.lineControl {
+  padding: 0.4375rem 0.625rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-family: var(--font-sans);
+  outline: none;
+  width: 100%;
+  transition: border-color 0.15s;
+}
+
+.lineControl:focus { border-color: var(--teal); }
+.lineControl::placeholder { color: var(--text-dim); }
+
+.lineSelect {
+  composes: lineControl;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238a90a0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-color: var(--surface-2);
+  padding-right: 1.5rem;
+  cursor: pointer;
+}
+
+.lineAmt {
+  composes: lineControl;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.lineRemoveBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 1.125rem;
+  line-height: 1;
+  transition: color 0.15s, background 0.1s;
+  flex-shrink: 0;
+}
+
+.lineRemoveBtn:hover { color: var(--error); background: rgba(224,82,82,0.08); }
+.lineRemoveBtn:disabled { opacity: 0.2; cursor: not-allowed; }
+
+/* Ghost "add line" button */
+.addLineBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0;
+  background: none;
+  border: none;
+  color: var(--teal);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.addLineBtn:hover { opacity: 0.75; }
+
+/* ── Zone B — adjustments ────────────────────────────────────────────────── */
+
+.adjustRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.adjustRow {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.adjustMeta {
+  /* label + sub-label */
+}
+
+.adjustName {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.adjustSub {
+  font-size: 0.6875rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.adjustInput {
+  composes: lineControl;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.adjustInput:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Balance bar ─────────────────────────────────────────────────────────── */
+
+.balanceBar {
+  composes: card;
+  border-color: var(--border-2);
+}
+
+.balanceBarSuccess { composes: balanceBar; border-color: rgba(76,175,125,0.35); background: color-mix(in srgb, var(--success) 5%, var(--surface)); }
+.balanceBarError   { composes: balanceBar; border-color: rgba(224,82,82,0.35);   background: color-mix(in srgb, var(--error)   5%, var(--surface)); }
+
+.balanceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+
+@media (max-width: 560px) {
+  .balanceGrid { grid-template-columns: 1fr 1fr; }
+}
+
+.balanceStat {
+  padding: 0.875rem 1rem;
+  border-right: 1px solid var(--border);
+}
+
+.balanceStat:last-child { border-right: none; }
+
+@media (max-width: 560px) {
+  .balanceStat:nth-child(2) { border-right: none; }
+  .balanceStat:nth-child(3) { border-top: 1px solid var(--border); }
+  .balanceStat:nth-child(4) { border-top: 1px solid var(--border); border-right: none; }
+}
+
+.statLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  margin-bottom: 0.375rem;
+}
+
+.statValue {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1;
+}
+
+.statValueTeal  { composes: statValue; color: var(--teal); }
+.statValueAmber { composes: statValue; color: var(--gold); }
+.statValueSuccess { composes: statValue; color: var(--success); }
+.statValueError   { composes: statValue; color: var(--error); }
+
+/* Status chips below the Remaining value */
+.statusChip {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.375rem;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.chipSuccess {
+  composes: statusChip;
+  background: rgba(76,175,125,0.15);
+  color: var(--success);
+  border: 1px solid rgba(76,175,125,0.25);
+}
+
+.chipPartPaid {
+  composes: statusChip;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border: 1px solid var(--border-2);
+}
+
+.chipError {
+  composes: statusChip;
+  background: rgba(224,82,82,0.15);
+  color: var(--error);
+  border: 1px solid rgba(224,82,82,0.25);
+}
+
+/* ── Error message ───────────────────────────────────────────────────────── */
+
+.errorMsg {
+  padding: 0.625rem 1rem;
+  background: rgba(224,82,82,0.1);
+  border: 1px solid rgba(224,82,82,0.25);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  color: var(--error);
+}
+
+/* ── Submit row ──────────────────────────────────────────────────────────── */
+
+.submitRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5625rem 1.25rem;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.btnPrimary:hover:not(:disabled) { opacity: 0.88; }
+.btnPrimary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Empty / loading states ──────────────────────────────────────────────── */
+
+.emptyDoc {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+.loadingMsg {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-style: italic;
+}

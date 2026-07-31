@@ -31,6 +31,7 @@ import { useEffect, useState } from 'react';
 import { supabasePramaana } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import SettlementSheet, { SettlementMode } from '@/components/SettlementSheet';
+import css from './SettlementPage.module.css';
 
 // Known RFPL ledgers (from migration cycle 050–055)
 const PENINSULAR_LEDGER = '74ecf056-0658-4193-8ec5-6b4802e016e0';
@@ -146,26 +147,30 @@ export default function SettlementPage() {
 
   if (!companyId) {
     return (
-      <div className="p-4 text-sm text-neutral-500">
-        No active company selected.
+      <div className={css.page}>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+          No active company selected.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-4">
-      {/* Mode toggle */}
-      <div className="mb-4 inline-flex rounded-lg border border-neutral-300 p-0.5">
+    <div className={css.page}>
+      <div className={css.pageHeader}>
+        <h1 className={css.pageTitle}>Settlement</h1>
+        <p className={css.pageSubtitle}>
+          {user?.activeCompany?.name ?? ''} · Receipt &amp; payment vouchers
+        </p>
+      </div>
+
+      <div className={css.modeBar}>
         {(['receipt', 'payment'] as const).map((m) => (
           <button
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={`rounded-md px-4 py-1.5 text-sm font-medium ${
-              mode === m
-                ? 'bg-blue-600 text-white'
-                : 'text-neutral-600 hover:bg-neutral-100'
-            }`}
+            className={mode === m ? css.modePillActive : css.modePill}
           >
             {m === 'receipt' ? 'Receipts in' : 'Payments out'}
           </button>
@@ -173,15 +178,13 @@ export default function SettlementPage() {
       </div>
 
       <SettlementSheet
-        key={mode} /* remount on mode switch to reset state */
+        key={mode}
         mode={mode}
         companyId={companyId}
         bankLedgers={bankLedgers}
         partyLedgers={partyLedgers}
         tdsLedgerId={tdsLedgerId}
         advanceLedgerResolver={advanceLedgerResolver}
-        /* Peninsular rent: GST-inclusive → base = total / 1.18 (default).
-           For salary settlements pass tdsBaseDivisor={1}. */
         onPosted={(_, number) => {
           setToast(`Posted ${number}`);
           setTimeout(() => setToast(null), 4000);
@@ -189,7 +192,13 @@ export default function SettlementPage() {
       />
 
       {toast && (
-        <div className="fixed bottom-4 right-4 rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-lg">
+        <div style={{
+          position: 'fixed', bottom: '1rem', right: '1rem',
+          background: 'var(--success)', color: '#fff',
+          padding: '0.5rem 1rem', borderRadius: 'var(--radius)',
+          fontSize: '0.875rem', fontWeight: 600,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+        }}>
           {toast}
         </div>
       )}

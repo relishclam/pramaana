@@ -849,10 +849,10 @@ export default function SimplifiedPaymentEntry({
         </div>
       )}
 
-      {/* ════ Step 4 — From which account ════════════════════════════════ */}
+      {/* ════ Step 4 — Account (receiving for receipt / paying for payment) ════ */}
       {show4 && (
         <div ref={step4Ref} className={styles.step}>
-          <StepHead num={4} done={step4Done} label="Paying from which account?" />
+          <StepHead num={4} done={step4Done} label={isReceiptMode ? 'Which account is the money coming into?' : 'Paying from which account?'} />
           <div className={styles.body}>
             {accountsLoading ? (
               <Loader2 size={18} className={styles.spin} />

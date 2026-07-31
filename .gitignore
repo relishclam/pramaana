@@ -3,3 +3,9 @@ dist
 .env
 .env.local
 supabase/.temp/
+
+# Local scripts & data files
+probe_ra_s3.py
+ra_to_pramaana_migration.py
+tally_xml_import.py
+unmapped_ledgers.csv

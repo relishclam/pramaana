@@ -861,22 +861,19 @@ export default function SimplifiedPaymentEntry({
                 No payment accounts found — add a Cash or Bank ledger in Ledgers first.
               </div>
             ) : (
-              <div className={styles.accountGrid}>
+              <select
+                className={styles.input}
+                value={selectedAccountId}
+                onChange={e => setSelectedAccountId(e.target.value)}
+              >
+                <option value="">— Select account —</option>
                 {paymentAccounts.map(acc => (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    className={`${styles.accountCard} ${selectedAccountId === acc.id ? styles.accountSelected : ''}`}
-                    onClick={() => setSelectedAccountId(acc.id)}
-                  >
-                    <span className={styles.accountBadge}>{acc.type === 'bank' ? 'Bank' : 'Cash'}</span>
-                    <span className={styles.accountName}>{acc.name}</span>
-                    {acc.account_number && (
-                      <span className={styles.accountNum}>•• {acc.account_number.slice(-4)}</span>
-                    )}
-                  </button>
+                  <option key={acc.id} value={acc.id}>
+                    {acc.type === 'bank' ? 'Bank' : 'Cash'} · {acc.name}
+                    {acc.account_number ? ` (•• ${acc.account_number.slice(-4)})` : ''}
+                  </option>
                 ))}
-              </div>
+              </select>
             )}
           </div>
         </div>

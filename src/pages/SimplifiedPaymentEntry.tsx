@@ -869,8 +869,9 @@ export default function SimplifiedPaymentEntry({
                 <option value="">— Select account —</option>
                 {paymentAccounts.map(acc => (
                   <option key={acc.id} value={acc.id}>
-                    {acc.type === 'bank' ? 'Bank' : 'Cash'} · {acc.name}
-                    {acc.account_number ? ` (•• ${acc.account_number.slice(-4)})` : ''}
+                    {acc.type === 'bank'
+                      ? `${acc.name}${acc.account_number ? ` (•• ${acc.account_number.slice(-4)})` : ''}`
+                      : acc.name}
                   </option>
                 ))}
               </select>

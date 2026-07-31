@@ -36,6 +36,7 @@ import TallyExport from '@/pages/TallyExport'
 import FoodStreamLoader from '@/components/FoodStreamLoader'
 import DashboardPage from '@/pages/Dashboard'
 import AwaitingPayments from '@/pages/AwaitingPayments'
+import SettlementPage from '@/pages/SettlementPage'
 import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
 
 function fmtRole(role: string | null | undefined): string {
@@ -73,7 +74,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/vouchers',  label: 'Vouchers',  end: false, badge: 0            },
     { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
     { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount  },
-    { to: '/payments',  label: 'Payments',  end: false, badge: paymentsCount },
+    { to: '/payments',    label: 'Payments',   end: false, badge: paymentsCount },
+    { to: '/settlement', label: 'Settlement', end: false, badge: 0             },
 
     { to: '/invoices',  label: 'Invoices',  end: false, badge: 0            },
     { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
@@ -515,6 +517,16 @@ function AwaitingPaymentsGuard() {
   return <AppShell><AwaitingPayments /></AppShell>
 }
 
+function SettlementGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && VOUCHER_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><SettlementPage /></AppShell>
+}
+
 function AdminGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -623,6 +635,7 @@ function AppRoutes() {
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
         <Route path="/payments"        element={<AwaitingPaymentsGuard />} />
+        <Route path="/settlement"       element={<SettlementGuard />} />
         <Route path="/inventory"      element={<InventoryGuard />} />
         <Route path="/invoices/scan"              element={<InvoiceScanUploadGuard />} />
         <Route path="/invoices/inbox"             element={<InvoiceScanInboxGuard />} />

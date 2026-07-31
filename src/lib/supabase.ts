@@ -8,3 +8,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+// pramaana-schema-scoped client — used by the Settlement module and any other
+// code that must hit pramaana tables/RPCs directly from the browser.
+export const supabasePramaana = createClient(supabaseUrl, supabaseAnonKey, {
+  db: { schema: 'pramaana' },
+})

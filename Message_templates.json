@@ -1,0 +1,62 @@
+[
+  {
+    "name": "pramaana_payment_otp",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Relish Pramaana: Your payment OTP is {{1}}. Amount Rs.{{2}} for {{3}}. Valid for 10 minutes. Do not share this OTP.",
+        "example": {
+          "body_text": [
+            ["847291", "15,000", "Riyaz Plumber"]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Relish Pramaana Team"
+      }
+    ]
+  },
+  {
+    "name": "pramaana_payment_confirmed",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Relish Pramaana: Payment of Rs.{{1}} for voucher {{2}} has been processed successfully to your account.",
+        "example": {
+          "body_text": [
+            ["15,000", "RFPL/PYMT/2526/0142"]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Relish Pramaana Team"
+      }
+    ]
+  },
+  {
+    "name": "pramaana_settlement_link",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Dear {{1}}, you have a pending advance of Rs.{{2}} from Relish. Please submit your expenses at: {{3}} - Thank you.",
+        "example": {
+          "body_text": [
+            ["Ajay", "5,000", "https://pramaana.relish.in/settle/abc123"]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Relish Pramaana Team"
+      }
+    ]
+  }
+]

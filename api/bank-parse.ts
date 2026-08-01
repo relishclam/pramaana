@@ -238,9 +238,9 @@ export default async function handler(
     // ── Load statement + format config ──────────────────────────────────────
     const stmts: {
       id: string; company_id: string; bank_format_id: string;
-      storage_path: string; period_from: string; period_to: string; status: string;
+      raw_content: string | null; period_from: string; period_to: string; status: string;
     }[] = await supabaseGet(
-      `bank_statements?id=eq.${statement_id}&select=id,company_id,bank_format_id,storage_path,period_from,period_to,status`
+      `bank_statements?id=eq.${statement_id}&select=id,company_id,bank_format_id,raw_content,period_from,period_to,status`
     )
     if (!stmts.length) throw new Error('Statement not found')
     const stmt = stmts[0]
@@ -265,14 +265,9 @@ export default async function handler(
       return
     }
 
-    // ── Fetch file from storage ─────────────────────────────────────────────
-    const fileRes = await fetch(
-      `${supabaseUrl()}/storage/v1/object/bank-statements/${stmt.storage_path}`,
-      { headers: { apikey: serviceKey(), Authorization: `Bearer ${serviceKey()}` } },
-    )
-    if (!fileRes.ok) throw new Error(`Storage fetch failed: ${fileRes.status}`)
-
-    const fileBuffer = Buffer.from(await fileRes.arrayBuffer())
+    // ── Decode file from raw_content ───────────────────────────────────────────
+    if (!stmt.raw_content) throw new Error('No file content stored for this statement')
+    const fileBuffer = Buffer.from(stmt.raw_content, 'base64')
 
     // ── Parse ───────────────────────────────────────────────────────────────
     let lines: ParsedLine[]

@@ -156,7 +156,7 @@ export default async function handler(req: Request): Promise<Response> {
     body: JSON.stringify({
       company_id,
       bank_format_id,
-      storage_path:  '',  // updated after upload
+      raw_content:   file_base64,
       period_from,
       period_to,
       uploaded_by:   user_id,
@@ -171,47 +171,5 @@ export default async function handler(req: Request): Promise<Response> {
   const [stmt] = await insertRes.json() as { id: string }[]
   const statement_id = stmt.id
 
-  // ── Upload file to Supabase Storage ───────────────────────────────────────
-  const storagePath = `${company_id}/${statement_id}/${file_name}`
-
-  let bytes: Uint8Array
-  try {
-    const binary = atob(file_base64)
-    bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  } catch {
-    return json({ error: 'Invalid file data (base64 decode failed)' }, 400)
-  }
-
-  const uploadRes = await fetch(
-    `${supabaseUrl}/storage/v1/object/bank-statements/${storagePath}`,
-    {
-      method: 'POST',
-      headers: {
-        apikey:          serviceKey,
-        Authorization:   `Bearer ${serviceKey}`,
-        'Content-Type':  file_type ?? 'text/csv',
-        'Cache-Control': '3600',
-      },
-      body: bytes,
-    },
-  )
-  if (!uploadRes.ok) {
-    const err = await uploadRes.text()
-    return json({ error: `Storage upload failed: ${err}` }, 500)
-  }
-
-  // ── Update storage_path on the record ────────────────────────────────────
-  await fetch(`${supabaseUrl}/rest/v1/bank_statements?id=eq.${statement_id}`, {
-    method: 'PATCH',
-    headers: {
-      apikey:            serviceKey,
-      Authorization:     `Bearer ${serviceKey}`,
-      'Content-Profile': 'pramaana',
-      'Content-Type':    'application/json',
-    },
-    body: JSON.stringify({ storage_path: storagePath }),
-  })
-
-  return json({ statement_id, storage_path: storagePath })
+  return json({ statement_id })
 }

@@ -87,9 +87,19 @@ const toISO = (d: Date) => d.toISOString().slice(0, 10)
 
 // ── Amount normalization ──────────────────────────────────────────────────────
 
+/** Strip Excel ="..." wrapper that Canara/other banks add when exporting via Excel */
+function stripExcelEq(raw: string | null | undefined): string {
+  if (!raw) return ''
+  const s = String(raw).trim()
+  // Matches ="value" or ="value" (with or without trailing quote)
+  if (s.startsWith('="') && s.endsWith('"')) return s.slice(2, -1)
+  if (s.startsWith('=')) return s.slice(1)
+  return s
+}
+
 function parseAmount(raw: string | null | undefined): number {
   if (!raw) return 0
-  const cleaned = String(raw).replace(/[₹,\s]/g, '').trim()
+  const cleaned = stripExcelEq(String(raw)).replace(/[₹,\s]/g, '').trim()
   if (!cleaned || cleaned === '-') return 0
   const n = parseFloat(cleaned)
   return isNaN(n) ? 0 : Math.abs(n)
@@ -149,17 +159,23 @@ function parseCSV(
     const dateStr = row[columnMap.date]
     if (!dateStr?.trim()) continue
 
-    const d = parseConfigDate(dateStr.trim(), dateFormat)
+    // Strip Excel ="..." wrapper, then take only the date portion (ignore time)
+    const cleanDate = stripExcelEq(dateStr).split(' ')[0].trim()
+    const d = parseConfigDate(cleanDate, dateFormat)
     if (!d) continue
 
     const valueDateStr = row[columnMap.value_date ?? '']
-    const vd = valueDateStr ? parseConfigDate(valueDateStr.trim(), dateFormat) : null
+    const cleanVD = valueDateStr ? stripExcelEq(valueDateStr).split(' ')[0].trim() : ''
+    const vd = cleanVD ? parseConfigDate(cleanVD, dateFormat) : null
+
+    const rawNarration = stripExcelEq(row[columnMap.narration] ?? '')
+    const rawRef       = stripExcelEq(row[columnMap.ref] ?? '')
 
     lines.push({
       txn_date:        toISO(d),
       value_date:      vd ? toISO(vd) : null,
-      narration:       (row[columnMap.narration] ?? '').trim() || null,
-      ref_no:          (row[columnMap.ref] ?? '').trim() || null,
+      narration:       rawNarration.trim() || null,
+      ref_no:          rawRef.trim() || null,
       debit:           parseAmount(row[columnMap.debit]),
       credit:          parseAmount(row[columnMap.credit]),
       running_balance: parseAmount(row[columnMap.balance]) || null,

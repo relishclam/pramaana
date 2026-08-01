@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
+import { supabase } from '@/lib/supabase'
 import {
   fetchResetPreview,
   resetCompanyData,
@@ -551,7 +552,216 @@ function PeriodLockManagement({ companyId, userId }: { companyId: string; userId
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'reset' | 'groups' | 'ledgers' | 'payments' | 'lock'
+// ── Unlinked Ledgers Management (Task 1B) ────────────────────────────────────
+
+interface UnlinkedLedger {
+  id: string
+  company_id: string
+  name: string
+  group_name: string
+}
+
+interface EntityOpt {
+  entity_id: string
+  display_name: string
+  role: string
+}
+
+function UnlinkedLedgersRow({
+  ledger,
+  onLinked,
+}: {
+  ledger: UnlinkedLedger
+  onLinked: () => void
+}) {
+  const { user } = useAuth()
+  const companyId = user?.activeCompany?.id ?? ''
+  const [search,   setSearch]   = useState('')
+  const [options,  setOptions]  = useState<EntityOpt[]>([])
+  const [selected, setSelected] = useState<EntityOpt | null>(null)
+  const [loading,  setLoading]  = useState(false)
+  const [saving,   setSaving]   = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSearch = (q: string) => {
+    setSearch(q)
+    setSelected(null)
+    if (timer.current) clearTimeout(timer.current)
+    if (!q.trim()) { setOptions([]); return }
+    timer.current = setTimeout(async () => {
+      setLoading(true)
+      try {
+        type RawEntity = { id: string; display_name: string }
+        type RawRole   = { entity_id: string; role: string }
+        const { data: entities } = await supabase
+          .schema('registry').from('entities')
+          .select('id, display_name')
+          .ilike('display_name', `%${q}%`)
+          .eq('is_active', true).limit(12)
+        if (!entities?.length) { setOptions([]); return }
+        const ids = (entities as RawEntity[]).map(e => e.id)
+        const { data: roles } = await supabase
+          .schema('registry').from('entity_roles')
+          .select('entity_id, role').eq('company_id', companyId)
+          .eq('is_active', true).in('entity_id', ids)
+        const map = new Map((entities as RawEntity[]).map(e => [e.id, e.display_name]))
+        const seen = new Set<string>()
+        setOptions(
+          ((roles ?? []) as RawRole[])
+            .filter(r => map.has(r.entity_id) && !seen.has(r.entity_id) && seen.add(r.entity_id) !== undefined)
+            .slice(0, 8)
+            .map(r => ({ entity_id: r.entity_id, display_name: map.get(r.entity_id)!, role: r.role }))
+        )
+      } finally { setLoading(false) }
+    }, 300)
+  }
+
+  const handleLink = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      const { error } = await supabase.schema('pramaana').from('ledgers')
+        .update({ entity_id: selected.entity_id }).eq('id', ledger.id)
+      if (error) throw error
+      toast.success(`${ledger.name} linked to ${selected.display_name}`)
+      onLinked()
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className={css.unlinkedRow}>
+      <div className={css.unlinkedMeta}>
+        <span className={css.unlinkedName}>{ledger.name}</span>
+        <span className={css.unlinkedGroup}>{ledger.group_name}</span>
+      </div>
+      <div className={css.unlinkedPicker}>
+        {selected ? (
+          <div className={css.unlinkedChip}>
+            <span>{selected.display_name} · {selected.role}</span>
+            <button onClick={() => { setSelected(null); setSearch('') }}>×</button>
+          </div>
+        ) : (
+          <div className={css.unlinkedTypeahead}>
+            <input
+              className={css.unlinkedInput}
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search entity…"
+            />
+            {loading && <Loader2 size={12} className={css.spin} />}
+            {options.length > 0 && (
+              <ul className={css.unlinkedDropdown}>
+                {options.map(opt => (
+                  <li key={opt.entity_id} onMouseDown={() => { setSelected(opt); setSearch(''); setOptions([]) }}>
+                    <span>{opt.display_name}</span>
+                    <span className={css.unlinkedRole}>{opt.role}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
+      <button
+        className={css.linkBtn}
+        disabled={!selected || saving}
+        onClick={handleLink}
+      >
+        {saving ? <Loader2 size={12} className={css.spin} /> : <Link2 size={12} />}
+        Link
+      </button>
+    </div>
+  )
+}
+
+function UnlinkedLedgersManagement({ companyId }: { companyId: string }) {
+  const { user } = useAuth()
+  const [ledgers,  setLedgers]  = useState<UnlinkedLedger[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [coFilter, setCoFilter] = useState<string>('all')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .schema('pramaana').from('ledgers')
+        .select('id, company_id, name, ledger_groups!inner(name)')
+        .is('entity_id', null)
+        .eq('is_active', true)
+        .eq('is_bank_account', false)
+        .eq('is_tax_ledger', false)
+        .eq('is_system', false)
+        .eq('ledger_groups.is_party_nature', true)
+        .order('company_id').order('name')
+      if (error) throw error
+      type Raw = { id: string; company_id: string; name: string; ledger_groups: { name: string } | null }
+      setLedgers(
+        ((data ?? []) as unknown as Raw[]).map(r => ({
+          id: r.id, company_id: r.company_id, name: r.name,
+          group_name: r.ledger_groups?.name ?? '—',
+        }))
+      )
+    } catch (e: unknown) {
+      toast.error((e as Error).message)
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const filtered = coFilter === 'all' ? ledgers : ledgers.filter(l => l.company_id === coFilter)
+  const companies = [...new Set(ledgers.map(l => l.company_id))]
+
+  return (
+    <div>
+      <p className={css.lockDesc}>
+        Party-nature ledgers without an entity link. Settlement, reporting, and the entity-scoped
+        queries won't work correctly until these are linked.
+      </p>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
+        <select
+          className={css.input}
+          style={{ maxWidth: 220 }}
+          value={coFilter}
+          onChange={e => setCoFilter(e.target.value)}
+        >
+          <option value="all">All companies ({ledgers.length})</option>
+          {companies.map(c => (
+            <option key={c} value={c}>
+              {c === user?.activeCompany?.id ? (user.activeCompany.name ?? c) : c}
+              {' '}({ledgers.filter(l => l.company_id === c).length})
+            </option>
+          ))}
+        </select>
+        <button className={css.templateBtn} onClick={load} disabled={loading}>
+          {loading ? <Loader2 size={12} className={css.spin} /> : null} Refresh
+        </button>
+      </div>
+      {loading ? (
+        <div className={css.empty}>Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div className={css.empty}>✓ No unlinked party ledgers — all clear.</div>
+      ) : (
+        <div className={css.unlinkedList}>
+          {filtered.map(l => (
+            <UnlinkedLedgersRow
+              key={l.id}
+              ledger={l}
+              onLinked={() => {
+                setLedgers(prev => prev.filter(x => x.id !== l.id))
+                toast.success('Linked — ' + String(filtered.length - 1) + ' remaining')
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+type Tab = 'reset' | 'groups' | 'ledgers' | 'payments' | 'lock' | 'unlinked' | 'unlinked'
 
 export default function AdminPanel() {
   const { user } = useAuth()
@@ -620,6 +830,12 @@ export default function AdminPanel() {
           onClick={() => setTab('payments')}
         >
           Pay-From Accounts
+        </button>
+        <button
+          className={tab === 'unlinked' ? css.tabActive : css.tab}
+          onClick={() => setTab('unlinked')}
+        >
+          <Link2 size={13} /> Unlinked Ledgers
         </button>
       </div>
 
@@ -698,6 +914,10 @@ export default function AdminPanel() {
 
       {tab === 'payments' && (
         <PaymentAccountsManagement companyId={companyId} />
+      )}
+
+      {tab === 'unlinked' && (
+        <UnlinkedLedgersManagement companyId={companyId} />
       )}
 
       {tab === 'lock' && (

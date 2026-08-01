@@ -21,6 +21,7 @@ interface LedgerGroup {
   parent_id: string | null
   nature: Nature
   is_system: boolean
+  is_party_nature: boolean
   sort_order: number
   is_active: boolean
   is_pending_review?: boolean
@@ -616,6 +617,10 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, isReviewMode,
   const [saving,        setSaving]        = useState(false)
   const entityTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Party-nature: determined by the selected group
+  const selectedGroup = groups.find(g => g.id === groupId)
+  const isPartyNature = !isBankAccount && !isTaxLedger && (selectedGroup?.is_party_nature ?? false)
+
   // ── Entity typeahead ────────────────────────────────────────────────────────
   const searchEntities = async (q: string) => {
     if (!q.trim() || !activeCompanyId) { setEntityOptions([]); return }
@@ -672,6 +677,10 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, isReviewMode,
     if (!name.trim())    { toast.error('Name is required');          return }
     if (!groupId)        { toast.error('Ledger group is required');  return }
     if (!tallyName.trim()) { toast.error('Tally ledger name is required'); return }
+    if (isPartyNature && !entityId) {
+      // Soft-required: warn but allow save so existing unlinked ledgers can still be edited
+      toast.warning('Party ledger saved without an entity link — settlement queries may be incomplete')
+    }
     if (!activeCompanyId){ toast.error('No active company');         return }
     if (isBankAccount) {
       if (!bankName.trim())      { toast.error('Bank name is required');       return }
@@ -805,9 +814,18 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, isReviewMode,
             </div>
           </div>
 
-          {/* Entity Link */}
+          {/* Entity Link — only shown for party-nature groups */}
+          {isPartyNature && (
           <div className={styles.field}>
-            <label className={styles.label}>Entity Link <span className={styles.labelOptional}>(optional)</span></label>
+            <label className={styles.label}>
+              Linked Entity
+              {isPartyNature ? <span className={styles.req}> *</span> : <span className={styles.labelOptional}> (optional)</span>}
+            </label>
+            {!entityId && editTarget?.entity_id == null && editTarget && (
+              <div className={styles.fieldWarn}>
+                ⚠ This ledger is not linked to an entity — settlement and reporting may be incomplete.
+              </div>
+            )}
             {entityId ? (
               <div className={styles.entitySelected}>
                 <span>{entityLabel || entityId}</span>
@@ -841,6 +859,7 @@ function LedgerForm({ groups, editTarget, activeCompanyId, userId, isReviewMode,
               </div>
             )}
           </div>
+          )}
 
           {/* GSTIN */}
           <div className={styles.field}>

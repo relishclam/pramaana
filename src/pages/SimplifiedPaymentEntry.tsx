@@ -152,8 +152,22 @@ export default function SimplifiedPaymentEntry({
     || (billStepSkipped && directPaymentType !== null)
     || newInvoiceMode
 
+  // When advance is selected, load entity ledger (needed for the Cr/Dr party entry)
+  useEffect(() => {
+    if (directPaymentType === 'advance' && entityId && companyId && !entityLedgerId) {
+      fetchEntityLedger(companyId, entityId)
+        .then(ledger => {
+          if (ledger) { setEntityLedgerId(ledger.id); setEntityLedgerName(ledger.name) }
+        })
+        .catch(() => { /* handled at submit */ })
+    }
+  }, [directPaymentType, entityId, companyId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Load open bills when entity is selected for payment/receipt ───────────
   // (effect runs on entityId + billNature changes; clearEntity resets state)
+
+  // Advance mode: Step 3 (income/expense ledger) is skipped
+  const isAdvanceMode = directPaymentType === 'advance'
 
   // ── Derived step completion ───────────────────────────────────────────────
   const step1Done = entityId !== null || entitySkipped
@@ -161,8 +175,10 @@ export default function SimplifiedPaymentEntry({
   const step2Done = totalNum > 0
   const linesSum     = lines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
   const linesOk      = lines.every(l => l.ledger_id && parseFloat(l.amount) > 0)
-  const step3Done    = step2Done && linesOk &&
-    Math.round(linesSum * 100) === Math.round(totalNum * 100)
+  // Advance bypasses the ledger lines entirely
+  const step3Done    = isAdvanceMode
+    ? step2Done && !!entityLedgerId
+    : step2Done && linesOk && Math.round(linesSum * 100) === Math.round(totalNum * 100)
 
   const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId) ?? null
   const isBankAccount   = selectedAccount?.type === 'bank'
@@ -171,7 +187,8 @@ export default function SimplifiedPaymentEntry({
 
   // ── Step visibility ───────────────────────────────────────────────────────
   const show2     = step1Done && billStepComplete
-  const show3     = show2 && step2Done && step2Committed
+  // Step 3 hidden for advance — party is already known from entity ledger
+  const show3     = show2 && step2Done && step2Committed && !isAdvanceMode
   const show4     = show3 && step3Done
   const show5     = show4 && step4Done && isBankAccount
   const show6     = show4 && step4Done && (!isBankAccount || step5Done)
@@ -341,7 +358,7 @@ export default function SimplifiedPaymentEntry({
   // ── Balance / ledger hint message ──────────────────────────────────────
   const anyLineMissingLedger = lines.some(l => !l.ledger_id)
   const remaining   = totalNum - linesSum
-  const balanceHint: string | null = step2Done && !step3Done
+  const balanceHint: string | null = step2Done && !step3Done && !isAdvanceMode
     ? anyLineMissingLedger
       ? 'Type an expense name above and select it from the dropdown to continue'
       : remaining > 0
@@ -352,11 +369,25 @@ export default function SimplifiedPaymentEntry({
     : null
 
   // ── Build Dr/Cr entries ───────────────────────────────────────────────────
-  // Direction depends on voucher type:
-  //   payment: Dr expense lines  / Cr bank-account
-  //   receipt: Dr bank-account   / Cr income lines
+  // Direction depends on voucher type + mode:
+  //   advance receipt:  Dr bank / Cr party ledger   (no income line)
+  //   advance payment:  Dr party ledger / Cr bank   (no expense line)
+  //   normal receipt:   Dr bank / Cr income lines
+  //   normal payment:   Dr expense lines / Cr bank
   const isReceiptMode = voucherType.nature === 'receipt'
-  const buildEntries = () => isReceiptMode
+  const buildEntries = () => {
+    if (isAdvanceMode && entityLedgerId) {
+      return isReceiptMode
+        ? [
+            { voucher_id: '', ledger_id: selectedAccountId, entry_type: 'Dr' as const, amount: totalNum, narration: null, sort_order: 0 },
+            { voucher_id: '', ledger_id: entityLedgerId,    entry_type: 'Cr' as const, amount: totalNum, narration: null, sort_order: 1 },
+          ]
+        : [
+            { voucher_id: '', ledger_id: entityLedgerId,    entry_type: 'Dr' as const, amount: totalNum, narration: null, sort_order: 0 },
+            { voucher_id: '', ledger_id: selectedAccountId, entry_type: 'Cr' as const, amount: totalNum, narration: null, sort_order: 1 },
+          ]
+    }
+    return isReceiptMode
     ? [
         // Receipt: money comes IN — bank is debited, income ledgers credited
         {
@@ -383,6 +414,7 @@ export default function SimplifiedPaymentEntry({
           narration: null, sort_order: lines.length,
         },
       ]
+  }
 
   // ── New invoice handler — loads entity ledger in background ──────────────
   const handleNewInvoiceIntent = async () => {
@@ -1181,13 +1213,15 @@ interface ExpenseLineRowProps {
 }
 
 function ExpenseLineRow({ line, companyId, autoFocus, showAmount, onChange, onRemove, canRemove }: ExpenseLineRowProps) {
-  const [query,   setQuery]   = useState('')
-  const [options, setOptions] = useState<{ id: string; name: string }[]>([])
-  const [loading, setLoading] = useState(false)
+  const [query,       setQuery]       = useState('')
+  const [options,     setOptions]     = useState<{ id: string; name: string }[]>([])
+  const [loading,     setLoading]     = useState(false)
+  const [highlighted, setHighlighted] = useState(-1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleSearch = (val: string) => {
     setQuery(val)
+    setHighlighted(-1)
     if (!val.trim()) { setOptions([]); return }
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(async () => {
@@ -1203,7 +1237,12 @@ function ExpenseLineRow({ line, companyId, autoFocus, showAmount, onChange, onRe
     onChange('ledger_name', opt.name)
     setQuery('')
     setOptions([])
+    setHighlighted(-1)
   }
+
+  // All items: real ledger options + optional create entry
+  const showCreate = query.trim().length > 0
+  const allOptions = options
 
   return (
     <div className={styles.expenseLine}>
@@ -1226,22 +1265,54 @@ function ExpenseLineRow({ line, companyId, autoFocus, showAmount, onChange, onRe
               placeholder="Ledger / expense type…"
               autoFocus={autoFocus}
               onKeyDown={e => {
-                if (e.key === 'Enter') {
+                const totalItems = allOptions.length + (showCreate ? 1 : 0)
+                if (e.key === 'ArrowDown') {
                   e.preventDefault()
-                  if (options.length > 0) {
-                    select(options[0])
-                  } else if (query.trim()) {
-                    toast.error(`No ledger found for "${query}" — create it in Ledgers first`)
+                  setHighlighted(h => Math.min(h + 1, totalItems - 1))
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setHighlighted(h => Math.max(h - 1, 0))
+                } else if (e.key === 'Escape') {
+                  setOptions([]); setHighlighted(-1)
+                } else if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const isCreateHighlighted = highlighted === allOptions.length && showCreate
+                  if (highlighted >= 0 && highlighted < allOptions.length) {
+                    select(allOptions[highlighted])
+                  } else if (isCreateHighlighted || (highlighted < 0 && allOptions.length === 0 && query.trim())) {
+                    // Create ledger — navigate to /ledgers with the name pre-filled via state
+                    toast.info(`Create "${query.trim()}" in Ledgers, then return here`, { duration: 5000 })
+                  } else if (allOptions.length > 0) {
+                    select(allOptions[0])
                   }
                 }
               }}
             />
             {loading && <Loader2 size={12} className={styles.spin} />}
-            {options.length > 0 && (
+            {(allOptions.length > 0 || showCreate) && (
               <ul className={styles.dropdown}>
-                {options.map(opt => (
-                  <li key={opt.id} onMouseDown={() => select(opt)}>{opt.name}</li>
+                {allOptions.map((opt, idx) => (
+                  <li
+                    key={opt.id}
+                    className={idx === highlighted ? styles.dropdownHighlighted : undefined}
+                    onMouseDown={() => select(opt)}
+                    onMouseEnter={() => setHighlighted(idx)}
+                  >
+                    {opt.name}
+                  </li>
                 ))}
+                {showCreate && allOptions.length === 0 && (
+                  <li
+                    className={highlighted === allOptions.length ? styles.dropdownHighlighted : styles.dropdownCreate}
+                    onMouseDown={() => toast.info(`Create "${query.trim()}" in Ledgers, then return here`, { duration: 5000 })}
+                    onMouseEnter={() => setHighlighted(allOptions.length)}
+                  >
+                    + Create ledger &ldquo;{query.trim()}&rdquo;
+                  </li>
+                )}
+                {allOptions.length === 0 && !showCreate && (
+                  <li className={styles.dropdownEmpty}>No matching ledger found</li>
+                )}
               </ul>
             )}
           </div>

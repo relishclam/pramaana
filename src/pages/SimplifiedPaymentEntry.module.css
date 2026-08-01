@@ -191,6 +191,22 @@
   background: rgba(74, 158, 158, 0.12);
 }
 
+.dropdownHighlighted {
+  background: rgba(74, 158, 158, 0.18) !important;
+}
+
+.dropdownCreate {
+  color: var(--teal);
+  font-style: italic;
+}
+
+.dropdownEmpty {
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-style: italic;
+  cursor: default;
+}
+
 .optName {
   font-size: 0.9375rem;
   font-weight: 500;

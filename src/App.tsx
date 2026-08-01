@@ -37,6 +37,7 @@ import FoodStreamLoader from '@/components/FoodStreamLoader'
 import DashboardPage from '@/pages/Dashboard'
 import AwaitingPayments from '@/pages/AwaitingPayments'
 import SettlementPage from '@/pages/SettlementPage'
+import BankReconPage from '@/pages/BankReconPage'
 import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
 
 function fmtRole(role: string | null | undefined): string {
@@ -75,7 +76,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
     { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount  },
     { to: '/payments',    label: 'Payments',   end: false, badge: paymentsCount },
-    { to: '/settlement', label: 'Settlement', end: false, badge: 0             },
+    { to: '/settlement',  label: 'Settlement',  end: false, badge: 0 },
+    { to: '/bank-recon',  label: 'Bank Recon',   end: false, badge: 0 },
 
     { to: '/invoices',  label: 'Invoices',  end: false, badge: 0            },
     { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
@@ -527,6 +529,18 @@ function SettlementGuard() {
   return <AppShell><SettlementPage /></AppShell>
 }
 
+const BANK_RECON_ROLES = new Set(['admin','accounts','auditor'])
+
+function BankReconGuard() {
+  const { user } = useAuth()
+  if (!user) return <Navigate to="/login" replace />
+  const allowed =
+    user.profile.is_super_admin ||
+    (user.activeRole !== null && BANK_RECON_ROLES.has(user.activeRole))
+  if (!allowed) return <Navigate to="/" replace />
+  return <AppShell><BankReconPage /></AppShell>
+}
+
 function AdminGuard() {
   const { user } = useAuth()
   if (!user) return <Navigate to="/login" replace />
@@ -636,6 +650,8 @@ function AppRoutes() {
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
         <Route path="/payments"        element={<AwaitingPaymentsGuard />} />
         <Route path="/settlement"       element={<SettlementGuard />} />
+        <Route path="/bank-recon"         element={<BankReconGuard />} />
+        <Route path="/bank-recon/:statementId" element={<BankReconGuard />} />
         <Route path="/inventory"      element={<InventoryGuard />} />
         <Route path="/invoices/scan"              element={<InvoiceScanUploadGuard />} />
         <Route path="/invoices/inbox"             element={<InvoiceScanInboxGuard />} />

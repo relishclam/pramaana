@@ -43,6 +43,7 @@ const TEMPLATE_NAMES: Record<string, string> = {
   'payment-otp':       'pramaana_payment_otp',
   'payment-confirmed': 'pramaana_payment_confirmed',
   'settlement-link':   'pramaana_settlement_link',
+  'bank-recon-query':  'pramaana_bank_recon_query',
 }
 
 function env(name: string): string | undefined {

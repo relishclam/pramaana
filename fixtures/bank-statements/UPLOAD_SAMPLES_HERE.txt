@@ -1,0 +1,14 @@
+PHASE 0 — HUMAN TASK: upload real bank statement samples to this folder.
+
+Required files (redact nothing — private repo):
+  canara_rfpl_sample.csv          Canara netbanking export (RFPL)
+  federal_rfpl_sample.csv         Federal Bank export (RFPL, A/C 10150200014513)
+  hdfc_current_rhhf_sample.csv    HDFC Current export (RHHF, 99999446012324)
+  hdfc_nolien_rhhf_sample.csv     HDFC No Lien export (RHHF, 50200115901702)
+  airwallex_sample.json           Airwallex JSON export (RFPL remittance)
+
+Parsers will be written against real column layouts. Stubs exist in
+bank_format_config for any bank with a missing fixture (active=false).
+
+Upload confirmation: commit the files, then set active=true in
+bank_format_config for each bank you have covered and run parser tests.

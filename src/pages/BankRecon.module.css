@@ -1,0 +1,618 @@
+/* ── Page shell (shared across all bank recon screens) ───────────────────── */
+
+.page {
+  padding: 1.5rem;
+  max-width: 1200px;
+}
+
+@media (max-width: 600px) {
+  .page { padding: 1rem; }
+}
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.pageTitleBlock {
+  flex: 1;
+  min-width: 0;
+}
+
+.pageTitle {
+  font-family: var(--font-serif);
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+}
+
+.pageSubtitle {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.pageActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ── Sub-navigation tabs ─────────────────────────────────────────────────── */
+
+.tabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.25rem;
+}
+
+.tab {
+  padding: 0.625rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+
+.tab:hover { color: var(--text); }
+
+.tabActive {
+  color: var(--teal);
+  border-bottom-color: var(--teal);
+  font-weight: 600;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.btnPrimary:hover:not(:disabled) { opacity: 0.88; }
+.btnPrimary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.4375rem 0.875rem;
+  background: none;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btnSecondary:hover { border-color: var(--border-2); color: var(--text); }
+
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--teal);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btnGhost:hover { opacity: 0.75; }
+
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: none;
+  border: 1px solid rgba(224,82,82,0.3);
+  border-radius: 6px;
+  color: var(--error);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.btnDanger:hover { background: rgba(224,82,82,0.08); }
+
+/* ── Card surface ────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.cardLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+}
+
+.cardBody {
+  padding: 1rem;
+}
+
+/* ── Form controls ───────────────────────────────────────────────────────── */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.select {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a90a0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  transition: border-color 0.15s;
+}
+
+.select:focus { border-color: var(--teal); }
+
+.input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus { border-color: var(--teal); }
+.input::placeholder { color: var(--text-dim); }
+
+/* ── Status chips ────────────────────────────────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.chipMatched  { composes: chip; background: rgba(76,175,125,0.15);  color: var(--success); border-color: rgba(76,175,125,0.25); }
+.chipFuzzy    { composes: chip; background: rgba(201,168,76,0.15);  color: var(--gold);    border-color: rgba(201,168,76,0.25); }
+.chipConfirmed { composes: chip; background: rgba(74,158,158,0.15); color: var(--teal);    border-color: rgba(74,158,158,0.25); }
+.chipUnbooked { composes: chip; background: rgba(224,82,82,0.15);   color: var(--error);   border-color: rgba(224,82,82,0.25); }
+.chipQueried  { composes: chip; background: rgba(201,168,76,0.15);  color: var(--gold);    border-color: rgba(201,168,76,0.25); }
+.chipResolved { composes: chip; background: rgba(76,175,125,0.15);  color: var(--success); border-color: rgba(76,175,125,0.25); }
+.chipIgnored  { composes: chip; background: var(--surface-2);       color: var(--text-dim); border-color: var(--border-2); }
+.chipUnmatched { composes: chip; background: var(--surface-2);      color: var(--text-muted); border-color: var(--border); }
+
+/* ── Upload zone ─────────────────────────────────────────────────────────── */
+
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 3rem 1rem;
+  border: 2px dashed var(--border-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+
+.dropZone:hover,
+.dropZoneActive {
+  border-color: var(--teal);
+  background: var(--teal-light);
+}
+
+.dropZoneIcon { color: var(--text-dim); }
+.dropZoneText { font-size: 0.875rem; color: var(--text-muted); }
+.dropZoneHint { font-size: 0.75rem; color: var(--text-dim); }
+
+/* ── Validation result ───────────────────────────────────────────────────── */
+
+.validationPass {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(76,175,125,0.1);
+  border: 1px solid rgba(76,175,125,0.25);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  color: var(--success);
+}
+
+.validationFail {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(224,82,82,0.1);
+  border: 1px solid rgba(224,82,82,0.25);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  color: var(--error);
+}
+
+/* ── Match workbench table ───────────────────────────────────────────────── */
+
+.tableWrap {
+  overflow-x: auto;
+  border-radius: var(--radius);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.table th {
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.table th.right, .table td.right { text-align: right; }
+
+.table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.table tbody tr:last-child td { border-bottom: none; }
+
+.tableRow { cursor: pointer; transition: background 0.1s; }
+.tableRow:hover { background: rgba(74,158,158,0.04); }
+.tableRowSelected { background: rgba(74,158,158,0.08) !important; }
+
+.monoAmt {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+}
+
+.creditAmt { composes: monoAmt; color: var(--teal); }
+.debitAmt  { composes: monoAmt; color: var(--error); }
+.mutedText { color: var(--text-dim); font-size: 0.75rem; }
+
+/* ── Workbench filter pills ──────────────────────────────────────────────── */
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.filterPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.filterPill:hover { border-color: var(--border-2); color: var(--text); }
+
+.filterPillActive {
+  background: var(--teal-light);
+  border-color: var(--teal);
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.pillCount {
+  padding: 0 4px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* ── Query composer ──────────────────────────────────────────────────────── */
+
+.queryComposer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.querySubjectRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+/* ── Query thread ────────────────────────────────────────────────────────── */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.message {
+  padding: 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.messageMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+}
+
+.messageAuthor {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--teal);
+}
+
+.messageTime {
+  font-size: 0.6875rem;
+  color: var(--text-dim);
+}
+
+.messageBody {
+  font-size: 0.875rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* ── BRS report ──────────────────────────────────────────────────────────── */
+
+.brsTable {
+  width: 100%;
+}
+
+.brsRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.brsRow:last-child { border-bottom: none; }
+
+.brsRowTotal {
+  composes: brsRow;
+  border-top: 2px solid var(--border-2);
+  border-bottom: none;
+  padding-top: 0.75rem;
+  font-weight: 700;
+}
+
+.brsLabel { font-size: 0.875rem; color: var(--text); }
+.brsValue {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.brsVariance { color: var(--success); }
+.brsVarianceBad { color: var(--error); }
+
+/* ── Empty / loading ─────────────────────────────────────────────────────── */
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-muted);
+  gap: 0.5rem;
+}
+
+.emptyState {
+  padding: 3rem 1rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+.spin {
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Upload progress ─────────────────────────────────────────────────────── */
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.progressStep { color: var(--text-dim); }
+.progressStepDone { color: var(--success); }
+.progressStepActive { color: var(--teal); }
+
+/* ── Statement list ──────────────────────────────────────────────────────── */
+
+.stmtList {
+  display: flex;
+  flex-direction: column;
+}
+
+.stmtRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  gap: 0.5rem 0.875rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+  text-decoration: none;
+}
+
+.stmtRow:hover { background: var(--surface-2); }
+.stmtRow:last-child { border-bottom: none; }
+
+.stmtBank {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--teal);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stmtPeriod {
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.stmtLines {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ── Stat grid (upload summary) ──────────────────────────────────────────── */
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+
+@media (max-width: 560px) {
+  .statGrid { grid-template-columns: 1fr 1fr; }
+}
+
+.stat {
+  padding: 0.875rem 1rem;
+  border-right: 1px solid var(--border);
+}
+
+.stat:last-child { border-right: none; }
+
+.statLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-dim);
+  margin-bottom: 0.375rem;
+}
+
+.statValue {
+  font-size: 1.375rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1;
+}
+
+.statValueTeal   { composes: statValue; color: var(--teal); }
+.statValueAmber  { composes: statValue; color: var(--gold); }
+.statValueError  { composes: statValue; color: var(--error); }
+.statValueSuccess { composes: statValue; color: var(--success); }

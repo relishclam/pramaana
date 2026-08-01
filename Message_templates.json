@@ -58,5 +58,25 @@
         "text": "Relish Pramaana Team"
       }
     ]
+  },
+  {
+    "name": "pramaana_bank_recon_query",
+    "category": "UTILITY",
+    "language": "en",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "Pramaana Bank Recon: Query {{1}} raised — {{2}} ({{3}} lines). Please log in to Pramaana and respond.",
+        "example": {
+          "body_text": [
+            ["RFPL/QRY/2627/0001", "Unbooked Federal credit Apr-26", "3"]
+          ]
+        }
+      },
+      {
+        "type": "FOOTER",
+        "text": "Relish Pramaana Team"
+      }
+    ]
   }
 ]

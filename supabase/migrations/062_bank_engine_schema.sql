@@ -475,8 +475,8 @@ BEGIN
     ) VALUES (
       'FEDERAL', v_federal_id, 'bc455c94-0bcd-4d66-a040-d29ed880d22f',
       'csv', 'utf-8', 1,
-      '{"date":"Txn Date","narration":"Description","ref":"Ref No","debit":"Debit","credit":"Credit","balance":"Balance"}'::jsonb,
-      'DD/MM/YYYY', 0, 3, false
+      '{"date":"Tran Date","value_date":"Value Date","narration":"Particulars","ref":"Cheque Details","debit":"Withdrawal","credit":"Deposit","balance":"Balance Amount"}'::jsonb,
+      'DD-MM-YYYY', 0, 3, false
     ) ON CONFLICT (bank_code) DO NOTHING;
   END IF;
 

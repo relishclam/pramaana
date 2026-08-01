@@ -424,114 +424,104 @@ CREATE TRIGGER trg_audit_log
   FOR EACH ROW EXECUTE FUNCTION pramaana.fn_audit_log();
 
 -- ── 10. Seed bank_format_config stubs ────────────────────────────────────────
--- All stubs are active=false until a fixture file is uploaded + parser verified.
--- bank_ledger_id UUIDs are placeholders — update with real ledger IDs via:
---   SELECT id, name FROM pramaana.ledgers WHERE name ILIKE '%canara%' OR name ILIKE '%federal%' ...
--- Or run the seed script after verifying ledger IDs from information_schema.
---
--- Seed is safe to run repeatedly (DO block with ON CONFLICT DO NOTHING).
+-- Looks up real ledger IDs by name (ILIKE). Skips silently if a ledger is not
+-- found — add the row manually once the correct ledger ID is known.
 
 DO $$
+DECLARE
+  v_canara_id     uuid;
+  v_federal_id    uuid;
+  v_hdfc_cur_id   uuid;
+  v_hdfc_nolien_id uuid;
+  v_airwallex_id  uuid;
 BEGIN
-  -- CANARA (RFPL)
-  INSERT INTO pramaana.bank_format_config (
-    bank_code, bank_ledger_id, company_id, file_type, encoding,
-    header_row, column_map, date_format, skip_footer_rows, match_day_window, active
-  ) VALUES (
-    'CANARA',
-    '00000000-0000-0000-0000-000000000001'::uuid,  -- placeholder: replace with real Canara ledger id
-    'bc455c94-0bcd-4d66-a040-d29ed880d22f',        -- RFPL
-    'csv', 'utf-8', 1,
-    '{
-      "date":      "Txn Date",
-      "narration": "Description",
-      "ref":       "Chq/Ref No",
-      "debit":     "Withdrawal Amt",
-      "credit":    "Deposit Amt",
-      "balance":   "Balance"
-    }'::jsonb,
-    'DD/MM/YYYY', 0, 3, false
-  ) ON CONFLICT (bank_code) DO NOTHING;
+  SELECT id INTO v_canara_id FROM pramaana.ledgers
+    WHERE company_id = 'bc455c94-0bcd-4d66-a040-d29ed880d22f'
+      AND name ILIKE '%canara%' LIMIT 1;
 
-  -- FEDERAL (RFPL)
-  INSERT INTO pramaana.bank_format_config (
-    bank_code, bank_ledger_id, company_id, file_type, encoding,
-    header_row, column_map, date_format, skip_footer_rows, match_day_window, active
-  ) VALUES (
-    'FEDERAL',
-    '00000000-0000-0000-0000-000000000002'::uuid,  -- placeholder: replace with real Federal ledger id
-    'bc455c94-0bcd-4d66-a040-d29ed880d22f',        -- RFPL
-    'csv', 'utf-8', 1,
-    '{
-      "date":      "Txn Date",
-      "narration": "Description",
-      "ref":       "Ref No",
-      "debit":     "Debit",
-      "credit":    "Credit",
-      "balance":   "Balance"
-    }'::jsonb,
-    'DD/MM/YYYY', 0, 3, false
-  ) ON CONFLICT (bank_code) DO NOTHING;
+  SELECT id INTO v_federal_id FROM pramaana.ledgers
+    WHERE company_id = 'bc455c94-0bcd-4d66-a040-d29ed880d22f'
+      AND (name ILIKE '%federal%' OR name ILIKE '%fdrl%') LIMIT 1;
 
-  -- HDFC_CUR (RHHF — Current 99999446012324)
-  INSERT INTO pramaana.bank_format_config (
-    bank_code, bank_ledger_id, company_id, file_type, encoding,
-    header_row, column_map, date_format, skip_footer_rows, match_day_window, active
-  ) VALUES (
-    'HDFC_CUR',
-    '00000000-0000-0000-0000-000000000003'::uuid,  -- placeholder: replace with real HDFC Current ledger id
-    'b8beb440-df7f-48e8-a012-ac5750502eca',        -- RHHF
-    'csv', 'utf-8', 1,
-    '{
-      "date":      "Date",
-      "narration": "Narration",
-      "ref":       "Chq./Ref.No.",
-      "debit":     "Withdrawal Amt.",
-      "credit":    "Deposit Amt.",
-      "balance":   "Closing Balance"
-    }'::jsonb,
-    'DD/MM/YY', 0, 3, false
-  ) ON CONFLICT (bank_code) DO NOTHING;
+  SELECT id INTO v_hdfc_cur_id FROM pramaana.ledgers
+    WHERE company_id = 'b8beb440-df7f-48e8-a012-ac5750502eca'
+      AND name ILIKE '%hdfc%' AND name NOT ILIKE '%lien%' LIMIT 1;
 
-  -- HDFC_NOLIEN (RHHF — No Lien 50200115901702)
-  INSERT INTO pramaana.bank_format_config (
-    bank_code, bank_ledger_id, company_id, file_type, encoding,
-    header_row, column_map, date_format, skip_footer_rows, match_day_window, active
-  ) VALUES (
-    'HDFC_NOLIEN',
-    '00000000-0000-0000-0000-000000000004'::uuid,  -- placeholder
-    'b8beb440-df7f-48e8-a012-ac5750502eca',        -- RHHF
-    'csv', 'utf-8', 1,
-    '{
-      "date":      "Date",
-      "narration": "Narration",
-      "ref":       "Chq./Ref.No.",
-      "debit":     "Withdrawal Amt.",
-      "credit":    "Deposit Amt.",
-      "balance":   "Closing Balance"
-    }'::jsonb,
-    'DD/MM/YY', 0, 3, false
-  ) ON CONFLICT (bank_code) DO NOTHING;
+  SELECT id INTO v_hdfc_nolien_id FROM pramaana.ledgers
+    WHERE company_id = 'b8beb440-df7f-48e8-a012-ac5750502eca'
+      AND (name ILIKE '%lien%' OR name ILIKE '%nolien%' OR name ILIKE '%no lien%') LIMIT 1;
 
-  -- AIRWALLEX (RFPL — JSON)
-  INSERT INTO pramaana.bank_format_config (
-    bank_code, bank_ledger_id, company_id, file_type, encoding,
-    header_row, column_map, date_format, skip_footer_rows, match_day_window, active
-  ) VALUES (
-    'AIRWALLEX',
-    '00000000-0000-0000-0000-000000000005'::uuid,  -- placeholder
-    'bc455c94-0bcd-4d66-a040-d29ed880d22f',        -- RFPL
-    'json', 'utf-8', 0,
-    '{
-      "date":      "created_at",
-      "narration": "description",
-      "ref":       "payment_id",
-      "debit":     "debit_amount",
-      "credit":    "credit_amount",
-      "balance":   "balance"
-    }'::jsonb,
-    'ISO8601', 0, 3, false
-  ) ON CONFLICT (bank_code) DO NOTHING;
+  -- Airwallex may live under various names; try common patterns
+  SELECT id INTO v_airwallex_id FROM pramaana.ledgers
+    WHERE company_id = 'bc455c94-0bcd-4d66-a040-d29ed880d22f'
+      AND (name ILIKE '%airwallex%' OR name ILIKE '%air wallex%') LIMIT 1;
+
+  IF v_canara_id IS NOT NULL THEN
+    INSERT INTO pramaana.bank_format_config (
+      bank_code, bank_ledger_id, company_id, file_type, encoding,
+      header_row, column_map, date_format, skip_footer_rows, match_day_window, active
+    ) VALUES (
+      'CANARA', v_canara_id, 'bc455c94-0bcd-4d66-a040-d29ed880d22f',
+      'csv', 'utf-8', 1,
+      '{"date":"Txn Date","narration":"Description","ref":"Chq/Ref No","debit":"Withdrawal Amt","credit":"Deposit Amt","balance":"Balance"}'::jsonb,
+      'DD/MM/YYYY', 0, 3, false
+    ) ON CONFLICT (bank_code) DO NOTHING;
+  END IF;
+
+  IF v_federal_id IS NOT NULL THEN
+    INSERT INTO pramaana.bank_format_config (
+      bank_code, bank_ledger_id, company_id, file_type, encoding,
+      header_row, column_map, date_format, skip_footer_rows, match_day_window, active
+    ) VALUES (
+      'FEDERAL', v_federal_id, 'bc455c94-0bcd-4d66-a040-d29ed880d22f',
+      'csv', 'utf-8', 1,
+      '{"date":"Txn Date","narration":"Description","ref":"Ref No","debit":"Debit","credit":"Credit","balance":"Balance"}'::jsonb,
+      'DD/MM/YYYY', 0, 3, false
+    ) ON CONFLICT (bank_code) DO NOTHING;
+  END IF;
+
+  IF v_hdfc_cur_id IS NOT NULL THEN
+    INSERT INTO pramaana.bank_format_config (
+      bank_code, bank_ledger_id, company_id, file_type, encoding,
+      header_row, column_map, date_format, skip_footer_rows, match_day_window, active
+    ) VALUES (
+      'HDFC_CUR', v_hdfc_cur_id, 'b8beb440-df7f-48e8-a012-ac5750502eca',
+      'csv', 'utf-8', 1,
+      '{"date":"Date","narration":"Narration","ref":"Chq./Ref.No.","debit":"Withdrawal Amt.","credit":"Deposit Amt.","balance":"Closing Balance"}'::jsonb,
+      'DD/MM/YY', 0, 3, false
+    ) ON CONFLICT (bank_code) DO NOTHING;
+  END IF;
+
+  IF v_hdfc_nolien_id IS NOT NULL THEN
+    INSERT INTO pramaana.bank_format_config (
+      bank_code, bank_ledger_id, company_id, file_type, encoding,
+      header_row, column_map, date_format, skip_footer_rows, match_day_window, active
+    ) VALUES (
+      'HDFC_NOLIEN', v_hdfc_nolien_id, 'b8beb440-df7f-48e8-a012-ac5750502eca',
+      'csv', 'utf-8', 1,
+      '{"date":"Date","narration":"Narration","ref":"Chq./Ref.No.","debit":"Withdrawal Amt.","credit":"Deposit Amt.","balance":"Closing Balance"}'::jsonb,
+      'DD/MM/YY', 0, 3, false
+    ) ON CONFLICT (bank_code) DO NOTHING;
+  END IF;
+
+  IF v_airwallex_id IS NOT NULL THEN
+    INSERT INTO pramaana.bank_format_config (
+      bank_code, bank_ledger_id, company_id, file_type, encoding,
+      header_row, column_map, date_format, skip_footer_rows, match_day_window, active
+    ) VALUES (
+      'AIRWALLEX', v_airwallex_id, 'bc455c94-0bcd-4d66-a040-d29ed880d22f',
+      'json', 'utf-8', 0,
+      '{"date":"created_at","narration":"description","ref":"payment_id","debit":"debit_amount","credit":"credit_amount","balance":"balance"}'::jsonb,
+      'ISO8601', 0, 3, false
+    ) ON CONFLICT (bank_code) DO NOTHING;
+  END IF;
+
+  -- Report which banks could not be seeded (ledger not found)
+  IF v_canara_id     IS NULL THEN RAISE NOTICE 'CANARA ledger not found for RFPL — seed skipped'; END IF;
+  IF v_federal_id    IS NULL THEN RAISE NOTICE 'FEDERAL ledger not found for RFPL — seed skipped'; END IF;
+  IF v_hdfc_cur_id   IS NULL THEN RAISE NOTICE 'HDFC_CUR ledger not found for RHHF — seed skipped'; END IF;
+  IF v_hdfc_nolien_id IS NULL THEN RAISE NOTICE 'HDFC_NOLIEN ledger not found for RHHF — seed skipped'; END IF;
+  IF v_airwallex_id  IS NULL THEN RAISE NOTICE 'AIRWALLEX ledger not found for RFPL — seed skipped'; END IF;
 END $$;
 
 -- ── 11. Matching RPC: run_bank_match ─────────────────────────────────────────
@@ -939,11 +929,16 @@ GRANT EXECUTE ON FUNCTION pramaana.get_brs(uuid, date, uuid) TO authenticated;
 -- sequence_counters lives in registry schema; insert for both companies.
 -- Uses ON CONFLICT DO NOTHING so re-running is safe.
 
-INSERT INTO registry.sequence_counters (company_id, prefix, fy, last_number)
-VALUES
-  ('bc455c94-0bcd-4d66-a040-d29ed880d22f', 'QRY', '2627', 0),
-  ('b8beb440-df7f-48e8-a012-ac5750502eca', 'QRY', '2627', 0)
-ON CONFLICT DO NOTHING;
+INSERT INTO registry.sequence_counters (id, company_id, prefix, year, last_number)
+SELECT gen_random_uuid(), t.company_id, 'QRY', '2627', 0
+FROM (VALUES
+  ('bc455c94-0bcd-4d66-a040-d29ed880d22f'::uuid),
+  ('b8beb440-df7f-48e8-a012-ac5750502eca'::uuid)
+) AS t(company_id)
+WHERE NOT EXISTS (
+  SELECT 1 FROM registry.sequence_counters
+  WHERE company_id = t.company_id AND prefix = 'QRY'
+);
 
 COMMENT ON TABLE pramaana.bank_statement_lines IS
   'Parsed rows from bank statements. match_status drives the reconciliation workflow. '

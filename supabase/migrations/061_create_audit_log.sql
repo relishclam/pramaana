@@ -19,8 +19,11 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── 1. Audit log table ────────────────────────────────────────────────────────
+-- Drop if a partial/stale version exists from a previous attempt.
 
-CREATE TABLE IF NOT EXISTS pramaana.audit_log (
+DROP TABLE IF EXISTS pramaana.audit_log CASCADE;
+
+CREATE TABLE pramaana.audit_log (
   id           bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   table_name   text        NOT NULL,
   record_id    uuid        NOT NULL,
@@ -34,10 +37,12 @@ CREATE TABLE IF NOT EXISTS pramaana.audit_log (
   changed_at   timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS audit_log_table_record
+DROP INDEX IF EXISTS pramaana.audit_log_table_record;
+CREATE INDEX audit_log_table_record
   ON pramaana.audit_log (table_name, record_id);
 
-CREATE INDEX IF NOT EXISTS audit_log_company_time
+DROP INDEX IF EXISTS pramaana.audit_log_company_time;
+CREATE INDEX audit_log_company_time
   ON pramaana.audit_log (company_id, changed_at DESC)
   WHERE company_id IS NOT NULL;
 

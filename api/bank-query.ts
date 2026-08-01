@@ -66,14 +66,14 @@ export default async function handler(req: Request): Promise<Response> {
 
     // Get next QRY sequence number
     const seqRes = await fetch(
-      `${supabaseUrl}/rest/v1/sequence_counters?company_id=eq.${company_id}&prefix=eq.QRY&select=last_number,fy`,
+      `${supabaseUrl}/rest/v1/sequence_counters?company_id=eq.${company_id}&prefix=eq.QRY&select=last_number,year`,
       {
         headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Accept-Profile': 'registry' },
       },
     )
-    const seqRows = seqRes.ok ? await seqRes.json() as { last_number: number; fy: string }[] : []
+    const seqRows = seqRes.ok ? await seqRes.json() as { last_number: number; year: string }[] : []
     const nextNum  = (seqRows[0]?.last_number ?? 0) + 1
-    const fy       = seqRows[0]?.fy ?? '2627'
+    const fy       = seqRows[0]?.year ?? '2627'
 
     // Get company code
     const coRes = await fetch(

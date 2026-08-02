@@ -67,7 +67,7 @@ async function supabasePost(path: string, body: unknown) {
 
 // ── Date parsing ─────────────────────────────────────────────────────────────
 
-// Common date formats to try when the configured format fails
+// Ordered by likelihood — configured format is tried first in parseConfigDate
 const FALLBACK_DATE_FORMATS = [
   'dd-MM-yyyy', 'dd/MM/yyyy', 'dd MM yyyy',
   'dd-MMM-yyyy', 'dd/MMM/yyyy', 'dd MMM yyyy',
@@ -75,81 +75,126 @@ const FALLBACK_DATE_FORMATS = [
   'dd-MM-yy',   'dd/MM/yy',
 ]
 
+function toDateFns(fmt: string): string {
+  return fmt.replace('DD', 'dd').replace('YYYY', 'yyyy').replace('YY', 'yy')
+}
+
+function tryParseDate(token: string, fmts: string[]): Date | null {
+  for (const f of fmts) {
+    const d = parseDate(token, f, new Date())
+    if (isValid(d)) return d
+  }
+  return null
+}
+
 function parseConfigDate(raw: string, fmt: string): Date | null {
-  // fmt: 'DD/MM/YYYY' | 'DD/MM/YY' | 'ISO8601' | 'MM/DD/YYYY' etc.
   if (fmt === 'ISO8601') {
     const d = new Date(raw)
     return isValid(d) ? d : null
   }
-  const dfnsFmt = fmt
-    .replace('DD', 'dd')
-    .replace('MM', 'MM')
-    .replace('YYYY', 'yyyy')
-    .replace('YY', 'yy')
-  const primary = parseDate(raw.trim(), dfnsFmt, new Date())
-  if (isValid(primary)) return primary
-  // Fallback: try common formats so PDF vs CSV date separators don't matter
-  for (const fb of FALLBACK_DATE_FORMATS) {
-    if (fb === dfnsFmt) continue
-    const d = parseDate(raw.trim(), fb, new Date())
-    if (isValid(d)) return d
-  }
-  return null
+  const primary = toDateFns(fmt)
+  const fmts = [primary, ...FALLBACK_DATE_FORMATS.filter(f => f !== primary)]
+
+  // Try the full string first (handles "01 Apr 2024", "01-Apr-2024" etc.)
+  const full = tryParseDate(raw.trim(), fmts)
+  if (full) return full
+
+  // Also try stripping a trailing time component ("01/04/2024 14:32:00" → "01/04/2024")
+  const dateOnly = raw.trim().split(/\s+/)[0]
+  return dateOnly !== raw.trim() ? tryParseDate(dateOnly, fmts) : null
 }
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10)
 
 // ── Amount normalization ──────────────────────────────────────────────────────
 
-/** Strip Excel ="..." wrapper that Canara/other banks add when exporting via Excel */
+/** Strip Excel ="..." wrapper that some banks add when exporting via Excel */
 function stripExcelEq(raw: string | null | undefined): string {
   if (!raw) return ''
   const s = String(raw).trim()
-  // Matches ="value" or ="value" (with or without trailing quote)
   if (s.startsWith('="') && s.endsWith('"')) return s.slice(2, -1)
   if (s.startsWith('=')) return s.slice(1)
   return s
 }
 
+/** Clean a raw amount string to a plain decimal string */
+function cleanAmountStr(raw: string): string {
+  let s = stripExcelEq(raw).trim()
+  // Parenthetical negative: (1234.56) → strip parens, caller decides sign
+  if (s.startsWith('(') && s.endsWith(')')) s = s.slice(1, -1)
+  // Strip currency symbols, commas, whitespace, trailing Dr/Cr labels
+  return s
+    .replace(/[₹$£€,\s]/g, '')
+    .replace(/\s*(Dr|CR|dr|cr)\.?$/i, '')
+    .trim()
+}
+
+/** Debit/credit columns — always positive, 0 when blank */
 function parseAmount(raw: string | null | undefined): number {
   if (!raw) return 0
-  const cleaned = stripExcelEq(String(raw)).replace(/[₹,\s]/g, '').trim()
-  if (!cleaned || cleaned === '-') return 0
-  const n = parseFloat(cleaned)
+  const s = stripExcelEq(String(raw)).trim()
+  if (!s || s === '-') return 0
+  const n = parseFloat(cleanAmountStr(s))
   return isNaN(n) ? 0 : Math.abs(n)
+}
+
+/**
+ * Balance column — preserves sign.
+ * - Explicit minus sign → negative
+ * - "Dr"/"DR" suffix → negative (overdraft / debit balance)
+ * - "(amount)" notation → negative
+ * - "Cr"/"CR" suffix → positive (strip label only)
+ */
+function parseBalance(raw: string | null | undefined): number | null {
+  if (!raw) return null
+  const s = stripExcelEq(String(raw)).trim()
+  if (!s || s === '-') return null
+
+  let sign: 1 | -1 = 1
+  let work = s
+
+  if (work.startsWith('(') && work.endsWith(')')) {
+    work = work.slice(1, -1)
+    sign = -1
+  } else if (/\s*dr\.?$/i.test(work)) {
+    sign = -1
+    work = work.replace(/\s*dr\.?$/i, '')
+  } else {
+    work = work.replace(/\s*cr\.?$/i, '')
+  }
+
+  const cleaned = work.replace(/[₹$£€,\s]/g, '').trim()
+  if (!cleaned) return null
+  const n = parseFloat(cleaned)
+  if (isNaN(n)) return null
+  // If the string already carried a minus sign, honour it; otherwise apply our sign
+  return n < 0 ? n : n * sign
 }
 
 // ── Encoding detection ────────────────────────────────────────────────────────
 
 function decodeBuffer(buf: Buffer, hint: string): string {
-  // UTF-16 LE BOM: FF FE
-  if (buf[0] === 0xFF && buf[1] === 0xFE) {
-    return buf.slice(2).toString('utf16le')
-  }
-  // UTF-8 BOM: EF BB BF
-  if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
-    return buf.slice(3).toString('utf-8')
-  }
-  // Default to configured encoding
-  return buf.toString(hint as BufferEncoding ?? 'utf-8')
+  if (buf[0] === 0xFF && buf[1] === 0xFE) return buf.slice(2).toString('utf16le')   // UTF-16 LE BOM
+  if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) return buf.slice(3).toString('utf-8')  // UTF-8 BOM
+  return buf.toString((hint as BufferEncoding) || 'utf-8')
 }
 
 // ── Column-alias resolver ────────────────────────────────────────────────────
-// Maps logical keys to actual CSV headers using the configured name first, then
-// known aliases. Handles net-banking CSV vs PDF-extracted column name differences.
+// Tries: (1) exact match, (2) case-insensitive match, (3) known aliases.
+// Covers net-banking CSV exports AND Adobe-extracted PDF table variants.
 
 const COL_ALIASES: Record<string, string[]> = {
-  date:       ['txn date','transaction date','tran date','date','posting date','trans date'],
+  date:       ['txn date','transaction date','tran date','date','posting date','trans date','value date entry'],
   value_date: ['value date','val date','value dt'],
-  narration:  ['description','narration','particulars','transaction details','remarks','details'],
-  ref:        ['cheque no.','cheque no','chq no','chq/ref number','ref no./cheque no.','ref no',
-               'reference','cheque details','cheque ref. no.'],
+  narration:  ['description','narration','particulars','transaction details','remarks','details','transaction narration'],
+  ref:        ['cheque no.','cheque no','chq no','chq/ref number','ref no./cheque no.',
+               'ref no','reference','cheque details','cheque ref. no.','instrument no'],
   debit:      ['debit','withdrawal (dr.)','withdrawal dr.','withdrawal','dr amount',
-               'withdrawal amt.','dr.','debit amount'],
+               'withdrawal amt.','dr.','debit amount','amount(dr)','amount (dr)'],
   credit:     ['credit','deposit (cr.)','deposit cr.','deposit','cr amount',
-               'deposit amt.','cr.','credit amount'],
+               'deposit amt.','cr.','credit amount','amount(cr)','amount (cr)'],
   balance:    ['balance','balance (rs.)','balance amount','closing balance',
-               'running balance','running balance (rs)'],
+               'running balance','running balance (rs)','bal'],
 }
 
 function resolveColumns(
@@ -162,11 +207,44 @@ function resolveColumns(
     if (actualHeaders.includes(configured)) { resolved[key] = configured; continue }
     const lc = configured.toLowerCase().trim()
     if (lcMap.has(lc)) { resolved[key] = lcMap.get(lc)!; continue }
-    const aliases = COL_ALIASES[key] ?? []
-    const hit = aliases.find(a => lcMap.has(a))
+    const hit = (COL_ALIASES[key] ?? []).find(a => lcMap.has(a))
     resolved[key] = hit ? lcMap.get(hit)! : configured
   }
   return resolved
+}
+
+// Score how many key columns (date, debit, credit, balance) a candidate header
+// row resolves. Used by findHeaderRow to auto-detect the real header row.
+const KEY_COLS = ['date', 'debit', 'credit', 'balance']
+
+function scoreHeaders(configMap: Record<string, string>, headers: string[]): number {
+  if (headers.every(h => !h.trim())) return 0
+  const col = resolveColumns(configMap, headers)
+  const lcSet = new Set(headers.map(h => h.toLowerCase().trim()).filter(Boolean))
+  return KEY_COLS.filter(k => col[k] && lcSet.has(col[k].toLowerCase().trim())).length
+}
+
+// Scan up to maxScan rows starting from configuredHeaderRow (1-indexed) to find
+// the row with the highest column match score.  Stops early at score >= 3.
+function findHeaderRow(
+  rawRows: string[][],
+  configMap: Record<string, string>,
+  configuredHeaderRow: number,
+  maxScan = 40,
+): number {
+  const start = Math.max(0, configuredHeaderRow - 1)
+  const end   = Math.min(rawRows.length - 2, start + maxScan)
+  let bestIdx   = start
+  let bestScore = 0
+  for (let i = start; i <= end; i++) {
+    const score = scoreHeaders(configMap, (rawRows[i] ?? []).map(h => String(h).trim()))
+    if (score > bestScore) {
+      bestScore = score
+      bestIdx   = i
+      if (score >= 3) break
+    }
+  }
+  return bestIdx  // 0-indexed
 }
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
@@ -181,57 +259,65 @@ interface ParsedLine {
   running_balance: number | null
 }
 
+interface CSVResult {
+  lines:         ParsedLine[]
+  actualHeaders: string[]
+}
+
 function parseCSV(
   content: string,
   columnMap: Record<string, string>,
   dateFormat: string,
-  headerRow: number,
+  headerRow: number,   // 1-indexed hint; auto-detection scans forward from here
   skipFooterRows: number,
-): ParsedLine[] {
-  const result = Papa.parse(content, {
-    header:       true,
-    skipEmptyLines: true,
-    transformHeader: (h: string) => h.trim(),
+): CSVResult {
+  // Parse as raw arrays so we control which row becomes the header.
+  // header:true would force row 1 as headers — wrong when banks prepend
+  // title / account-info rows before the real column header row.
+  const result = Papa.parse<string[]>(content, {
+    header:         false,
+    skipEmptyLines: 'greedy' as const,
   })
+  const rawRows = result.data
 
-  let rows = result.data as Record<string, string>[]
+  // Auto-detect the actual header row (scans up to 40 rows from the configured hint)
+  const headerIdx    = findHeaderRow(rawRows, columnMap, headerRow)
+  const actualHeaders = (rawRows[headerIdx] ?? []).map(h => String(h).trim())
 
-  // Skip configured header rows beyond row 1 (already consumed by papaparse)
-  if (headerRow > 1) rows = rows.slice(headerRow - 1)
+  // Data rows are everything after the header row
+  let dataRows = rawRows.slice(headerIdx + 1)
 
-  // Skip footer rows
-  if (skipFooterRows > 0) rows = rows.slice(0, rows.length - skipFooterRows)
+  // Drop footer rows (totals, "End of Statement", blank trailing rows)
+  if (skipFooterRows > 0) dataRows = dataRows.slice(0, dataRows.length - skipFooterRows)
 
-  // Resolve column names against actual CSV headers (tolerates PDF vs net-banking differences)
-  const actualHeaders = result.meta.fields ?? []
+  // Resolve configured column names to actual header labels (alias-aware)
   const col = resolveColumns(columnMap, actualHeaders)
+
+  // Build row objects: header label → cell value
+  const rows: Record<string, string>[] = dataRows.map(row =>
+    Object.fromEntries(actualHeaders.map((h, i) => [h, String(row[i] ?? '').trim()]))
+  )
 
   const lines: ParsedLine[] = []
 
   for (const row of rows) {
-    const dateStr = row[col.date]
-    if (!dateStr?.trim()) continue
+    const rawDate = stripExcelEq(row[col.date])
+    if (!rawDate.trim()) continue
 
-    // Strip Excel ="..." wrapper, then take only the date portion (ignore time)
-    const cleanDate = stripExcelEq(dateStr).split(' ')[0].trim()
-    const d = parseConfigDate(cleanDate, dateFormat)
+    const d = parseConfigDate(rawDate, dateFormat)
     if (!d) continue
 
-    const valueDateStr = row[col.value_date ?? '']
-    const cleanVD = valueDateStr ? stripExcelEq(valueDateStr).split(' ')[0].trim() : ''
-    const vd = cleanVD ? parseConfigDate(cleanVD, dateFormat) : null
-
-    const rawNarration = stripExcelEq(row[col.narration] ?? '')
-    const rawRef       = stripExcelEq(row[col.ref] ?? '')
+    const rawVD = stripExcelEq(row[col.value_date] ?? '')
+    const vd    = rawVD ? parseConfigDate(rawVD, dateFormat) : null
 
     lines.push({
       txn_date:        toISO(d),
       value_date:      vd ? toISO(vd) : null,
-      narration:       rawNarration.trim() || null,
-      ref_no:          rawRef.trim() || null,
+      narration:       stripExcelEq(row[col.narration] ?? '').trim() || null,
+      ref_no:          stripExcelEq(row[col.ref] ?? '').trim() || null,
       debit:           parseAmount(row[col.debit]),
       credit:          parseAmount(row[col.credit]),
-      running_balance: parseAmount(row[col.balance]) || null,
+      running_balance: parseBalance(row[col.balance]),
     })
   }
 

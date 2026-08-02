@@ -55,6 +55,30 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const location              = useLocation()
   const [navOpen, setNavOpen] = useState(false)
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
+
+  const pathGroupKey = (p: string) => {
+    if (['/ledgers','/vouchers','/suspense','/invoices'].some(r => p === r || p.startsWith(r + '/'))) return 'books'
+    if (p.startsWith('/approvals') || p.startsWith('/payments')) return 'workflow'
+    if (p.startsWith('/settlement') || p.startsWith('/bank-recon')) return 'recon'
+    if (p.startsWith('/inventory')) return 'inventory'
+    if (p.startsWith('/reports/')) return 'reports'
+    if (p.startsWith('/admin') || p.startsWith('/tally-export')) return 'admin'
+    return null
+  }
+
+  const [groupOpen, setGroupOpen] = useState(() => {
+    const active = pathGroupKey(location.pathname)
+    return { books: active === 'books', workflow: active === 'workflow', recon: active === 'recon', inventory: active === 'inventory', reports: active === 'reports', admin: active === 'admin' }
+  })
+
+  // Auto-expand the group containing the newly active route
+  useEffect(() => {
+    const key = pathGroupKey(location.pathname)
+    if (key) setGroupOpen(prev => prev[key as keyof typeof prev] ? prev : { ...prev, [key]: true })
+  }, [location.pathname])
+
+  const toggleGroup = (key: keyof typeof groupOpen) =>
+    setGroupOpen(prev => ({ ...prev, [key]: !prev[key] }))
   const desktopCompanyMenuRef = useRef<HTMLDivElement | null>(null)
   const mobileCompanyMenuRef = useRef<HTMLDivElement | null>(null)
 
@@ -154,134 +178,96 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* BOOKS */}
         <div className={css.navGroup}>
-          <div className={css.navGroupHeading}>Books</div>
-          <NavLink
-            to="/ledgers"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Ledgers</span>
-          </NavLink>
-          <NavLink
-            to="/vouchers"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Vouchers</span>
-          </NavLink>
-          <NavLink to="/vouchers" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Register</NavLink>
-          <NavLink to="/vouchers/search" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Search</NavLink>
-          <NavLink
-            to="/suspense"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Suspense</span>
-          </NavLink>
-          <NavLink
-            to="/invoices"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Invoices</span>
-          </NavLink>
-          <NavLink to="/invoices/scan" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Scan</NavLink>
-          <NavLink to="/invoices/inbox" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Inbox</NavLink>
+          <button className={css.navGroupToggle} onClick={() => toggleGroup('books')} aria-expanded={groupOpen.books}>
+            <span>Books</span>
+            <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.books ? ` ${css.groupChevronOpen}` : ''}`} />
+          </button>
+          <div className={`${css.groupBody}${groupOpen.books ? ` ${css.groupBodyOpen}` : ''}`}>
+            <NavLink to="/ledgers" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Ledgers</span></NavLink>
+            <NavLink to="/vouchers" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Vouchers</span></NavLink>
+            <NavLink to="/vouchers" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Register</NavLink>
+            <NavLink to="/vouchers/search" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Search</NavLink>
+            <NavLink to="/suspense" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Suspense</span></NavLink>
+            <NavLink to="/invoices" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Invoices</span></NavLink>
+            <NavLink to="/invoices/scan" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Scan</NavLink>
+            <NavLink to="/invoices/inbox" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Inbox</NavLink>
+          </div>
         </div>
 
         {/* WORKFLOW */}
         <div className={css.navGroup}>
-          <div className={css.navGroupHeading}>Workflow</div>
-          <NavLink
-            to="/approvals"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Approvals</span>
-            {pendingCount > 0 && <span className={css.badge}>{pendingCount}</span>}
-          </NavLink>
-          <NavLink
-            to="/payments"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Payments</span>
-            {paymentsCount > 0 && <span className={css.badge}>{paymentsCount}</span>}
-          </NavLink>
+          <button className={css.navGroupToggle} onClick={() => toggleGroup('workflow')} aria-expanded={groupOpen.workflow}>
+            <span>Workflow</span>
+            <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.workflow ? ` ${css.groupChevronOpen}` : ''}`} />
+          </button>
+          <div className={`${css.groupBody}${groupOpen.workflow ? ` ${css.groupBodyOpen}` : ''}`}>
+            <NavLink to="/approvals" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}>
+              <span>Approvals</span>
+              {pendingCount > 0 && <span className={css.badge}>{pendingCount}</span>}
+            </NavLink>
+            <NavLink to="/payments" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}>
+              <span>Payments</span>
+              {paymentsCount > 0 && <span className={css.badge}>{paymentsCount}</span>}
+            </NavLink>
+          </div>
         </div>
 
         {/* RECONCILIATION */}
         <div className={css.navGroup}>
-          <div className={css.navGroupHeading}>Reconciliation</div>
-          <NavLink
-            to="/settlement"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Settlement</span>
-          </NavLink>
-          <NavLink
-            to="/bank-recon"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
-            <span>Bank Recon</span>
-          </NavLink>
+          <button className={css.navGroupToggle} onClick={() => toggleGroup('recon')} aria-expanded={groupOpen.recon}>
+            <span>Reconciliation</span>
+            <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.recon ? ` ${css.groupChevronOpen}` : ''}`} />
+          </button>
+          <div className={`${css.groupBody}${groupOpen.recon ? ` ${css.groupBodyOpen}` : ''}`}>
+            <NavLink to="/settlement" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Settlement</span></NavLink>
+            <NavLink to="/bank-recon" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Bank Recon</span></NavLink>
+          </div>
         </div>
 
         {/* INVENTORY */}
         <div className={css.navGroup}>
-          <div className={css.navGroupHeading}>Inventory</div>
-          <NavLink
-            to="/inventory"
-            end={false}
-            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
-          >
+          <button className={css.navGroupToggle} onClick={() => toggleGroup('inventory')} aria-expanded={groupOpen.inventory}>
             <span>Inventory</span>
-          </NavLink>
+            <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.inventory ? ` ${css.groupChevronOpen}` : ''}`} />
+          </button>
+          <div className={`${css.groupBody}${groupOpen.inventory ? ` ${css.groupBodyOpen}` : ''}`}>
+            <NavLink to="/inventory" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Inventory</span></NavLink>
+          </div>
         </div>
 
         {/* REPORTS */}
         {canViewReports && (
           <div className={css.navGroup}>
-            <div className={css.navGroupHeading}>Reports</div>
-            {REPORT_ITEMS.map(({ to, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={false}
-                className={({ isActive }) =>
-                  `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
+            <button className={css.navGroupToggle} onClick={() => toggleGroup('reports')} aria-expanded={groupOpen.reports}>
+              <span>Reports</span>
+              <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.reports ? ` ${css.groupChevronOpen}` : ''}`} />
+            </button>
+            <div className={`${css.groupBody}${groupOpen.reports ? ` ${css.groupBodyOpen}` : ''}`}>
+              {REPORT_ITEMS.map(({ to, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={false}
+                  className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </div>
           </div>
         )}
 
         {/* ADMIN — super admin only */}
         {user?.profile.is_super_admin && (
           <div className={css.navGroup}>
-            <div className={css.navGroupHeading}>Admin</div>
-            <NavLink
-              to="/admin"
-              end={false}
-              className={({ isActive }) =>
-                `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`
-              }
-            >
-              Admin Panel
-            </NavLink>
-            <NavLink
-              to="/tally-export"
-              end={false}
-              className={({ isActive }) =>
-                `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`
-              }
-            >
-              Tally Export
-            </NavLink>
+            <button className={css.navGroupToggle} onClick={() => toggleGroup('admin')} aria-expanded={groupOpen.admin}>
+              <span>Admin</span>
+              <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.admin ? ` ${css.groupChevronOpen}` : ''}`} />
+            </button>
+            <div className={`${css.groupBody}${groupOpen.admin ? ` ${css.groupBodyOpen}` : ''}`}>
+              <NavLink to="/admin" end={false} className={({ isActive }) => `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`}>Admin Panel</NavLink>
+              <NavLink to="/tally-export" end={false} className={({ isActive }) => `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`}>Tally Export</NavLink>
+            </div>
           </div>
         )}
 

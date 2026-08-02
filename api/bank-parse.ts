@@ -452,6 +452,10 @@ export default async function handler(
       throw new Error(`No data rows found after parsing.${hint}`)
     }
 
+    // Sort chronologically — some banks export newest-first (e.g. Federal Bank).
+    // Balance validation and line_no must reflect oldest→newest order.
+    lines.sort((a, b) => a.txn_date < b.txn_date ? -1 : a.txn_date > b.txn_date ? 1 : 0)
+
     // ── Validation gate ─────────────────────────────────────────────────────
     const totalCredits = lines.reduce((s, l) => s + l.credit, 0)
     const totalDebits  = lines.reduce((s, l) => s + l.debit,  0)

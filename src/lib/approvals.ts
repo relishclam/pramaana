@@ -61,11 +61,23 @@ export interface VoucherFull extends PendingVoucher {
   entity_bank_account: string | null
   entity_bank_ifsc:    string | null
   entity_bank_name:    string | null
+  // Multiple bank accounts — prefer over flat fields when non-empty
+  entity_bank_accounts: EntityBankAccount[]
   // Pay Now — voucher paid tracking
   paid_from_account:   string | null
   paid_at:             string | null
   entries: VoucherEntryDetail[]
   history: ApprovalHistoryItem[]
+}
+
+export interface EntityBankAccount {
+  id:                  string
+  label:               string | null
+  bank_name:           string | null
+  bank_account_number: string | null
+  bank_ifsc:           string | null
+  upi_id:              string | null
+  is_primary:          boolean
 }
 
 // ── Fetch pending count (for sidebar badge) ───────────────────────────────────
@@ -248,10 +260,13 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     ...actions.map(a => a.actioned_by),
   ].filter((id): id is string => typeof id === 'string' && id.length > 0))]
 
-  const [profilesRes, entityRes, bankRes, costRes] = await Promise.all([
+  const [profilesRes, entityRes, entityBankRes, bankRes, costRes] = await Promise.all([
     supabase.schema('registry').from('profiles').select('id, full_name').in('id', profileIds),
     v.entity_id
       ? supabase.schema('registry').from('entities').select('id, display_name, mobile, upi_id, bank_name, bank_account_number, bank_ifsc').eq('id', v.entity_id).maybeSingle()
+      : Promise.resolve(null),
+    v.entity_id
+      ? supabase.schema('registry').from('entity_bank_accounts').select('id, label, bank_name, bank_account_number, bank_ifsc, upi_id, is_primary').eq('entity_id', v.entity_id).eq('is_active', true).order('is_primary', { ascending: false })
       : Promise.resolve(null),
     v.bank_ledger_id
       ? supabase.schema('pramaana').from('ledgers').select('id, name').eq('id', v.bank_ledger_id).maybeSingle()
@@ -266,9 +281,13 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
       .map(p => [p.id, p.full_name ?? 'Unknown'])
   )
 
-  const entityData   = entityRes   ? (entityRes   as { data: { display_name: string; mobile: string | null; upi_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_ifsc: string | null } | null }).data : null
-  const bankData     = bankRes     ? (bankRes     as { data: { name: string }           | null }).data : null
-  const costData     = costRes     ? (costRes     as { data: { name: string }           | null }).data : null
+  const entityData      = entityRes     ? (entityRes     as { data: { display_name: string; mobile: string | null; upi_id: string | null; bank_name: string | null; bank_account_number: string | null; bank_ifsc: string | null } | null }).data : null
+  const entityBankData  = entityBankRes ? ((entityBankRes as { data: EntityBankAccount[] | null }).data ?? []) : []
+  const bankData        = bankRes       ? (bankRes       as { data: { name: string } | null }).data : null
+  const costData        = costRes       ? (costRes       as { data: { name: string } | null }).data : null
+
+  // Prefer entity_bank_accounts primary row for flat fields; fall back to entity columns
+  const primaryBankAcc = entityBankData.find(b => b.is_primary) ?? entityBankData[0] ?? null
 
   return {
     id: v.id,
@@ -284,10 +303,11 @@ export async function fetchVoucherFull(voucherId: string): Promise<VoucherFull> 
     created_by_name: profileMap.get(v.created_by) ?? 'Unknown',
     entity_name:         entityData ? entityData.display_name : null,
     entity_mobile:       entityData ? (entityData.mobile ?? null) : null,
-    entity_upi_id:       entityData ? (entityData.upi_id ?? null) : null,
-    entity_bank_account: entityData ? (entityData.bank_account_number ?? null) : null,
-    entity_bank_ifsc:    entityData ? (entityData.bank_ifsc ?? null) : null,
-    entity_bank_name:    entityData ? (entityData.bank_name ?? null) : null,
+    entity_upi_id:       primaryBankAcc?.upi_id        ?? (entityData?.upi_id ?? null),
+    entity_bank_account: primaryBankAcc?.bank_account_number ?? (entityData?.bank_account_number ?? null),
+    entity_bank_ifsc:    primaryBankAcc?.bank_ifsc      ?? (entityData?.bank_ifsc ?? null),
+    entity_bank_name:    primaryBankAcc?.bank_name      ?? (entityData?.bank_name ?? null),
+    entity_bank_accounts: entityBankData,
     paid_from_account:   v.paid_from_account,
     paid_at:             v.paid_at,
     ref_document_number: v.ref_document_number,

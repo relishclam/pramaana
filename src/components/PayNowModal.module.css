@@ -218,6 +218,36 @@
 }
 .btnUpiAny:hover { background: var(--teal-light); text-decoration: none; }
 
+/* ── Bank account picker (multi-account) ─────────────────────────────────── */
+
+.bankPickerWrap {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.bankPickerBtn {
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.bankPickerBtn:hover { background: var(--surface-3, var(--surface-2)); color: var(--text); }
+
+.bankPickerBtnActive {
+  background: var(--teal-light);
+  color: var(--teal);
+  border-color: var(--teal);
+  font-weight: 600;
+}
+
 /* ── Bank details card ───────────────────────────────────────────────────── */
 
 .bankCard {

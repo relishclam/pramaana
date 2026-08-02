@@ -195,6 +195,18 @@ export default function PayNowModal({ voucher, companyId, userId, onPaid, onClos
     fetchCompanyPaymentAccounts(companyId).then(setPayAccounts).catch(() => {})
   }, [companyId])
 
+  // Bank account picker — uses entity_bank_accounts when available
+  const entityBankAccounts = voucher.entity_bank_accounts ?? []
+  const defaultBankIdx = Math.max(0, entityBankAccounts.findIndex(b => b.is_primary))
+  const [selectedBankIdx, setSelectedBankIdx] = useState(defaultBankIdx)
+  const selectedBank = entityBankAccounts[selectedBankIdx] ?? null
+
+  // Resolved bank fields — prefer child table, fall back to flat entity columns
+  const resolvedBankAccount = selectedBank?.bank_account_number ?? voucher.entity_bank_account
+  const resolvedBankIfsc    = selectedBank?.bank_ifsc            ?? voucher.entity_bank_ifsc
+  const resolvedBankName    = selectedBank?.bank_name            ?? voucher.entity_bank_name
+  const resolvedUpiId       = selectedBank?.upi_id              ?? voucher.entity_upi_id
+
   // Mark Paid panel state
   const alreadyPaid = !!voucher.paid_at
   const [markPaidOpen, setMarkPaidOpen] = useState(false)
@@ -230,27 +242,27 @@ export default function PayNowModal({ voucher, companyId, userId, onPaid, onClos
   }, [onClose])
 
   // ── UPI data ──────────────────────────────────────────────────────────────
-  const upiUrl  = voucher.entity_upi_id
-    ? buildUpiUrl(voucher.entity_upi_id, voucher.entity_name ?? 'Payee', voucher.amount, voucher.voucher_number)
+  const upiUrl  = resolvedUpiId
+    ? buildUpiUrl(resolvedUpiId, voucher.entity_name ?? 'Payee', voucher.amount, voucher.voucher_number)
     : null
   const qrUrl   = upiUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(upiUrl)}&bgcolor=ffffff&color=1a1a1a&margin=10`
     : null
-  const gpayUrl = voucher.entity_upi_id
-    ? buildGpayUrl(voucher.entity_upi_id, voucher.entity_name ?? 'Payee', voucher.amount, voucher.voucher_number)
+  const gpayUrl = resolvedUpiId
+    ? buildGpayUrl(resolvedUpiId, voucher.entity_name ?? 'Payee', voucher.amount, voucher.voucher_number)
     : null
   const anyUpiUrl = upiUrl
 
   // ── Bank data ─────────────────────────────────────────────────────────────
-  const netBanking = getNetBankingUrl(voucher.entity_bank_name)
+  const netBanking = getNetBankingUrl(resolvedBankName)
   const bankApp    = mobile ? getBankAppPackage(paidFrom || voucher.paid_from_account) : null
 
   // Build "Copy All Details" text
   const buildCopyAllText = () => [
     `Payee: ${voucher.entity_name ?? '—'}`,
-    `Account No: ${voucher.entity_bank_account ?? '—'}`,
-    `IFSC: ${voucher.entity_bank_ifsc ?? '—'}`,
-    `Bank: ${voucher.entity_bank_name ?? '—'}`,
+    `Account No: ${resolvedBankAccount ?? '—'}`,
+    `IFSC: ${resolvedBankIfsc ?? '—'}`,
+    `Bank: ${resolvedBankName ?? '—'}`,
     `Amount: ${formatIndianCurrency(voucher.amount)}`,
     `Reference: ${voucher.voucher_number}`,
   ].join('\n')
@@ -385,12 +397,28 @@ export default function PayNowModal({ voucher, companyId, userId, onPaid, onClos
             <div className={styles.section}>
               <span className={styles.sectionTitle}>Bank Transfer Details</span>
 
+              {/* Bank account picker — shown only when entity has multiple accounts */}
+              {entityBankAccounts.length > 1 && (
+                <div className={styles.bankPickerWrap}>
+                  {entityBankAccounts.map((acct, idx) => (
+                    <button
+                      key={acct.id}
+                      type="button"
+                      className={`${styles.bankPickerBtn}${idx === selectedBankIdx ? ` ${styles.bankPickerBtnActive}` : ''}`}
+                      onClick={() => setSelectedBankIdx(idx)}
+                    >
+                      {acct.label ?? acct.bank_name ?? `Account ${idx + 1}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className={styles.bankCard}>
                 {[
                   { label: 'Payee',      value: voucher.entity_name      ?? '—' },
-                  { label: 'Account No', value: voucher.entity_bank_account ?? '—' },
-                  { label: 'IFSC',       value: voucher.entity_bank_ifsc  ?? '—' },
-                  { label: 'Bank',       value: voucher.entity_bank_name  ?? '—' },
+                  { label: 'Account No', value: resolvedBankAccount ?? '—' },
+                  { label: 'IFSC',       value: resolvedBankIfsc  ?? '—' },
+                  { label: 'Bank',       value: resolvedBankName  ?? '—' },
                   { label: 'Reference',  value: voucher.voucher_number },
                 ].map(({ label, value }) => (
                   <div className={styles.bankRow} key={label}>

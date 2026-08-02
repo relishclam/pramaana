@@ -71,8 +71,11 @@ async function supabasePost(path: string, body: unknown) {
 const FALLBACK_DATE_FORMATS = [
   'dd-MM-yyyy', 'dd/MM/yyyy', 'dd MM yyyy',
   'dd-MMM-yyyy', 'dd/MMM/yyyy', 'dd MMM yyyy',
+  'dd MMM yyyy HH:mm:ss', 'dd MMM yyyy HH:mm',
+  'dd-MMM-yyyy HH:mm:ss', 'dd/MMM/yyyy HH:mm:ss',
   'MMM dd, yyyy', 'MMM d, yyyy',
-  'yyyy-MM-dd', 'MM/dd/yyyy', 'yyyyMMdd',
+  'yyyy-MM-dd', 'yyyy-MM-dd HH:mm:ss',
+  'MM/dd/yyyy', 'yyyyMMdd',
   'dd-MM-yy',   'dd/MM/yy',
   'd-M-yyyy',   'd/M/yyyy',
 ]
@@ -97,13 +100,20 @@ function parseConfigDate(raw: string, fmt: string): Date | null {
   const primary = toDateFns(fmt)
   const fmts = [primary, ...FALLBACK_DATE_FORMATS.filter(f => f !== primary)]
 
-  // Try the full string first (handles "01 Apr 2024", "01-Apr-2024" etc.)
+  // Try the full string first (handles "01 Apr 2024", "01-Apr-2024", "01 Apr 2024 07:05:00")
   const full = tryParseDate(raw.trim(), fmts)
   if (full) return full
 
-  // Also try stripping a trailing time component ("01/04/2024 14:32:00" → "01/04/2024")
-  const dateOnly = raw.trim().split(/\s+/)[0]
-  return dateOnly !== raw.trim() ? tryParseDate(dateOnly, fmts) : null
+  // Strip a trailing time component ("01 Apr 2024 07:05:00" → "01 Apr 2024")
+  const withoutTime = raw.trim().replace(/\s+\d{1,2}:\d{2}(:\d{2})?$/, '').trim()
+  if (withoutTime && withoutTime !== raw.trim()) {
+    const d2 = tryParseDate(withoutTime, fmts)
+    if (d2) return d2
+  }
+
+  // Also try just the first space-separated token for "DD/MM/YYYY HH:mm" style
+  const firstToken = raw.trim().split(/\s+/)[0]
+  return firstToken !== raw.trim() ? tryParseDate(firstToken, fmts) : null
 }
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10)

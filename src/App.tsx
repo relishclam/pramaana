@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useLocation } from 'react-router-dom'
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { ChevronDown, BarChart2, X, Menu } from 'lucide-react'
+import { ChevronDown, X, Menu } from 'lucide-react'
 import { Toaster } from 'sonner'
 import css from './App.module.css'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
@@ -58,40 +58,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const desktopCompanyMenuRef = useRef<HTMLDivElement | null>(null)
   const mobileCompanyMenuRef = useRef<HTMLDivElement | null>(null)
 
-  const onReport = location.pathname.startsWith('/reports/')
-  const [reportsOpen, setReportsOpen] = useState(onReport)
-
-  // Auto-expand reports when navigating to a report page
-  useEffect(() => {
-    if (location.pathname.startsWith('/reports/')) setReportsOpen(true)
-  }, [location.pathname])
-
   // Close sidebar on navigation (mobile)
   useEffect(() => { setNavOpen(false) }, [location.pathname])
-
-  const NAV_ITEMS = [
-    { to: '/',          label: 'Dashboard', end: true,  badge: 0            },
-    { to: '/ledgers',   label: 'Ledgers',   end: false, badge: 0            },
-    { to: '/vouchers',  label: 'Vouchers',  end: false, badge: 0            },
-    { to: '/suspense',  label: 'Suspense',  end: false, badge: 0            },
-    { to: '/approvals', label: 'Approvals', end: false, badge: pendingCount  },
-    { to: '/payments',    label: 'Payments',   end: false, badge: paymentsCount },
-    { to: '/settlement',  label: 'Settlement',  end: false, badge: 0 },
-    { to: '/bank-recon',  label: 'Bank Recon',   end: false, badge: 0 },
-
-    { to: '/invoices',  label: 'Invoices',  end: false, badge: 0            },
-    { to: '/inventory', label: 'Inventory', end: false, badge: 0            },
-  ]
-
-  const INVOICE_SUB_ITEMS = [
-    { to: '/invoices/scan',  label: 'Scan',  end: true  },
-    { to: '/invoices/inbox', label: 'Inbox', end: false },
-  ]
-
-  const VOUCHER_SUB_ITEMS = [
-    { to: '/vouchers',        label: 'Register', end: true  },
-    { to: '/vouchers/search', label: 'Search',   end: false },
-  ]
 
   const REPORT_ITEMS = [
     { to: '/reports/day-book',             label: 'Day Book'             },
@@ -173,114 +141,129 @@ function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Main nav items */}
-        {NAV_ITEMS.map(({ to, label, end, badge }) => {
-          if (to === '/invoices') {
-            return (
-              <div key={to}>
-                <NavLink
-                  to={to}
-                  end={false}
-                  className={({ isActive }) =>
-                    `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
-                  }
-                >
-                  <span>{label}</span>
-                </NavLink>
-                {INVOICE_SUB_ITEMS.map(({ to: s, label: sl, end: se }) => (
-                  <NavLink
-                    key={s}
-                    to={s}
-                    end={se}
-                    className={({ isActive }) =>
-                      `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`
-                    }
-                  >
-                    {sl}
-                  </NavLink>
-                ))}
-              </div>
-            )
+        {/* Dashboard — no group heading */}
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) =>
+            `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
           }
-          if (to === '/vouchers') {
-            return (
-              <div key={to}>
-                <NavLink
-                  to={to}
-                  end={false}
-                  className={({ isActive }) =>
-                    `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
-                  }
-                >
-                  <span>{label}</span>
-                </NavLink>
-                {VOUCHER_SUB_ITEMS.map(({ to: s, label: sl, end: se }) => (
-                  <NavLink
-                    key={s}
-                    to={s}
-                    end={se}
-                    className={({ isActive }) =>
-                      `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`
-                    }
-                  >
-                    {sl}
-                  </NavLink>
-                ))}
-              </div>
-            )
-          }
-          return (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                `${css.link}${isActive ? ` ${css.linkActive}` : ''}`
-              }
-            >
-              <span>{label}</span>
-              {badge > 0 && <span className={css.badge}>{badge}</span>}
-            </NavLink>
-          )
-        })}
+        >
+          <span>Dashboard</span>
+        </NavLink>
 
-        {/* Reports — collapsible */}
+        {/* BOOKS */}
+        <div className={css.navGroup}>
+          <div className={css.navGroupHeading}>Books</div>
+          <NavLink
+            to="/ledgers"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Ledgers</span>
+          </NavLink>
+          <NavLink
+            to="/vouchers"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Vouchers</span>
+          </NavLink>
+          <NavLink to="/vouchers" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Register</NavLink>
+          <NavLink to="/vouchers/search" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Search</NavLink>
+          <NavLink
+            to="/suspense"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Suspense</span>
+          </NavLink>
+          <NavLink
+            to="/invoices"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Invoices</span>
+          </NavLink>
+          <NavLink to="/invoices/scan" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Scan</NavLink>
+          <NavLink to="/invoices/inbox" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Inbox</NavLink>
+        </div>
+
+        {/* WORKFLOW */}
+        <div className={css.navGroup}>
+          <div className={css.navGroupHeading}>Workflow</div>
+          <NavLink
+            to="/approvals"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Approvals</span>
+            {pendingCount > 0 && <span className={css.badge}>{pendingCount}</span>}
+          </NavLink>
+          <NavLink
+            to="/payments"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Payments</span>
+            {paymentsCount > 0 && <span className={css.badge}>{paymentsCount}</span>}
+          </NavLink>
+        </div>
+
+        {/* RECONCILIATION */}
+        <div className={css.navGroup}>
+          <div className={css.navGroupHeading}>Reconciliation</div>
+          <NavLink
+            to="/settlement"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Settlement</span>
+          </NavLink>
+          <NavLink
+            to="/bank-recon"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Bank Recon</span>
+          </NavLink>
+        </div>
+
+        {/* INVENTORY */}
+        <div className={css.navGroup}>
+          <div className={css.navGroupHeading}>Inventory</div>
+          <NavLink
+            to="/inventory"
+            end={false}
+            className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}
+          >
+            <span>Inventory</span>
+          </NavLink>
+        </div>
+
+        {/* REPORTS */}
         {canViewReports && (
-          <>
-            <button
-              className={css.sectionToggle}
-              onClick={() => setReportsOpen(o => !o)}
-              aria-expanded={reportsOpen}
-            >
-              <span className={css.sectionLabel}>
-                <BarChart2 size={12} />
-                Reports
-              </span>
-              <ChevronDown
-                size={14}
-                className={`${css.chevron}${reportsOpen ? ` ${css.chevronOpen}` : ''}`}
-              />
-            </button>
-            <div className={`${css.sectionBody}${reportsOpen ? ` ${css.sectionBodyOpen}` : ''}`}>
-              {REPORT_ITEMS.map(({ to, label }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={false}
-                  className={({ isActive }) =>
-                    `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`
-                  }
-                >
-                  {label}
-                </NavLink>
-              ))}
-            </div>
-          </>
+          <div className={css.navGroup}>
+            <div className={css.navGroupHeading}>Reports</div>
+            {REPORT_ITEMS.map(({ to, label }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={false}
+                className={({ isActive }) =>
+                  `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </div>
         )}
 
-        {/* Footer: Admin + Sign out */}
-        <div className={css.navFooter}>
-          {user?.profile.is_super_admin && (
+        {/* ADMIN — super admin only */}
+        {user?.profile.is_super_admin && (
+          <div className={css.navGroup}>
+            <div className={css.navGroupHeading}>Admin</div>
             <NavLink
               to="/admin"
               end={false}
@@ -288,10 +271,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`
               }
             >
-              ⚙ Admin Panel
+              Admin Panel
             </NavLink>
-          )}
-          {user?.profile.is_super_admin && (
             <NavLink
               to="/tally-export"
               end={false}
@@ -299,9 +280,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 `${css.adminLink}${isActive ? ` ${css.adminLinkActive}` : ''}`
               }
             >
-              📄 Tally Export
+              Tally Export
             </NavLink>
-          )}
+          </div>
+        )}
+
+        {/* Footer: Sign out */}
+        <div className={css.navFooter}>
           <button className={css.signOut} onClick={signOut}>Sign out</button>
         </div>
       </nav>

@@ -96,55 +96,25 @@
   font-weight: 600;
 }
 
-/* ── Collapsible REPORTS section ──────────────────────────────────────────── */
+/* ── Nav groups with visible headings ────────────────────────────────────── */
 
-.sectionToggle {
+.navGroup {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: calc(100% - 1rem);
-  margin: 0.5rem 0.5rem 0;
-  padding: 0.375rem 0.75rem 0.375rem 1rem;
-  background: none;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--text);
+  flex-direction: column;
+  margin-top: 0.25rem;
+}
+
+.navGroupHeading {
+  padding: 0.5rem 1rem 0.25rem;
   font-size: 0.6875rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-family: var(--font-sans);
-  transition: background 0.1s;
-  min-height: 32px;
+  color: var(--text-muted);
+  user-select: none;
 }
 
-.sectionToggle:hover { background: var(--surface-2); }
-
-.sectionLabel {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-}
-
-.chevron {
-  color: var(--text);
-  transition: transform 0.22s ease;
-  flex-shrink: 0;
-}
-
-.chevronOpen { transform: rotate(180deg); }
-
-/* Reports list collapse animation */
-
-.sectionBody {
-  overflow: hidden;
-  max-height: 0;
-  flex-shrink: 0;            /* prevent flex-column from compressing the list */
-  transition: max-height 0.25s ease;
-}
-
-.sectionBodyOpen { max-height: 560px; }
+/* ── Collapsible REPORTS section (kept for reportLink styles) ─────────────── */
 
 .reportLink {
   display: flex;

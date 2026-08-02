@@ -67,20 +67,34 @@ async function supabasePost(path: string, body: unknown) {
 
 // ── Date parsing ─────────────────────────────────────────────────────────────
 
+// Common date formats to try when the configured format fails
+const FALLBACK_DATE_FORMATS = [
+  'dd-MM-yyyy', 'dd/MM/yyyy', 'dd MM yyyy',
+  'dd-MMM-yyyy', 'dd/MMM/yyyy', 'dd MMM yyyy',
+  'yyyy-MM-dd', 'MM/dd/yyyy',
+  'dd-MM-yy',   'dd/MM/yy',
+]
+
 function parseConfigDate(raw: string, fmt: string): Date | null {
   // fmt: 'DD/MM/YYYY' | 'DD/MM/YY' | 'ISO8601' | 'MM/DD/YYYY' etc.
   if (fmt === 'ISO8601') {
     const d = new Date(raw)
     return isValid(d) ? d : null
   }
-  // Convert bank format string to date-fns format string
   const dfnsFmt = fmt
     .replace('DD', 'dd')
     .replace('MM', 'MM')
     .replace('YYYY', 'yyyy')
     .replace('YY', 'yy')
-  const d = parseDate(raw.trim(), dfnsFmt, new Date())
-  return isValid(d) ? d : null
+  const primary = parseDate(raw.trim(), dfnsFmt, new Date())
+  if (isValid(primary)) return primary
+  // Fallback: try common formats so PDF vs CSV date separators don't matter
+  for (const fb of FALLBACK_DATE_FORMATS) {
+    if (fb === dfnsFmt) continue
+    const d = parseDate(raw.trim(), fb, new Date())
+    if (isValid(d)) return d
+  }
+  return null
 }
 
 const toISO = (d: Date) => d.toISOString().slice(0, 10)
@@ -120,6 +134,41 @@ function decodeBuffer(buf: Buffer, hint: string): string {
   return buf.toString(hint as BufferEncoding ?? 'utf-8')
 }
 
+// ── Column-alias resolver ────────────────────────────────────────────────────
+// Maps logical keys to actual CSV headers using the configured name first, then
+// known aliases. Handles net-banking CSV vs PDF-extracted column name differences.
+
+const COL_ALIASES: Record<string, string[]> = {
+  date:       ['txn date','transaction date','tran date','date','posting date','trans date'],
+  value_date: ['value date','val date','value dt'],
+  narration:  ['description','narration','particulars','transaction details','remarks','details'],
+  ref:        ['cheque no.','cheque no','chq no','chq/ref number','ref no./cheque no.','ref no',
+               'reference','cheque details','cheque ref. no.'],
+  debit:      ['debit','withdrawal (dr.)','withdrawal dr.','withdrawal','dr amount',
+               'withdrawal amt.','dr.','debit amount'],
+  credit:     ['credit','deposit (cr.)','deposit cr.','deposit','cr amount',
+               'deposit amt.','cr.','credit amount'],
+  balance:    ['balance','balance (rs.)','balance amount','closing balance',
+               'running balance','running balance (rs)'],
+}
+
+function resolveColumns(
+  configMap: Record<string, string>,
+  actualHeaders: string[],
+): Record<string, string> {
+  const lcMap = new Map(actualHeaders.map(h => [h.toLowerCase().trim(), h]))
+  const resolved: Record<string, string> = {}
+  for (const [key, configured] of Object.entries(configMap)) {
+    if (actualHeaders.includes(configured)) { resolved[key] = configured; continue }
+    const lc = configured.toLowerCase().trim()
+    if (lcMap.has(lc)) { resolved[key] = lcMap.get(lc)!; continue }
+    const aliases = COL_ALIASES[key] ?? []
+    const hit = aliases.find(a => lcMap.has(a))
+    resolved[key] = hit ? lcMap.get(hit)! : configured
+  }
+  return resolved
+}
+
 // ── CSV parser ────────────────────────────────────────────────────────────────
 
 interface ParsedLine {
@@ -153,10 +202,14 @@ function parseCSV(
   // Skip footer rows
   if (skipFooterRows > 0) rows = rows.slice(0, rows.length - skipFooterRows)
 
+  // Resolve column names against actual CSV headers (tolerates PDF vs net-banking differences)
+  const actualHeaders = result.meta.fields ?? []
+  const col = resolveColumns(columnMap, actualHeaders)
+
   const lines: ParsedLine[] = []
 
   for (const row of rows) {
-    const dateStr = row[columnMap.date]
+    const dateStr = row[col.date]
     if (!dateStr?.trim()) continue
 
     // Strip Excel ="..." wrapper, then take only the date portion (ignore time)
@@ -164,25 +217,25 @@ function parseCSV(
     const d = parseConfigDate(cleanDate, dateFormat)
     if (!d) continue
 
-    const valueDateStr = row[columnMap.value_date ?? '']
+    const valueDateStr = row[col.value_date ?? '']
     const cleanVD = valueDateStr ? stripExcelEq(valueDateStr).split(' ')[0].trim() : ''
     const vd = cleanVD ? parseConfigDate(cleanVD, dateFormat) : null
 
-    const rawNarration = stripExcelEq(row[columnMap.narration] ?? '')
-    const rawRef       = stripExcelEq(row[columnMap.ref] ?? '')
+    const rawNarration = stripExcelEq(row[col.narration] ?? '')
+    const rawRef       = stripExcelEq(row[col.ref] ?? '')
 
     lines.push({
       txn_date:        toISO(d),
       value_date:      vd ? toISO(vd) : null,
       narration:       rawNarration.trim() || null,
       ref_no:          rawRef.trim() || null,
-      debit:           parseAmount(row[columnMap.debit]),
-      credit:          parseAmount(row[columnMap.credit]),
-      running_balance: parseAmount(row[columnMap.balance]) || null,
+      debit:           parseAmount(row[col.debit]),
+      credit:          parseAmount(row[col.credit]),
+      running_balance: parseAmount(row[col.balance]) || null,
     })
   }
 
-  return lines
+  return { lines, actualHeaders }
 }
 
 // ── Airwallex JSON parser ─────────────────────────────────────────────────────
@@ -271,6 +324,7 @@ export default async function handler(
 
     // ── Parse ───────────────────────────────────────────────────────────────
     let lines: ParsedLine[]
+    let csvHeaders: string[] = []
 
     if (fmt.file_type === 'json') {
       let json: unknown
@@ -281,10 +335,17 @@ export default async function handler(
     } else {
       // CSV
       const content = decodeBuffer(fileBuffer, fmt.encoding)
-      lines = parseCSV(content, fmt.column_map, fmt.date_format, fmt.header_row, fmt.skip_footer_rows)
+      const parsed = parseCSV(content, fmt.column_map, fmt.date_format, fmt.header_row, fmt.skip_footer_rows)
+      lines = parsed.lines
+      csvHeaders = parsed.actualHeaders
     }
 
-    if (!lines.length) throw new Error('No data rows found after parsing')
+    if (!lines.length) {
+      const hint = csvHeaders.length
+        ? ` CSV headers found: [${csvHeaders.join(' | ')}]`
+        : ''
+      throw new Error(`No data rows found after parsing.${hint}`)
+    }
 
     // ── Validation gate ─────────────────────────────────────────────────────
     const totalCredits = lines.reduce((s, l) => s + l.credit, 0)

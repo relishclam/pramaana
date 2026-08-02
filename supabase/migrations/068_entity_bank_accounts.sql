@@ -62,7 +62,6 @@ CREATE POLICY entity_bank_accounts_read ON registry.entity_bank_accounts
             SELECT 1 FROM registry.company_users cu
             WHERE cu.user_id = auth.uid()
               AND cu.role IN ('admin','accounts','auditor')
-              AND cu.is_active = true
           )
         )
     )
@@ -82,7 +81,6 @@ CREATE POLICY entity_bank_accounts_write ON registry.entity_bank_accounts
             SELECT 1 FROM registry.company_users cu
             WHERE cu.user_id = auth.uid()
               AND cu.role IN ('admin','accounts')
-              AND cu.is_active = true
           )
         )
     )
@@ -97,7 +95,6 @@ CREATE POLICY entity_bank_accounts_write ON registry.entity_bank_accounts
             SELECT 1 FROM registry.company_users cu
             WHERE cu.user_id = auth.uid()
               AND cu.role IN ('admin','accounts')
-              AND cu.is_active = true
           )
         )
     )
@@ -199,34 +196,34 @@ BEGIN
   SELECT id INTO sherine_id FROM registry.entities WHERE lower(trim(display_name)) = 'sherine motty'  LIMIT 1;
   SELECT id INTO tarun_id   FROM registry.entities WHERE lower(trim(display_name)) = 'tarun philip'   LIMIT 1;
 
-  -- Motty Philip
+  -- Motty Philip — active Management role in both companies
   IF motty_id IS NOT NULL THEN
-    INSERT INTO registry.entity_roles (entity_id, company_id, role, is_active, end_date)
+    INSERT INTO registry.entity_roles (entity_id, company_id, role, is_active)
     VALUES
-      (motty_id, rfpl, 'executive_director', true,  NULL),
-      (motty_id, rhhf, 'managing_partner',   true,  NULL)
+      (motty_id, rfpl, 'Management', true),
+      (motty_id, rhhf, 'Management', true)
     ON CONFLICT (entity_id, company_id, role) DO UPDATE
-      SET is_active = EXCLUDED.is_active, end_date = EXCLUDED.end_date;
+      SET is_active = EXCLUDED.is_active;
   END IF;
 
-  -- Tarun Philip
+  -- Tarun Philip — active Management role in both companies
   IF tarun_id IS NOT NULL THEN
-    INSERT INTO registry.entity_roles (entity_id, company_id, role, is_active, end_date)
+    INSERT INTO registry.entity_roles (entity_id, company_id, role, is_active)
     VALUES
-      (tarun_id, rfpl, 'director', true, NULL),
-      (tarun_id, rhhf, 'partner',  true, NULL)
+      (tarun_id, rfpl, 'Management', true),
+      (tarun_id, rhhf, 'Management', true)
     ON CONFLICT (entity_id, company_id, role) DO UPDATE
-      SET is_active = EXCLUDED.is_active, end_date = EXCLUDED.end_date;
+      SET is_active = EXCLUDED.is_active;
   END IF;
 
-  -- Sherine Motty
+  -- Sherine Motty — active RFPL, inactive RHHF
   IF sherine_id IS NOT NULL THEN
-    INSERT INTO registry.entity_roles (entity_id, company_id, role, is_active, end_date)
+    INSERT INTO registry.entity_roles (entity_id, company_id, role, is_active)
     VALUES
-      (sherine_id, rfpl, 'director',         true,  NULL),
-      (sherine_id, rhhf, 'retired_partner',  false, '2023-02-20')
+      (sherine_id, rfpl, 'Management', true),
+      (sherine_id, rhhf, 'Management', false)
     ON CONFLICT (entity_id, company_id, role) DO UPDATE
-      SET is_active = EXCLUDED.is_active, end_date = EXCLUDED.end_date;
+      SET is_active = EXCLUDED.is_active;
   END IF;
 
 END $$;

@@ -60,7 +60,7 @@ CREATE POLICY entity_bank_accounts_read ON registry.entity_bank_accounts
           p.is_super_admin = true
           OR EXISTS (
             SELECT 1 FROM registry.company_users cu
-            WHERE cu.profile_id = p.id
+            WHERE cu.user_id = auth.uid()
               AND cu.role IN ('admin','accounts','auditor')
               AND cu.is_active = true
           )
@@ -80,7 +80,7 @@ CREATE POLICY entity_bank_accounts_write ON registry.entity_bank_accounts
           p.is_super_admin = true
           OR EXISTS (
             SELECT 1 FROM registry.company_users cu
-            WHERE cu.profile_id = p.id
+            WHERE cu.user_id = auth.uid()
               AND cu.role IN ('admin','accounts')
               AND cu.is_active = true
           )
@@ -95,7 +95,7 @@ CREATE POLICY entity_bank_accounts_write ON registry.entity_bank_accounts
           p.is_super_admin = true
           OR EXISTS (
             SELECT 1 FROM registry.company_users cu
-            WHERE cu.profile_id = p.id
+            WHERE cu.user_id = auth.uid()
               AND cu.role IN ('admin','accounts')
               AND cu.is_active = true
           )

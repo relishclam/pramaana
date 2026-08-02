@@ -71,8 +71,10 @@ async function supabasePost(path: string, body: unknown) {
 const FALLBACK_DATE_FORMATS = [
   'dd-MM-yyyy', 'dd/MM/yyyy', 'dd MM yyyy',
   'dd-MMM-yyyy', 'dd/MMM/yyyy', 'dd MMM yyyy',
-  'yyyy-MM-dd', 'MM/dd/yyyy',
+  'MMM dd, yyyy', 'MMM d, yyyy',
+  'yyyy-MM-dd', 'MM/dd/yyyy', 'yyyyMMdd',
   'dd-MM-yy',   'dd/MM/yy',
+  'd-M-yyyy',   'd/M/yyyy',
 ]
 
 function toDateFns(fmt: string): string {
@@ -262,6 +264,7 @@ interface ParsedLine {
 interface CSVResult {
   lines:         ParsedLine[]
   actualHeaders: string[]
+  dateSamples:   string[]   // first 5 raw date-column values for diagnostics
 }
 
 function parseCSV(
@@ -299,10 +302,13 @@ function parseCSV(
   )
 
   const lines: ParsedLine[] = []
+  const dateSamples: string[] = []
 
   for (const row of rows) {
     const rawDate = stripExcelEq(row[col.date])
     if (!rawDate.trim()) continue
+
+    if (dateSamples.length < 5) dateSamples.push(rawDate)
 
     const d = parseConfigDate(rawDate, dateFormat)
     if (!d) continue
@@ -321,7 +327,7 @@ function parseCSV(
     })
   }
 
-  return { lines, actualHeaders }
+  return { lines, actualHeaders, dateSamples }
 }
 
 // ── Airwallex JSON parser ─────────────────────────────────────────────────────
@@ -424,6 +430,9 @@ export default async function handler(
       const parsed = parseCSV(content, fmt.column_map, fmt.date_format, fmt.header_row, fmt.skip_footer_rows)
       lines = parsed.lines
       csvHeaders = parsed.actualHeaders
+      if (!lines.length && parsed.dateSamples.length) {
+        csvHeaders = [...parsed.actualHeaders, `DATE_SAMPLES:${parsed.dateSamples.join(',')}`]
+      }
     }
 
     if (!lines.length) {

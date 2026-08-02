@@ -109,6 +109,7 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-height: 40px;
   padding: 0.4rem 0.875rem 0.4rem 1rem;
   background: none;
   border: none;
@@ -119,10 +120,13 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-family: var(--font-sans);
-  transition: color 0.1s;
+  transition: color 0.1s, background 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 .navGroupToggle:hover { color: var(--text); }
+.navGroupToggle:active { background: var(--surface-2); color: var(--text); }
 
 .groupChevron {
   flex-shrink: 0;

@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabasePramaana } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import css from './SettlementSheet.module.css';
 
 // ---------------------------------------------------------------------------
@@ -271,6 +272,8 @@ export default function SettlementSheet({
 
   // ── submit ─────────────────────────────────────────────────────────────────
 
+  const { user } = useAuth();
+
   const handleSubmit = async () => {
     if (!selectedDoc || !canSubmit) return;
     setSubmitting(true);
@@ -279,6 +282,7 @@ export default function SettlementSheet({
     try {
       const params: Record<string, unknown> = {
         p_company_id:        companyId,
+        p_created_by:        user?.id ?? null,
         p_party_ledger_id:   partyLedgerId,
         [M.docParam]:        selectedDoc.voucher_id,
         p_bank_lines:        bankLines

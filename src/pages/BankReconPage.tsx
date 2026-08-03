@@ -73,6 +73,8 @@ function UploadScreen({ companyId, onComplete }: { companyId: string; onComplete
   const [periodFrom, setPeriodFrom] = useState('')
   const [periodTo, setPeriodTo] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [pasteMode, setPasteMode] = useState(false)
+  const [pastedText, setPastedText] = useState('')
   const [dragging, setDragging] = useState(false)
   const [steps, setSteps] = useState<{ label: string; state: 'idle' | 'active' | 'done' | 'error' }[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +95,7 @@ function UploadScreen({ companyId, onComplete }: { companyId: string; onComplete
   }, [])
 
   const handleUpload = async () => {
-    if (!bankCode || !periodFrom || !periodTo || !file) {
+    if (!bankCode || !periodFrom || !periodTo) {
       setError('All fields required'); return
     }
     setSubmitting(true)
@@ -105,7 +107,25 @@ function UploadScreen({ companyId, onComplete }: { companyId: string; onComplete
     ])
 
     try {
-      const base64 = await toBase64(file)
+      // Encode source: file upload or pasted text
+      let base64: string
+      let fileName: string
+      let fileType: string
+      if (pasteMode) {
+        if (!pastedText.trim()) { setError('Paste your CSV data first'); return }
+        const bytes = new TextEncoder().encode(pastedText)
+        let binary = ''
+        bytes.forEach(b => { binary += String.fromCharCode(b) })
+        base64   = btoa(binary)
+        fileName = 'pasted-statement.csv'
+        fileType = 'text/csv'
+      } else {
+        if (!file) { setError('Select a file first'); return }
+        base64   = await toBase64(file)
+        fileName = file.name
+        fileType = file.type
+      }
+
       const token = supabase.auth
         .getSession().then(s => s.data.session?.access_token ?? '')
 
@@ -116,7 +136,7 @@ function UploadScreen({ companyId, onComplete }: { companyId: string; onComplete
         body: JSON.stringify({
           company_id: companyId, bank_code: bankCode,
           period_from: periodFrom, period_to: periodTo,
-          file_name: file.name, file_type: file.type, file_base64: base64,
+          file_name: fileName, file_type: fileType, file_base64: base64,
         }),
       })
       const upData = await upRes.json() as { statement_id?: string; error?: string }
@@ -183,22 +203,48 @@ function UploadScreen({ companyId, onComplete }: { companyId: string; onComplete
           </div>
         </div>
 
-        <div
-          className={`${css.dropZone} ${dragging ? css.dropZoneActive : ''}`}
-          onClick={() => fileRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={handleDrop}
-        >
-          <Upload size={28} className={css.dropZoneIcon} />
-          {file
-            ? <span className={css.dropZoneText}>{file.name} ({(file.size / 1024).toFixed(0)} KB)</span>
-            : <><span className={css.dropZoneText}>Drop CSV / JSON here, or click to browse</span>
-               <span className={css.dropZoneHint}>XLSX: export as CSV from bank portal first</span></>
-          }
-          <input ref={fileRef} type="file" accept=".csv,.json" style={{ display: 'none' }}
-            onChange={e => { if (e.target.files?.[0]) setFile(e.target.files[0]) }} />
+        {/* Input mode toggle */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <button type="button"
+            className={!pasteMode ? css.btnPrimary : css.btnSecondary}
+            style={{ fontSize: '0.8125rem', padding: '0.25rem 0.875rem' }}
+            onClick={() => setPasteMode(false)}>
+            Upload file
+          </button>
+          <button type="button"
+            className={pasteMode ? css.btnPrimary : css.btnSecondary}
+            style={{ fontSize: '0.8125rem', padding: '0.25rem 0.875rem' }}
+            onClick={() => setPasteMode(true)}>
+            Paste CSV
+          </button>
         </div>
+
+        {pasteMode ? (
+          <textarea
+            className={css.input}
+            style={{ width: '100%', minHeight: '180px', fontFamily: 'monospace', fontSize: '0.75rem', resize: 'vertical', boxSizing: 'border-box' }}
+            placeholder={'Paste CSV rows here (including the header row).\nExample: Txn Date,Value Date,Cheque No.,Description,Debit,Credit,Balance'}
+            value={pastedText}
+            onChange={e => setPastedText(e.target.value)}
+          />
+        ) : (
+          <div
+            className={`${css.dropZone} ${dragging ? css.dropZoneActive : ''}`}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={handleDrop}
+          >
+            <Upload size={28} className={css.dropZoneIcon} />
+            {file
+              ? <span className={css.dropZoneText}>{file.name} ({(file.size / 1024).toFixed(0)} KB)</span>
+              : <><span className={css.dropZoneText}>Drop CSV / JSON here, or click to browse</span>
+                 <span className={css.dropZoneHint}>XLSX: export as CSV from bank portal first</span></>
+            }
+            <input ref={fileRef} type="file" accept=".csv,.json" style={{ display: 'none' }}
+              onChange={e => { if (e.target.files?.[0]) setFile(e.target.files[0]) }} />
+          </div>
+        )}
 
         {steps.length > 0 && (
           <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
@@ -224,7 +270,8 @@ function UploadScreen({ companyId, onComplete }: { companyId: string; onComplete
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-          <button className={css.btnPrimary} onClick={handleUpload} disabled={submitting || !bankCode || !periodFrom || !periodTo || !file}>
+          <button className={css.btnPrimary} onClick={handleUpload}
+            disabled={submitting || !bankCode || !periodFrom || !periodTo || (pasteMode ? !pastedText.trim() : !file)}>
             {submitting ? 'Processing…' : 'Upload & parse'}
           </button>
         </div>

@@ -212,6 +212,7 @@
 
 .lineControl:focus { border-color: var(--teal); }
 .lineControl::placeholder { color: var(--text-dim); }
+.lineControlError { border-color: var(--error) !important; background: color-mix(in srgb, var(--error) 8%, transparent); }
 
 .lineSelect {
   composes: lineControl;

@@ -337,7 +337,7 @@ export default function VoucherEdit() {
     setSaving(true)
     try {
       // Generate voucher number (replaces DRAFT)
-      const newVoucherNumber = await getNextSequence(companyId, companyCode, voucherPrefix)
+      const newVoucherNumber = await getNextSequence(companyId, companyCode, voucherPrefix, voucherDate)
       await updateDraftVoucher(
         voucherId,
         {

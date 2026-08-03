@@ -77,7 +77,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(null, { status: 405 })
   }
 
-  let body: { template?: string; mobile?: string; vars?: unknown; otp?: string; var1?: string; var2?: string }
+  let body: { template?: string; mobile?: string; vars?: unknown; var1?: string; var2?: string }
   try {
     body = await req.json()
   } catch {
@@ -86,7 +86,7 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  const { template, mobile, vars, otp: bodyOtp, var1, var2 } = body
+  const { template, mobile, vars, var1, var2 } = body
 
   if (
     typeof template !== 'string' ||
@@ -140,11 +140,11 @@ export default async function handler(req: Request): Promise<Response> {
   // MUST use the /SMS/{phone}/{otp}/{template} URL — NOT the TSMS endpoint.
   // TSMS returns "Success" silently for OTP templates without delivering.
   if (template === 'payment-otp') {
-    const otp     = bodyOtp ?? ''
     const safeV1  = encodeURIComponent(var1 ?? '')
     const safeV2  = encodeURIComponent(var2 ?? '')
+    // AUTOGEN: 2Factor generates and validates the OTP; session_id is returned in Details
     const otpUrl  =
-      `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/${otp}/Pramaana-Payment-OTP2` +
+      `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/AUTOGEN/Pramaana-Payment-OTP2` +
       `?var1=${safeV1}&var2=${safeV2}`
 
     let tfRes: Response

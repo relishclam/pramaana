@@ -14,20 +14,11 @@ export type OtpVerifyResult =
 // ── Internal helper — call the /api/otp edge function ────────────────────────
 
 async function callOtpApi(
-  body: { action: 'hash'; otp: string } | { action: 'verify'; otp: string; hash: string }
+  body: { action: 'verify-2factor'; sessionId: string; otp: string }
 ): Promise<Record<string, unknown>> {
-  // PRAMAANA_OTP_SECRET is not available in the browser — this function
-  // is only called from server-side contexts. In the browser (Vite dev
-  // and production), we rely on Vercel routing /api/otp to the edge fn.
-  // The edge fn reads the secret from process.env server-side.
-  // We pass it here as an internal header via the same-origin call.
-  const secret = import.meta.env.VITE_OTP_INTERNAL_SECRET ?? ''
   const res = await fetch('/api/otp', {
     method: 'POST',
-    headers: {
-      'Content-Type':    'application/json',
-      'X-Internal-Secret': secret,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -37,15 +28,6 @@ async function callOtpApi(
   return res.json() as Promise<Record<string, unknown>>
 }
 
-// ── Generate a 6-digit OTP ───────────────────────────────────────────────────
-
-function generateOtp(): string {
-  // crypto.getRandomValues is available in all modern browsers + edge runtimes
-  const array = new Uint32Array(1)
-  crypto.getRandomValues(array)
-  // Range 100000–999999
-  return String(100000 + (array[0] % 900000))
-}
 
 // ── Mask mobile number — show only last 4 digits ─────────────────────────────
 
@@ -60,9 +42,8 @@ function maskMobile(mobile: string): string {
 // Called by approveVoucher() after the admin approves.
 // 1. Fetches entity mobile
 // 2. Cancels any existing pending OTP session for this voucher
-// 3. Generates + hashes a 6-digit OTP
-// 4. Inserts pramaana.otp_sessions
-// 5. Sends SMS via 2Factor
+// 3. Sends OTP via 2Factor AUTOGEN; stores returned session_id in otp_sessions
+// 4. Inserts pramaana.otp_sessions with tf_session_id
 
 export async function initiatePaymentOtp(
   voucherId:   string,
@@ -101,45 +82,36 @@ export async function initiatePaymentOtp(
     .eq('status', 'pending')
 
   // ── 3. Generate OTP + hash via edge function ──────────────────────────────
-  const plainOtp = generateOtp()
-  let otpHash: string
-  try {
-    const result = await callOtpApi({ action: 'hash', otp: plainOtp })
-    otpHash = result.hash as string
-  } catch (err) {
-    console.error('[otp] hash error:', err)
-    return { sent: false, reason: 'hash_failed' }
+  // -- 3. Send OTP via 2Factor AUTOGEN --
+  const smsResult = await sendPaymentOtpSms(mobile, (entity.display_name as string) ?? "", voucherAmount)
+
+  if (!smsResult.sent) {
+    console.warn("[otp] SMS send failed:", "reason" in smsResult ? smsResult.reason : "unknown")
+    return { sent: false, reason: "sms_failed" }
   }
 
-  // ── 4. Insert otp_sessions row ────────────────────────────────────────────
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 minutes
+  const tfSessionId = smsResult.sessionId ?? ""
+
+  // -- 4. Insert otp_sessions row --
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
 
   const { error: insertErr } = await supabase
-    .schema('pramaana')
-    .from('otp_sessions')
+    .schema("pramaana")
+    .from("otp_sessions")
     .insert({
-      voucher_id:    voucherId,
-      company_id:    companyId,
-      initiated_by:  initiatedBy,
+      voucher_id:      voucherId,
+      company_id:      companyId,
+      initiated_by:    initiatedBy,
       mobile,
-      otp_hash:      otpHash,
-      expires_at:    expiresAt,
-      status:        'pending',
+      tf_session_id:   tfSessionId,
+      expires_at:      expiresAt,
+      status:          "pending",
       failed_attempts: 0,
     })
 
   if (insertErr) {
-    console.error('[otp] insert error:', insertErr.message)
-    return { sent: false, reason: 'db_error' }
-  }
-
-  // ── 5. Send SMS ───────────────────────────────────────────────────────────
-  const smsResult = await sendPaymentOtpSms(mobile, plainOtp, (entity.display_name as string) ?? '', voucherAmount)
-
-  if (!smsResult.sent) {
-    // OTP row inserted but SMS failed — session exists, user can resend
-    console.warn('[otp] SMS send failed:', 'reason' in smsResult ? smsResult.reason : 'unknown')
-    return { sent: false, reason: 'sms_failed' }
+    console.error("[otp] insert error:", insertErr.message)
+    return { sent: false, reason: "db_error" }
   }
 
   return { sent: true, mobile_masked: maskMobile(mobile) }
@@ -162,7 +134,7 @@ export async function verifyPaymentOtp(
   // ── 1. Fetch active session ───────────────────────────────────────────────
   type SessionRow = {
     id: string
-    otp_hash: string
+    tf_session_id: string
     failed_attempts: number
     expires_at: string
   }
@@ -170,7 +142,7 @@ export async function verifyPaymentOtp(
   const { data: session, error: fetchErr } = await supabase
     .schema('pramaana')
     .from('otp_sessions')
-    .select('id, otp_hash, failed_attempts, expires_at')
+    .select('id, tf_session_id, failed_attempts, expires_at')
     .eq('voucher_id', voucherId)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
@@ -198,7 +170,7 @@ export async function verifyPaymentOtp(
   // ── 3. Verify OTP via edge function ──────────────────────────────────────
   let match = false
   try {
-    const result = await callOtpApi({ action: 'verify', otp: plainOtp, hash: s.otp_hash })
+    const result = await callOtpApi({ action: 'verify-2factor', sessionId: s.tf_session_id, otp: plainOtp })
     match = result.match as boolean
   } catch (err) {
     console.error('[otp] verify error:', err)

@@ -124,13 +124,16 @@ const num = (s: string): number => {
   return Number.isFinite(v) && v > 0 ? v : 0;
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+};
 
 let lineSeq = 0;
 const newBankLine = (defaultBankId: string): BankLine => ({
   key:            `bl-${++lineSeq}`,
   bank_ledger_id: defaultBankId,
-  line_date:      todayISO(),
+  line_date:      '',          // intentionally blank — user must enter the real transaction date
   amount:         '',
   bank_reference: '',
 });
@@ -199,8 +202,25 @@ export default function SettlementSheet({
         });
         if (docErr) throw docErr;
 
+        // Task 4: derive advance_outstanding from the actual ledger balance
+        const advLedgerId = await advanceLedgerResolver(ledgerId);
+        setAdvanceLedgerId(advLedgerId);
+        if (cfg && advLedgerId) {
+          const { data: entries } = await supabasePramaana
+            .from('voucher_entries')
+            .select('entry_type, amount, vouchers!inner(status, company_id)')
+            .eq('ledger_id', advLedgerId)
+            .eq('vouchers.company_id', companyId)
+            .eq('vouchers.status', 'posted');
+          if (entries) {
+            const liveBalance = (entries as { entry_type: string; amount: number }[])
+              .reduce((s, e) => s + (e.entry_type === 'Cr' ? e.amount : -e.amount), 0);
+            setPartyConfig({ ...(cfg as PartyConfig), advance_outstanding: Math.max(0, liveBalance) });
+          }
+        }
+
         setDocuments(
-          ((docs ?? []) as Record<string, unknown>[]).map((d) => ({
+          ((docs ?? []) as Record<string, unknown>[]).map((d) => ({  // eslint-disable-line
             voucher_id:     d.voucher_id     as string,
             voucher_number: d.voucher_number as string,
             voucher_date:   d.voucher_date   as string,
@@ -211,7 +231,7 @@ export default function SettlementSheet({
           })),
         );
 
-        setAdvanceLedgerId(await advanceLedgerResolver(ledgerId));
+        // advance ledger already resolved above (Task 4)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load party data');
       } finally {
@@ -226,19 +246,30 @@ export default function SettlementSheet({
   }, [partyLedgerId, loadParty]);
 
   // ── document selection → auto-fill zone B ─────────────────────────────────
+  // Only auto-fill TDS + advance when outstanding ≈ doc_total (first/only
+  // settlement of the invoice).  For residuals (partially-settled invoices)
+  // Zone B starts at 0/0 — the standard monthly amounts would over-apply.
 
   useEffect(() => {
     if (!selectedDoc) return;
 
-    if (partyConfig?.tds_rate) {
+    const isFirstSettlement = selectedDoc.outstanding >= selectedDoc.doc_total - 1.0;
+
+    if (isFirstSettlement && partyConfig?.tds_rate) {
       const base = selectedDoc.doc_total / tdsBaseDivisor;
       setTdsAmount(((base * partyConfig.tds_rate) / 100).toFixed(2));
+    } else {
+      setTdsAmount('0');
     }
-    if (partyConfig?.advance_recovery_monthly) {
+
+    if (isFirstSettlement && partyConfig?.advance_recovery_monthly) {
       setAdvanceAmount(
         Math.min(partyConfig.advance_recovery_monthly, partyConfig.advance_outstanding).toFixed(2),
       );
+    } else {
+      setAdvanceAmount('0');
     }
+
     if (bankLines.length === 0 && bankLedgers.length > 0) {
       setBankLines([newBankLine(bankLedgers[0].id)]);
     }
@@ -259,7 +290,8 @@ export default function SettlementSheet({
 
   const overApplied  = remaining < 0;
   const fullySettled = remaining === 0 && applied > 0;
-  const canSubmit    = !!selectedDoc && applied > 0 && !overApplied && !submitting;
+  const hasBlankDate = bankLines.some((l: BankLine) => num(l.amount) > 0 && !l.line_date);
+  const canSubmit    = !!selectedDoc && applied > 0 && !overApplied && !hasBlankDate && !submitting;
 
   // ── bank line handlers ─────────────────────────────────────────────────────
 
@@ -413,7 +445,7 @@ export default function SettlementSheet({
                       </select>
                       <input
                         type="date"
-                        className={css.lineControl}
+                        className={`${css.lineControl}${!l.line_date && num(l.amount) > 0 ? ` ${css.lineControlError}` : ''}`}
                         value={l.line_date}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                           updateLine(l.key, { line_date: e.target.value })
@@ -531,7 +563,8 @@ export default function SettlementSheet({
                 </div>
                 {fullySettled  && <span className={css.chipSuccess}>Fully settled</span>}
                 {overApplied   && <span className={css.chipError}>Over-applied</span>}
-                {!fullySettled && !overApplied && applied > 0 && (
+                {hasBlankDate  && <span className={css.chipError}>Enter bank date(s)</span>}
+                {!fullySettled && !overApplied && !hasBlankDate && applied > 0 && (
                   <span className={css.chipPartPaid}>Part-paid</span>
                 )}
               </div>

@@ -287,7 +287,7 @@ function DetailPanel({
     if (!row) return
     setActioning(true)
     try {
-      await approveSuspenseVoucher(row.id, companyId, companyCode, 'SUS', userId)
+      await approveSuspenseVoucher(row.id, companyId, companyCode, 'SUS', userId, row.voucher_date)
       toast.success('Advance approved — staff link can now be sent')
       onRefresh(); onClose()
     } catch (err: unknown) {

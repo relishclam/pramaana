@@ -8,17 +8,17 @@
  * API keys stay server-side in Edge Functions; never exposed to the browser.
  *
  * DLT templates (Vilpower — Relish Hao Hao Chi Foods):
- *   Pramaana-Settlement-Link | Pramaana-Payment-Confirmed | Pramaana-Payment Approval
+ *   Pramaana-Settlement-Link | Pramaana-Payment-Confirmed | Pramaana-Payment-OTP2
  *
  * MSG91 WhatsApp templates (pre-approved in MSG91 dashboard):
- *   pramaana_payment_otp | pramaana_payment_confirmed | pramaana_settlement_link
+ *   pramaana_payment_confirmed | pramaana_settlement_link
  */
 import { supabase } from '@/lib/supabase'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type SmsResult =
-  | { sent: true;  dryRun?: boolean }
+  | { sent: true;  dryRun?: boolean; sessionId?: string }
   | { sent: false; reason: string }
 
 const API_TIMEOUT_MS = 15000
@@ -110,7 +110,6 @@ export async function sendPaymentConfirmedSms(
 
 export async function sendPaymentOtpSms(
   mobile:    string,
-  otp:       string,
   payeeName: string,
   amount:    number,
 ): Promise<SmsResult> {
@@ -122,7 +121,7 @@ export async function sendPaymentOtpSms(
     const res = await fetch('/api/send-sms', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ template: 'payment-otp', mobile, otp, var1: safeName, var2: amountStr }),
+      body:    JSON.stringify({ template: 'payment-otp', mobile, var1: safeName, var2: amountStr }),
       signal:  ctrl.signal,
     })
     clearTimeout(timer)
@@ -130,7 +129,8 @@ export async function sendPaymentOtpSms(
       const err = await res.json().catch(() => ({})) as { error?: string }
       return { sent: false, reason: err.error ?? `HTTP ${res.status}` }
     }
-    return { sent: true }
+    const data = await res.json() as { sessionId?: string }
+    return { sent: true, sessionId: data.sessionId }
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {
       return { sent: false, reason: 'SMS request timed out' }
@@ -143,7 +143,7 @@ export async function sendPaymentOtpSms(
 // ── WhatsApp via MSG91 ────────────────────────────────────────────────────────
 
 async function callWhatsApp(
-  template: 'payment-otp' | 'payment-confirmed' | 'settlement-link',
+  template: 'payment-confirmed' | 'settlement-link',
   mobile:   string,
   vars:     string[],
 ): Promise<SmsResult> {
@@ -169,25 +169,6 @@ async function callWhatsApp(
     console.warn('[whatsapp] send failed:', e)
     return { sent: false, reason: e instanceof Error ? e.message : 'error' }
   }
-}
-
-// ── WhatsApp: Payment OTP ─────────────────────────────────────────────────────
-// Template: pramaana_payment_otp
-// Body:     "Relish Pramaana: Your payment OTP is {{1}}. Amount Rs.{{2}} for
-//            {{3}}. Valid for 10 minutes. Do not share this OTP."
-// Params:   {{1}}=OTP  {{2}}=amount  {{3}}=payee name
-
-export async function sendPaymentOtpWhatsApp(
-  mobile:    string,
-  otp:       string,
-  payeeName: string,
-  amount:    number,
-): Promise<SmsResult> {
-  return callWhatsApp('payment-otp', mobile, [
-    otp,
-    Math.round(amount).toLocaleString('en-IN'),
-    payeeName.slice(0, 30),
-  ])
 }
 
 // ── WhatsApp: Payment Confirmed ───────────────────────────────────────────────

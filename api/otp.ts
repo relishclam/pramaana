@@ -22,6 +22,13 @@
 
 export const config = { runtime: 'edge' }
 
+const TWO_FACTOR_API_BASE = 'https://2factor.in/API/V1'
+
+function env(name: string): string | undefined {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (globalThis as any)?.process?.env?.[name] as string | undefined
+}
+
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
@@ -65,7 +72,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // ── Parse body ─────────────────────────────────────────────────────────────
-  let body: { action?: string; otp?: string; hash?: string }
+  let body: { action?: string; otp?: string; hash?: string; sessionId?: string }
   try {
     body = await req.json()
   } catch {
@@ -75,7 +82,7 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  const { action, otp, hash } = body
+  const { action, otp, hash, sessionId } = body
 
   if (typeof action !== 'string' || typeof otp !== 'string') {
     return new Response(JSON.stringify({ error: 'Missing action or otp' }), {
@@ -103,6 +110,41 @@ export default async function handler(req: Request): Promise<Response> {
     }
     const match = await verifyOtp(otp, hash)
     return new Response(JSON.stringify({ match }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  // ── Verify OTP via 2Factor AUTOGEN session ────────────────────────────────
+  if (action === 'verify-2factor') {
+    if (typeof sessionId !== 'string' || typeof otp !== 'string') {
+      return new Response(JSON.stringify({ error: 'Missing sessionId or otp' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const apiKey = env('TWOFACTOR_API_KEY') ?? env('TWO_FACTOR_API_KEY')
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: 'SMS not configured (missing TWOFACTOR_API_KEY)' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const verifyUrl = `${TWO_FACTOR_API_BASE}/${apiKey}/SMS/VERIFY/${encodeURIComponent(sessionId)}/${encodeURIComponent(otp)}`
+    let tfRes: Response
+    try {
+      tfRes = await fetch(verifyUrl, { method: 'GET', signal: AbortSignal.timeout(12000) })
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : 'timeout'
+      return new Response(JSON.stringify({ error: `2Factor verify request failed: ${reason}` }), {
+        status: 504,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    const text = await tfRes.text()
+    let data: { Status?: string; Details?: string } = {}
+    try { data = JSON.parse(text) } catch { data = { Status: tfRes.ok ? 'Success' : 'Error', Details: text } }
+    return new Response(JSON.stringify({ match: data.Status === 'Success' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })

@@ -176,6 +176,7 @@ export async function getNextSequence(
   companyId: string,
   companyCode: string,
   prefix: string,
+  voucherDate?: string,
 ): Promise<string> {
   const { data, error } = await supabase
     .schema('registry')
@@ -183,6 +184,7 @@ export async function getNextSequence(
       p_company_id:   companyId,
       p_company_code: companyCode,
       p_prefix:       prefix,
+      ...(voucherDate ? { p_voucher_date: voucherDate } : {}),
     })
 
   if (error) throw new Error('Failed to generate voucher number: ' + error.message)
@@ -227,7 +229,7 @@ export async function submitVoucher(
   prefix: string,
 ): Promise<string> {
   // Step 1: get sequence number
-  const voucherNumber = await getNextSequence(payload.company_id, companyCode, prefix)
+  const voucherNumber = await getNextSequence(payload.company_id, companyCode, prefix, payload.voucher_date)
 
   // Step 2: insert voucher with number + pending_approval status
   const fullPayload: VoucherPayload = {

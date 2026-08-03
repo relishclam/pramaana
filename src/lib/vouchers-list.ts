@@ -151,6 +151,115 @@ export async function fetchVouchers(
   }
 }
 
+// ── Fetch all vouchers matching filters (for export — no pagination cap) ──────
+
+export async function fetchAllVouchersForExport(
+  companyId: string,
+  userId:    string,
+  role:      string | null,
+  filters:   RegisterFilters,
+): Promise<RegisterVoucher[]> {
+  // Re-use the same filter resolution as fetchVouchers but with no .range() limit
+  let typeIds: string[] | null = null
+  if (filters.nature) {
+    const { data: vt } = await supabase
+      .schema('pramaana')
+      .from('voucher_types')
+      .select('id')
+      .eq('nature', filters.nature)
+    typeIds = ((vt ?? []) as { id: string }[]).map(v => v.id)
+    if (typeIds.length === 0) return []
+  }
+
+  let searchEntityIds: string[] | null = null
+  if (filters.search) {
+    const { data: ents } = await supabase
+      .schema('registry')
+      .from('entities')
+      .select('id')
+      .ilike('display_name', `%${filters.search}%`)
+      .limit(200)
+    searchEntityIds = ((ents ?? []) as { id: string }[]).map(e => e.id)
+  }
+
+  type RawRow = {
+    id: string; voucher_number: string; voucher_date: string
+    amount: number; status: string; narration: string | null
+    created_at: string; posted_at: string | null
+    entity_id: string | null; created_by: string
+    voucher_type: { code: string; name: string; nature: string; prefix: string } | null
+  }
+
+  let q = supabase
+    .schema('pramaana')
+    .from('vouchers')
+    .select(
+      'id, voucher_number, voucher_date, amount, status, narration, created_at, posted_at, entity_id, created_by, voucher_type:voucher_types(code, name, nature, prefix)'
+    )
+    .eq('company_id', companyId)
+    .gte('voucher_date', filters.dateFrom)
+    .lte('voucher_date', filters.dateTo)
+    .order('voucher_date', { ascending: false })
+    .order('created_at',   { ascending: false })
+    .limit(10000)
+
+  if (filters.status)  q = q.eq('status', filters.status)
+  if (typeIds)         q = q.in('voucher_type_id', typeIds)
+
+  if (filters.search) {
+    if (searchEntityIds && searchEntityIds.length > 0) {
+      q = q.or(`voucher_number.ilike.%${filters.search}%,entity_id.in.(${searchEntityIds.join(',')})`)
+    } else {
+      q = q.ilike('voucher_number', `%${filters.search}%`)
+    }
+  }
+
+  // role-based filter mirrors fetchVouchers if needed (currently no row-level filter)
+  void role; void userId
+
+  const { data, error } = await q
+  if (error) throw new Error('Failed to export vouchers: ' + error.message)
+
+  const rows = (data ?? []) as unknown as RawRow[]
+
+  const creatorIds = [...new Set(rows.map(r => r.created_by).filter(Boolean) as string[])]
+  const entityIds  = [...new Set(rows.map(r => r.entity_id).filter(Boolean) as string[])]
+
+  const [profilesRes, entitiesRes] = await Promise.all([
+    creatorIds.length > 0
+      ? supabase.schema('registry').from('profiles').select('id, full_name').in('id', creatorIds)
+      : Promise.resolve({ data: [] as { id: string; full_name: string | null }[] }),
+    entityIds.length > 0
+      ? supabase.schema('registry').from('entities').select('id, display_name').in('id', entityIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
+  ])
+
+  const profileMap = new Map<string, string>(
+    ((profilesRes.data ?? []) as { id: string; full_name: string | null }[])
+      .map(p => [p.id, p.full_name ?? 'Unknown'])
+  )
+  const entityMap = new Map<string, string>(
+    ((entitiesRes.data ?? []) as { id: string; display_name: string }[])
+      .map(e => [e.id, e.display_name])
+  )
+
+  return rows.map(r => ({
+    id:              r.id,
+    voucher_number:  r.voucher_number,
+    voucher_date:    r.voucher_date,
+    amount:          r.amount,
+    status:          r.status,
+    narration:       r.narration,
+    created_at:      r.created_at,
+    posted_at:       r.posted_at,
+    entity_id:       r.entity_id,
+    created_by:      r.created_by,
+    created_by_name: profileMap.get(r.created_by) ?? 'Unknown',
+    entity_name:     r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
+    voucher_type:    r.voucher_type ?? { code: '?', name: 'Unknown', nature: '', prefix: '' },
+  }))
+}
+
 // ── Recall voucher (pending → draft) ─────────────────────────────────────────
 
 export async function recallVoucher(voucherId: string): Promise<void> {
@@ -182,8 +291,9 @@ export async function submitDraftVoucher(
   companyId:   string,
   companyCode: string,
   prefix:      string,
+  voucherDate: string,
 ): Promise<void> {
-  const voucherNumber = await getNextSequence(companyId, companyCode, prefix)
+  const voucherNumber = await getNextSequence(companyId, companyCode, prefix, voucherDate)
   const { error } = await supabase
     .schema('pramaana')
     .from('vouchers')

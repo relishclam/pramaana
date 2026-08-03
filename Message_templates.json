@@ -1,12 +1,12 @@
 [
   {
-    "name": "pramaana_payment_otp",
+    "name": "pramaana_payment_code",
     "category": "UTILITY",
     "language": "en",
     "components": [
       {
         "type": "BODY",
-        "text": "Relish Pramaana: Your payment OTP is {{1}}. Amount Rs.{{2}} for {{3}}. Valid for 10 minutes. Do not share this OTP.",
+        "text": "Your payment Code is {{1}}. Amount Rs.{{2}} for {{3}}. Valid for 10 minutes. Do not share this One Time Code.",
         "example": {
           "body_text": [
             ["847291", "15,000", "Riyaz Plumber"]

@@ -315,8 +315,9 @@ export async function approveSuspenseVoucher(
   companyCode: string,
   prefix:      string,
   approvedBy:  string,
+  voucherDate: string,
 ): Promise<void> {
-  const voucherNumber = await getNextSequence(companyId, companyCode, prefix)
+  const voucherNumber = await getNextSequence(companyId, companyCode, prefix, voucherDate)
   const { error } = await supabase
     .schema('pramaana')
     .from('vouchers')

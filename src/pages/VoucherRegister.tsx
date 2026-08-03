@@ -18,6 +18,7 @@ import {
 import { exportVouchersCsv, type VoucherRecord } from '@/lib/exportVoucherCsv'
 import {
   fetchVouchers,
+  fetchAllVouchersForExport,
   recallVoucher,
   deleteVoucher,
   submitDraftVoucher,
@@ -802,7 +803,7 @@ function DetailPanel({
     if (!row) return
     setActioning(true)
     try {
-      await submitDraftVoucher(row.id, companyId, companyCode, row.voucher_type.prefix)
+      await submitDraftVoucher(row.id, companyId, companyCode, row.voucher_type.prefix, row.voucher_date)
       toast.success('Voucher submitted for approval')
       onRefresh(); onClose()
     } catch (err: unknown) {
@@ -1693,13 +1694,12 @@ function DetailPanel({
                 </div>
               )}
 
-              {/* Posted — paid summary ───────────────────────────────────── */}
-              {row.status === 'posted' && (
+              {/* Posted — paid summary (only when paid_at is set) ──────────── */}
+              {row.status === 'posted' && !!detail.paid_at && (
                 <div className={styles.panelSection} style={{ borderTop: '1px solid var(--border)', marginTop: '0.25rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.375rem 0' }}>
                     <span style={{ fontSize: '0.875rem', color: 'var(--success)', fontWeight: 600 }}>
-                      ✓ Paid
-                      {detail.paid_at && ` on ${new Date(detail.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                      ✓ Paid on {new Date(detail.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                     {detail.paid_from_account && (
                       <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
@@ -1852,10 +1852,16 @@ export default function VoucherRegister() {
     }))
   }
 
-  function handleExport(format: 'summary' | 'lineitems') {
-    if (allRows.length === 0) { toast.error('No vouchers to export'); return }
-    exportVouchersCsv(rowsToRecords(allRows), format, filters.dateFrom, filters.dateTo)
+  async function handleExport(format: 'summary' | 'lineitems') {
+    if (!companyId) return
     setExportOpen(false)
+    try {
+      const rows = await fetchAllVouchersForExport(companyId, userId, role, filters)
+      if (rows.length === 0) { toast.error('No vouchers to export'); return }
+      exportVouchersCsv(rowsToRecords(rows), format, filters.dateFrom, filters.dateTo)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Export failed')
+    }
   }
   // ── Data ─────────────────────────────────────────────────────────────────
   const [allRows,     setAllRows]     = useState<RegisterVoucher[]>([])

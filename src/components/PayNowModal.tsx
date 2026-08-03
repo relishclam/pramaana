@@ -134,20 +134,31 @@ async function copyToClipboard(text: string, label: string): Promise<void> {
 
 // ── Prop types ────────────────────────────────────────────────────────────────
 
-export interface PayNowVoucher {
+export interface EntityBankAccount {
   id:                  string
-  voucher_number:      string
-  amount:              number
-  payment_mode:        string | null
-  entity_name:         string | null
-  entity_upi_id:       string | null
-  entity_bank_account: string | null
-  entity_bank_ifsc:    string | null
-  entity_bank_name:    string | null
-  paid_from_account:   string | null   // already-set value (if any)
-  paid_at:             string | null   // already-set value (if any)
-  utr_number:          string | null
-  cheque_number:       string | null
+  label:               string | null
+  bank_name:           string | null
+  bank_account_number: string | null
+  bank_ifsc:           string | null
+  upi_id:              string | null
+  is_primary:          boolean
+}
+
+export interface PayNowVoucher {
+  id:                   string
+  voucher_number:       string
+  amount:               number
+  payment_mode:         string | null
+  entity_name:          string | null
+  entity_upi_id:        string | null
+  entity_bank_account:  string | null
+  entity_bank_ifsc:     string | null
+  entity_bank_name:     string | null
+  entity_bank_accounts?: EntityBankAccount[] | null
+  paid_from_account:    string | null
+  paid_at:              string | null
+  utr_number:           string | null
+  cheque_number:        string | null
 }
 
 interface Props {

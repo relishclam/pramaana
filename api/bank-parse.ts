@@ -424,6 +424,29 @@ export default async function handler(
     if (!stmt.raw_content) throw new Error('No file content stored for this statement')
     const fileBuffer = Buffer.from(stmt.raw_content, 'base64')
 
+    if (fileBuffer.length === 0) throw new Error('Uploaded file is empty (0 bytes). Re-export and try again.')
+
+    // Detect Excel binary (BIFF8 Compound Document: starts D0 CF 11 E0)
+    if (fileBuffer[0] === 0xD0 && fileBuffer[1] === 0xCF && fileBuffer[2] === 0x11 && fileBuffer[3] === 0xE0) {
+      res.writeHead(501)
+      res.end(JSON.stringify({
+        error: 'File is Excel binary format (.xls). Export as CSV (UTF-8) from your bank portal instead.',
+        statement_id,
+      }))
+      return
+    }
+
+    // Detect HTML-as-XLS (many banks export HTML tables with a .xls extension)
+    const previewStr = fileBuffer.slice(0, 200).toString('utf-8').trimStart()
+    if (previewStr.startsWith('<') || previewStr.toLowerCase().startsWith('<!doctype') || previewStr.toLowerCase().includes('<html')) {
+      res.writeHead(501)
+      res.end(JSON.stringify({
+        error: 'File appears to be an HTML table saved as .xls. In your bank portal use "Download as CSV" (not "Open in Excel"), then upload the .csv file.',
+        statement_id,
+      }))
+      return
+    }
+
     // ── Parse ───────────────────────────────────────────────────────────────
     let lines: ParsedLine[]
     let csvHeaders: string[] = []
@@ -446,10 +469,12 @@ export default async function handler(
     }
 
     if (!lines.length) {
-      const hint = csvHeaders.length
-        ? ` CSV headers found: [${csvHeaders.join(' | ')}]`
-        : ''
-      throw new Error(`No data rows found after parsing.${hint}`)
+      const fileBytes = fileBuffer.length
+      const headerHint = csvHeaders.length ? `Headers detected: [${csvHeaders.join(' | ')}]. ` : 'No column headers detected. '
+      const sampleHint = csvHeaders.some(h => h.startsWith('DATE_SAMPLES:'))
+        ? ''
+        : `File size: ${fileBytes} bytes. First 120 chars: ${previewStr.slice(0, 120).replace(/\r?\n/g, '↵')}`
+      throw new Error(`No data rows found after parsing. ${headerHint}${sampleHint}`)
     }
 
     // Sort chronologically — some banks export newest-first (e.g. Federal Bank).

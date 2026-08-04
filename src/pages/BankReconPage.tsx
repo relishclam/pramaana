@@ -90,10 +90,11 @@ interface ReconTxn {
   narration: string; reference: string | null
   debit: number | null; credit: number | null; balance: number
   counterparty: string | null; match_status: string
+  // PostgREST returns joined rows as an array even with UNIQUE constraint
   recon_matches: {
     match_method: string; match_confidence: number
     match_reason: string; is_confirmed: boolean
-  } | null
+  }[] | null
 }
 
 // ── Upload Tab ────────────────────────────────────────────────────────────────
@@ -204,10 +205,15 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
       setPendingFile(file); setPhase('overlap'); return
     }
 
+    // validation_warning: data IS already committed — statement_id is in the response
     if (status === 'validation_warning') {
       setValidation(json.validation as ValidationResult)
-      setStoragePath((json.storage_path as string) ?? null)
-      setPendingFile(file); setPhase('warn_validation'); return
+      setSummary(json.summary as UploadSummary)
+      setMatchResult((json.match_result as MatchResult) ?? null)
+      setPhase('warn_validation')
+      // statement_id present — onComplete will be called when user clicks Proceed
+      if (json.statement_id) setPendingFile(json.statement_id as unknown as File)
+      return
     }
 
     // success
@@ -385,19 +391,19 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
         </div>
       )}
 
-      {/* Validation warning — advisory, not blocking */}
+      {/* Validation warning — data already committed, statement_id available; just navigate */}
       {phase === 'warn_validation' && validation && (
         <div className={css.card}>
           <div className={css.cardHeader}>
-            <span className={css.cardLabel} style={{ color: 'var(--gold)' }}>⚠ Balance discontinuities</span>
+            <span className={css.cardLabel} style={{ color: 'var(--gold)' }}>⚠ Balance discontinuities (statement uploaded)</span>
           </div>
           <div className={css.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: 0 }}>
               {validation.discontinuities.length} row{validation.discontinuities.length !== 1 ? 's' : ''} where
-              running balance doesn't match. Computed closing:{' '}
+              running balance doesn’t match. Computed closing:{' '}
               <strong>{fmt(validation.computed_closing)}</strong> vs statement:{' '}
               <strong>{fmt(validation.closing_balance)}</strong>.
-              This may be a rounding difference — you can still proceed.
+              The statement has been uploaded. You can proceed to the workbench or cancel.
             </p>
             {validation.discontinuities.slice(0, 5).map(d => (
               <div key={d.row} style={{ fontSize: '0.8125rem', color: 'var(--text-dim)', paddingLeft: '0.75rem' }}>
@@ -410,11 +416,13 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
               </div>
             )}
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button className={css.btnPrimary}
-                onClick={() => runUpload(pendingFile, { storagePath: storagePath ?? undefined })}>
-                Proceed anyway
-              </button>
-              <button className={css.btnSecondary} onClick={reset}>Cancel</button>
+              {summary && (
+                <button className={css.btnPrimary}
+                  onClick={() => { onComplete(pendingFile as unknown as string) }}>
+                  Go to workbench
+                </button>
+              )}
+              <button className={css.btnSecondary} onClick={reset}>Dismiss</button>
             </div>
           </div>
         </div>
@@ -526,7 +534,11 @@ function StatementsTab({ companyId, onSelect }: { companyId: string; onSelect: (
     e.stopPropagation()
     if (!window.confirm('Delete this statement and all its transactions, matches and queries? This cannot be undone.')) return
     setDeleting(id)
-    await fetch(`/api/bank-recon-statements?id=${id}`, { method: 'DELETE' })
+    const { data: { session } } = await supabase.auth.getSession()
+    await fetch(`/api/bank-recon-statements?id=${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+    })
     setDeleting(null)
     load()
   }
@@ -594,7 +606,7 @@ function StatementsTab({ companyId, onSelect }: { companyId: string; onSelect: (
 
 // ── Match Workbench Tab ───────────────────────────────────────────────────────
 
-type MFilter = 'all' | 'unmatched' | 'pending_review' | 'auto_matched' | 'manual_matched'
+type MFilter = 'all' | 'unmatched' | 'pending_review' | 'auto_matched' | 'manual_matched' | 'disputed' | 'written_off'
 
 function WorkbenchTab({ statementId, companyId }: { statementId: string; companyId: string }) {
   const [txns, setTxns]           = useState<ReconTxn[]>([])
@@ -622,18 +634,20 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
 
   const doAction = async (txnId: string, action: 'confirm' | 'reject') => {
     setConfirming(txnId)
+    const { data: { session } } = await supabase.auth.getSession()
     await fetch('/api/bank-recon-confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
       body: JSON.stringify({ bank_txn_id: txnId, action }),
     })
     setConfirming(null); setSelected(null); load()
   }
 
   const rerunMatch = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
     await fetch('/api/bank-recon-match', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
       body: JSON.stringify({ statement_id: statementId, company_id: companyId }),
     })
     load()
@@ -650,7 +664,9 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
           ['pending_review', 'Needs review',  counts.pending_review ?? 0],
           ['unmatched',      'Unmatched',     counts.unmatched      ?? 0],
           ['manual_matched', 'Confirmed',     counts.manual_matched ?? 0],
-        ] as [MFilter, string, number][]).map(([k, l, c]) => (
+          ['disputed',       'Disputed',      counts.disputed       ?? 0],
+          ['written_off',    'Written off',   counts.written_off    ?? 0],
+        ] as [MFilter, string, number][]).filter(([k, , c]) => k === 'all' || c > 0).map(([k, l, c]) => (
           <button key={k}
             className={`${css.filterPill} ${filter === k ? css.filterPillActive : ''}`}
             onClick={() => setFilter(k)}>
@@ -706,6 +722,13 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
                   </td>
                 </tr>
               )}
+              {txns.length >= 1000 && (
+                <tr>
+                  <td colSpan={6} style={{ padding: '0.5rem 0.75rem', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.8125rem', borderTop: '1px solid var(--border)' }}>
+                    Showing first 1,000 transactions
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -728,21 +751,26 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
                 {selected.credit != null && <span style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>+{fmt(selected.credit)}</span>}
               </div>
 
-              {selected.recon_matches && (
-                <div style={{
-                  marginTop: '0.5rem', padding: '0.625rem 0.75rem',
-                  background: 'var(--surface-2)', borderRadius: 'var(--radius)',
-                  fontSize: '0.8125rem',
-                }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                    Suggested match — {selected.recon_matches.match_confidence?.toFixed(0)}% confidence
+              {selected.recon_matches && (() => {
+                const match = Array.isArray(selected.recon_matches)
+                  ? selected.recon_matches[0] ?? null
+                  : selected.recon_matches
+                return match ? (
+                  <div style={{
+                    marginTop: '0.5rem', padding: '0.625rem 0.75rem',
+                    background: 'var(--surface-2)', borderRadius: 'var(--radius)',
+                    fontSize: '0.8125rem',
+                  }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                      Suggested match — {match.match_confidence?.toFixed(0)}% confidence
+                    </div>
+                    <div style={{ color: 'var(--text-muted)' }}>{match.match_reason}</div>
+                    <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                      Method: {match.match_method}
+                    </div>
                   </div>
-                  <div style={{ color: 'var(--text-muted)' }}>{selected.recon_matches.match_reason}</div>
-                  <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                    Method: {selected.recon_matches.match_method}
-                  </div>
-                </div>
-              )}
+                ) : null
+              })()}
 
               {selected.match_status === 'pending_review' && (
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
@@ -797,9 +825,10 @@ function QueriesTab({ companyId }: { companyId: string }) {
 
   const resolve = async (id: string) => {
     setResolving(id)
+    const { data: { session } } = await supabase.auth.getSession()
     await fetch(`/api/bank-recon-queries?id=${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
       body: JSON.stringify({ status: 'resolved', resolution_note: note[id] ?? '' }),
     })
     setResolving(null)
@@ -938,6 +967,11 @@ function BrsTab({ companyId }: { companyId: string }) {
             ))}
           </select>
         </div>
+        {!accounts.length && (
+          <div style={{ fontSize: '0.8125rem', color: 'var(--text-dim)', alignSelf: 'flex-end', paddingBottom: '0.25rem' }}>
+            Upload a statement first — bank accounts are provisioned automatically.
+          </div>
+        )}
         <div className={css.field}>
           <label className={css.label}>As at date</label>
           <input type="date" className={css.input} value={asAt}

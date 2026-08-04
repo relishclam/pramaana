@@ -2,6 +2,12 @@
   "functions": {
     "api/ocr.ts": {
       "maxDuration": 60
+    },
+    "api/bank-recon-upload.ts": {
+      "maxDuration": 60
+    },
+    "api/bank-recon-match.ts": {
+      "maxDuration": 60
     }
   },
   "rewrites": [

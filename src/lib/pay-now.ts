@@ -61,10 +61,11 @@ export async function addCompanyPaymentAccount(
 }
 
 export async function deleteCompanyPaymentAccount(id: string): Promise<void> {
+  // Soft-delete to preserve referential integrity with vouchers that reference this account
   const { error } = await supabase
     .schema('registry')
     .from('company_bank_accounts')
-    .delete()
+    .update({ is_active: false })
     .eq('id', id)
 
   if (error) throw new Error('Failed to delete payment account: ' + error.message)
@@ -87,14 +88,16 @@ export async function markVoucherPaid(
   if (payload.utr_number?.trim())    update['utr_number']    = payload.utr_number.trim()
   if (payload.cheque_number?.trim()) update['cheque_number'] = payload.cheque_number.trim()
 
-  const { error } = await supabase
+  // TODO: auto-populate paid_at, utr_number, paid_from_account from recon_matches when confirmed
+  const { error, count } = await supabase
     .schema('pramaana')
     .from('vouchers')
-    .update(update)
+    .update(update, { count: 'exact' })
     .eq('id', voucherId)
     .in('status', ['completed', 'awaiting_payment'])
 
   if (error) throw new Error('Failed to mark voucher as paid: ' + error.message)
+  if (!count) throw new Error('Voucher is not in a payable state (may already be posted)')
 }
 
 // ── Queue voucher for payment (→ awaiting_payment) ───────────────────────────────
@@ -103,35 +106,37 @@ export async function queueForPayment(
   voucherId: string,
   userId:    string,
 ): Promise<void> {
-  const { error } = await supabase
+  const { error, count } = await supabase
     .schema('pramaana')
     .from('vouchers')
     .update({
       status:                 'awaiting_payment',
       queued_at:              new Date().toISOString(),
       queued_for_payment_by:  userId,
-    })
+    }, { count: 'exact' })
     .eq('id', voucherId)
     .eq('status', 'completed')
 
   if (error) throw new Error('Failed to queue voucher: ' + error.message)
+  if (!count) throw new Error('Voucher is not in completed state')
 }
 
 // ── Dequeue voucher (defer payment → back to completed) ──────────────────────
 
 export async function dequeuePayment(voucherId: string): Promise<void> {
-  const { error } = await supabase
+  const { error, count } = await supabase
     .schema('pramaana')
     .from('vouchers')
     .update({
       status:                'completed',
       queued_at:             null,
       queued_for_payment_by: null,
-    })
+    }, { count: 'exact' })
     .eq('id', voucherId)
     .eq('status', 'awaiting_payment')
 
   if (error) throw new Error('Failed to dequeue voucher: ' + error.message)
+  if (!count) throw new Error('Voucher is not in awaiting_payment state')
 }
 
 // ── Set payment mode on an existing voucher (inline fix for queued vouchers) ──
@@ -145,6 +150,7 @@ export async function updateVoucherPaymentMode(
     .from('vouchers')
     .update({ payment_mode: paymentMode.toLowerCase() })
     .eq('id', voucherId)
+    .in('status', ['completed', 'awaiting_payment'])  // prevent updating posted vouchers
 
   if (error) throw new Error('Failed to update payment mode: ' + error.message)
 }
@@ -294,6 +300,7 @@ export async function fetchAwaitingPayments(
     payment_mode: string | null
     entity_id: string | null
     completed_at: string | null
+    queued_at: string | null
     paid_at: string | null
     paid_from_account: string | null
     voucher_type: { code: string } | null
@@ -329,7 +336,7 @@ export async function fetchAwaitingPayments(
     payment_mode:      r.payment_mode,
     entity_name:       r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
     completed_at:      r.completed_at,
-    queued_at:         (r as unknown as { queued_at: string | null }).queued_at,
+    queued_at:         r.queued_at,
     paid_at:           r.paid_at,
     paid_from_account: r.paid_from_account,
     voucher_type_code: r.voucher_type?.code ?? '?',

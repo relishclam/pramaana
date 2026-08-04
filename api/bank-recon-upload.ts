@@ -144,24 +144,30 @@ async function handleRequest(req: Request): Promise<Response> {
   // Validation warning — return it but still commit (advisory only)
   const validationWarning = !preResult.validation.is_valid
 
+  const t0 = Date.now()
+  const mark = (stage: string) => console.log(`[upload] ${stage} +${Date.now() - t0}ms`)
+
   // ── Commit to database ────────────────────────────────────────────────────
   const statementId = await commitStatement({
     supabaseUrl, serviceKey, company_id, userId, preResult,
     fileHash, storagePath, fileName: body.file_name,
     overlapResolution: null,
   })
+  mark('committed')
 
   // Fetch bank account once — needed by both enrichNarrations and the match engine
   const bankAccount = await getBankAccount(supabaseUrl, serviceKey, company_id,
     preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
 
   await enrichNarrations(supabaseUrl, serviceKey, statementId, company_id, bankAccount?.id ?? '', preResult.transactions)
+  mark('enriched')
 
   // ── Match engine ─────────────────────────────────────────────────────
   let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
   if (bankAccount?.ledger_id) {
     matchResult = await runMatchEngine(statementId, company_id, bankAccount.ledger_id, supabaseUrl, serviceKey)
   }
+  mark('matched')
 
   const response: UploadResponse = {
     status:       validationWarning ? 'validation_warning' : 'success',
@@ -447,13 +453,19 @@ async function enrichNarrations(
   const idByRow = new Map(txnRows.map(r => [r.row_number, r.id]))
   const txnByRow = new Map(transactions.map(t => [t.row_number, t]))
 
-  // AI enrichment in batches of 50
+  // AI enrichment — capped at 4 batches (200 narrations) per upload to bound latency
   const BATCH = 50
+  const MAX_AI_BATCHES = 4
+  const AI_BATCH_TIMEOUT = 25_000
   const aiUpdates: { id: string; row_number: number; fields: Record<string, unknown> }[] = []
 
-  for (let i = 0; i < unknowns.length; i += BATCH) {
+  for (let i = 0; i < unknowns.length && i < BATCH * MAX_AI_BATCHES; i += BATCH) {
     const batch = unknowns.slice(i, i + BATCH)
-    const aiResults = await aiParseNarrations(batch)
+    // Race each batch against a timeout — timed-out batches stay 'OTHER' (graceful degradation)
+    const aiResults = await Promise.race([
+      aiParseNarrations(batch),
+      new Promise<[]>(r => setTimeout(() => r([]), AI_BATCH_TIMEOUT)),
+    ])
     for (const ai of aiResults) {
       const id = idByRow.get(ai.index)
       if (!id) continue

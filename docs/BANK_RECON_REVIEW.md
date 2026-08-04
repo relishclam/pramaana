@@ -3,7 +3,16 @@
 
 ---
 
-## Status: **Backend Layer Complete · Zero TypeScript Errors · Pending: UI Integration & Testing**
+## Status: **Full Stack Deployed · Zero TypeScript Errors · Live on Vercel · Integration Testing In Progress**
+
+**Last updated:** 2026-08-04  
+**Latest commits:** `57ec2de` (fix TS errors + auth header), `2c8fa1a` (new UI page), `bd55af7` (bank account seed)
+
+**Completed since initial review:**
+- Migration `072_recon_tables.sql` — applied to Supabase `mmkbknnzgpvsqgnynrbe` ✅
+- Migration `073_recon_bank_accounts_seed.sql` — RFPL (Canara, Federal) and RHHF (HDFC ×2, SIB) bank accounts seeded with `ledger_id` ✅
+- `BankReconPage.tsx` — old UI replaced; new auto-detect page live on Vercel ✅
+- `bank-recon-upload.ts` — TypeScript `as`-on-new-line ASI errors fixed; `Authorization` header added to UI upload call ✅
 
 ---
 
@@ -111,17 +120,21 @@ Seven Vercel serverless functions:
 ---
 
 ### 1.4 UI
-**Files:** `src/pages/BankReconPage.tsx`, `src/pages/BankRecon.module.css`
+**Files:** `src/pages/BankReconPage.tsx` *(1,074 lines — fully rewritten 2026-08-04)*, `src/pages/BankRecon.module.css`
 
-Five-tab layout matching the spec:
+The old page (bank dropdown + manual period dates + 3-call upload architecture) has been fully replaced.
+
+Five-tab layout — all tabs wired to live data:
 
 | Tab | Description |
 |---|---|
-| **Upload** | Drag-drop zone + paste CSV. Bank auto-detect display ("Detected: Federal Bank 95%") with "Change" override. Progress steps (Uploading → Detecting → Parsing → Validating → Matching → Done). Validation warning + "Proceed anyway". Overlap options (skip duplicates / replace / merge). **Note: merge option is wired in the API (`overlap_resolution: 'merge'`) but the UI currently renders skip/replace/cancel — exposing the merge option is in §4.** |
-| **Statements** | List of uploaded statements with status badges (`processing`, `pending_overlap`, `parsed`, `matched`, `error`) |
-| **Match Workbench** | Left/right split panel. Green (confirmed), amber (pending_review), red (unmatched). Bulk confirm for auto-matched. Individual confirm/reject for Tier 2/3. |
-| **Queries** | Unresolved orphans and disputes with resolution workflow |
-| **BRS Report** | Standard BRS format. As-at date picker. Bank account selector. Export to PDF/Excel buttons present in UI. **Library not yet wired — see §4.** |
+| **Upload** | Drag-drop or paste CSV. **No bank selector. No date pickers.** Auto-detect only. File accept: `.csv,.xlsx,.xls,.json,.tsv`. All 5 `UploadResponse` states handled: `success`, `needs_bank_selection`, `overlap_detected`, `validation_warning`, `error`. Two-round-trip overlap flow (skip duplicates / replace / merge). Progress steps: Uploading → Detecting bank → Parsing → Validating → Matching → Done. |
+| **Statements** | `recon_statements` list with bank code, period, txn count, closing balance, status badge. **Delete button** on each row (calls `DELETE /api/bank-recon-statements`, CASCADE removes txns/matches/queries). |
+| **Match Workbench** | `recon_transactions` table. Filter pills: All / Auto-matched / Needs review / Unmatched / Confirmed. Detail panel with confirm/reject actions. Re-run matching button. New status enum: `unmatched`, `auto_matched`, `manual_matched`, `pending_review`, `disputed`, `written_off`. |
+| **Queries** | Live data from `recon_queries` (all open/investigating queries for company). Inline resolve with resolution note. Not a thread/message UI — `recon_queries` uses single `resolution_note` field. |
+| **BRS Report** | Bank selector from `recon_bank_accounts` (not old `bank_format_config`). As-at date picker. Calls `/api/bank-recon-brs`. Print button wired. Export PDF/Excel buttons present but library not yet wired — see §4. |
+
+**Mobile:** Tab bar has `overflowX: auto` — scrollable on narrow screens.
 
 ---
 
@@ -135,9 +148,20 @@ Fixed during review session (not part of the recon module but will integrate wit
 - `deleteCompanyPaymentAccount` — soft-delete (`is_active = false`) instead of hard delete; preserves referential integrity with historical vouchers
 - `RawRow.queued_at` — typed properly; removed `(r as unknown as {...})` cast
 
----
+### 1.6 Post-Deployment Bug Fixes
 
-## 2. Bugs Fixed vs. Old Module
+**`api/bank-recon-upload.ts` — TypeScript `as`-on-new-line ASI errors** *(commit `57ec2de`)*
+- All 6 `dbGet(...)\nas Type[]` casts were on separate lines after `)`. TypeScript's ASI treated them as separate statements, causing compile errors that prevented the function from loading on Vercel (`FUNCTION_INVOCATION_FAILED`).
+- Fix: wrapped each `(await dbGet(...))` with outer parentheses so `as` stays on the same expression.
+- Also: `ColumnMapping` added to named import (replaced 3 inline `import('...')` type references); `Buffer` body → `new Uint8Array(rawBytes)` for Supabase Storage upload.
+
+**`src/pages/BankReconPage.tsx` — missing `Authorization` header** *(commit `57ec2de`)*
+- Upload fetch had no `Bearer` token, which would have returned 403 once the function started working.
+- Fix: `supabase.auth.getSession()` called before fetch; token passed as `Authorization: Bearer ${token}`.
+
+**`supabase/migrations/073_recon_bank_accounts_seed.sql`** *(commit `bd55af7`)*
+- Seeded 5 known Relish Group bank accounts into `recon_bank_accounts` with `ledger_id` pre-linked.
+- Prevents match engine `'Bank account not linked to a ledger'` error on first upload.
 
 | Old Bug | Fix |
 |---|---|
@@ -168,36 +192,36 @@ Fixed during review session (not part of the recon module but will integrate wit
 
 ## 4. What Remains
 
-### Immediate (unblock everything else)
-1. **Run migration** `072_recon_tables.sql` against `mmkbknnzgpvsqgnynrbe` Supabase project
-2. **Link bank accounts to ledgers** — after auto-provisioning, `recon_bank_accounts.ledger_id` is `NULL`. The match engine throws `'Bank account not linked to a ledger'` if this is not set. Either auto-match against `pramaana.ledgers` where `is_bank_account = true` and name/account number align, or add a one-time manual linking step in the Bank Accounts UI tab. This must be done before any match engine run.
+### Immediate
+1. ~~Run migration `072_recon_tables.sql`~~ — **Done** ✅
+2. ~~Link bank accounts to ledgers (seed migration)~~ — **Done** ✅
 
-### Unit Tests (run before integration tests — pure functions are the foundation)
-3. `stripExcelQuoting`, `parseIndianNumber`, `normaliseDate`, `detectSortOrder`
-4. `deriveOpeningBalance`, `validateBalanceContinuity`
-5. `parseNarration` (all 20+ patterns + unknown narrations)
-6. `parseCSVLine` (trailing delimiter, empty line, quoted commas, BOM)
-7. `looksLikeCSV` (XLSX magic bytes, XLS magic bytes, short content)
+### Integration Tests (next priority)
+3. Upload **Federal CSV** (`Fed_Statement_April_to_July.csv`) — first real end-to-end test; verify 282 txns, reverse sort corrected, opening balance derived, match engine runs
+4. Upload **HDFC XLSX** (`Acct_Statement_XXXXXXXX1702_02082026.xlsx`) — 766 txns, 15+ header rows skipped
+5. Upload **Canara CSV** — Excel quoting stripped, Indian numbers parsed
+6. Upload same file twice — verify `file_hash` duplicate rejection
+7. Upload overlapping period — verify overlap options offered
 
-### Integration Tests (per spec §8)
-8. Upload **HDFC XLSX** (`Acct_Statement_XXXXXXXX1702_02082026.xlsx`) — verify 766 txns, 15+ header rows skipped, balance check passes
-9. Upload **Federal CSV** (`Fed_Statement_April_to_July.csv`) — verify 282 txns, reverse sort detected and corrected, opening balance derived correctly
-10. Upload **Canara CSV** — verify Excel quoting stripped, Indian numbers parsed, balance check passes
-11. Upload same file twice — verify `file_hash` duplicate rejection
-12. Upload overlapping period — verify overlap options offered (not 409)
+### Unit Tests
+8. `stripExcelQuoting`, `parseIndianNumber`, `normaliseDate`, `detectSortOrder`
+9. `deriveOpeningBalance`, `validateBalanceContinuity`
+10. `parseNarration` (all 20+ patterns + unknown narrations)
+11. `parseCSVLine` (trailing delimiter, empty line, quoted commas, BOM)
+12. `looksLikeCSV` (XLSX magic bytes, XLS magic bytes, short content)
 
 ### Remaining Module Work
-13. **BRS report export** — wire up PDF/Excel export. Pramaana already has `exportVoucherCsv.ts` and `tally-export.ts` patterns; check if `reportCsv.ts` can be reused for Excel. PDF likely needs `jsPDF` or a server-side render route.
-14. **Overlap UI: expose merge option** — API accepts `overlap_resolution: 'merge'` but UI shows cancel instead of merge. Add the third button.
-15. BRS report — verify adjusted balances agree to zero difference
+13. **BRS report export** — wire up PDF/Excel. Check if `reportCsv.ts` covers Excel; PDF likely needs `jsPDF` or server-side render.
+14. **Overlap UI: expose merge option** — API accepts `merge` but third button not yet rendered in UI.
+15. BRS report — end-to-end verify adjusted balances agree to zero difference
 16. Confirm match flow — end-to-end from Workbench UI to `is_confirmed = true` in DB
-17. Queries tab — dispute and resolution workflow
+17. Queries tab — test inline resolve workflow
 18. Migrate salvageable data from old `bank_statements` / `bank_transactions` tables
-19. Remove old `bank_*` tables and routes after verified end-to-end
-20. Remove old UI components (old BankReconPage tabs)
+19. Remove old `bank_*` tables and API routes after end-to-end verified
+20. Remove old `bank-recon.ts` lib file (no longer imported by page)
 
 ### Future Enhancements
-- **Auto-populate payment fields from confirmed matches** — when a Tier 1 match is confirmed on a payment voucher, call `markVoucherPaid` with `paid_at` from `txn_date`, `utr_number` from `parsed_reference`, and `paid_from_account` from `recon_bank_accounts`. The `// TODO: auto-populate from recon_matches` comment in `pay-now.ts` marks the integration point. This is the payoff of the narration parser — all extracted references become usable in the payment workflow.
+- **Auto-populate payment fields from confirmed matches** — when a Tier 1 match is confirmed on a payment voucher, call `markVoucherPaid` with `paid_at` from `txn_date`, `utr_number` from `parsed_reference`, `paid_from_account` from `recon_bank_accounts`. The `// TODO: auto-populate from recon_matches` comment in `pay-now.ts` marks the integration point.
 
 ---
 

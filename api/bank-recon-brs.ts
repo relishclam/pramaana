@@ -29,6 +29,14 @@ interface ReconItem {
 }
 
 export default async function handler(req: Request): Promise<Response> {
+  try { return await handleRequest(req) } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('bank-recon-brs crash:', msg)
+    return new Response(JSON.stringify({ error: msg }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+  }
+}
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
 
   const supabaseUrl = env('VITE_SUPABASE_URL')

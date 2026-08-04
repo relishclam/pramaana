@@ -1,0 +1,58 @@
+{
+  "category": "UTILITY",
+  "name": "pramaana_bank_recon_query",
+  "namespace": "63f0f6e2_780c_442c_ab96_c3cbf76a513b",
+  "languages": [
+    {
+      "id": "1395096962541444",
+      "name": "pramaana_bank_recon_query",
+      "language": "en",
+      "parameter_format": "POSITIONAL",
+      "status": "approved",
+      "rejection_reason": "NONE",
+      "default_variables": null,
+      "code": [
+        {
+          "text": "Pramaana Bank Recon: Query {{1}} raised — {{2}} ({{3}} lines). Please log in to Pramaana and respond.",
+          "type": "BODY",
+          "example": {
+            "body_text": [
+              [
+                "RFPL/QRY/2627/0001",
+                "Unbooked Federal credit Apr-26",
+                "3"
+              ]
+            ]
+          }
+        },
+        {
+          "text": "Relish Pramaana Team",
+          "type": "FOOTER"
+        }
+      ],
+      "gtwy_thread_id": null,
+      "msg91_template_id": 465872,
+      "quality_score": "UNKNOWN",
+      "backup_templates": [],
+      "variables": [
+        "body_1",
+        "body_2",
+        "body_3"
+      ],
+      "variable_type": {
+        "body_1": {
+          "type": "text"
+        },
+        "body_2": {
+          "type": "text"
+        },
+        "body_3": {
+          "type": "text"
+        }
+      }
+    }
+  ],
+  "is_disabled": 0,
+  "ttl_in_seconds": null,
+  "gtwy_thread_id": null
+}

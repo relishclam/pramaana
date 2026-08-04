@@ -16,7 +16,6 @@ import { runPreConverter } from './lib/bank-recon/pre-converter'
 import { runMatchEngine }  from './lib/bank-recon/match-engine'
 import { parseNarration }  from './lib/bank-recon/narration-parser'
 import { aiParseNarrations } from './lib/bank-recon/ai-narration-parse'
-import { computeFormatSignature } from './lib/bank-recon/format-detect'
 import type { UploadRequest, UploadResponse, CanonicalTransaction, ColumnMapping } from './lib/bank-recon/types'
 import { createHash } from 'crypto'
 
@@ -152,13 +151,14 @@ async function handleRequest(req: Request): Promise<Response> {
     overlapResolution: null,
   })
 
-  // ── Narration parsing ─────────────────────────────────────────────────────
-  await enrichNarrations(supabaseUrl, serviceKey, statementId, preResult.transactions)
-
-  // ── Match engine ──────────────────────────────────────────────────────────
-  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
+  // Fetch bank account once — needed by both enrichNarrations and the match engine
   const bankAccount = await getBankAccount(supabaseUrl, serviceKey, company_id,
     preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
+
+  await enrichNarrations(supabaseUrl, serviceKey, statementId, company_id, bankAccount?.id ?? '', preResult.transactions)
+
+  // ── Match engine ─────────────────────────────────────────────────────
+  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
   if (bankAccount?.ledger_id) {
     matchResult = await runMatchEngine(statementId, company_id, bankAccount.ledger_id, supabaseUrl, serviceKey)
   }
@@ -201,7 +201,7 @@ async function handleOverlapResolution(
   const fileHash = createHash('sha256').update(rawBytes).digest('hex')
 
   // ── Apply overlap resolution before committing ────────────────────────────
-  if (overlap_resolution === 'replace' || overlap_resolution === 'merge') {
+  if (overlap_resolution === 'replace') {
     const account = await getBankAccount(supabaseUrl, serviceKey, company_id,
       preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
     if (account) {
@@ -209,14 +209,14 @@ async function handleOverlapResolution(
         `recon_statements?bank_account_id=eq.${account.id}` +
         `&period_from=lte.${preResult.period_to}&period_to=gte.${preResult.period_from}&select=id`
       )) as { id: string }[]
-      // replace: delete existing statements (CASCADE removes txns/matches/queries)
       for (const s of overlapping) {
         await dbDelete(supabaseUrl, serviceKey, `recon_statements?id=eq.${s.id}`)
       }
     }
   }
 
-  if (overlap_resolution === 'skip_duplicates') {
+  // merge = skip_duplicates for v1 (keep existing confirmed work, add only new transactions)
+  if (overlap_resolution === 'skip_duplicates' || overlap_resolution === 'merge') {
     const account = await getBankAccount(supabaseUrl, serviceKey, company_id,
       preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
     if (account) {
@@ -241,11 +241,12 @@ async function handleOverlapResolution(
     overlapResolution: overlap_resolution ?? null,
   })
 
-  await enrichNarrations(supabaseUrl, serviceKey, statementId, preResult.transactions)
-
-  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
   const bankAccount = await getBankAccount(supabaseUrl, serviceKey, company_id,
     preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
+
+  await enrichNarrations(supabaseUrl, serviceKey, statementId, company_id, bankAccount?.id ?? '', preResult.transactions)
+
+  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
   if (bankAccount?.ledger_id) {
     matchResult = await runMatchEngine(statementId, company_id, bankAccount.ledger_id, supabaseUrl, serviceKey)
   }
@@ -423,6 +424,8 @@ async function enrichNarrations(
   supabaseUrl: string,
   serviceKey: string,
   statementId: string,
+  companyId: string,
+  bankAccountId: string,
   transactions: CanonicalTransaction[],
 ): Promise<void> {
   // Only the narrations the heuristic couldn't classify need AI enrichment
@@ -442,10 +445,11 @@ async function enrichNarrations(
   )) as { id: string; row_number: number }[]
 
   const idByRow = new Map(txnRows.map(r => [r.row_number, r.id]))
+  const txnByRow = new Map(transactions.map(t => [t.row_number, t]))
 
   // AI enrichment in batches of 50
   const BATCH = 50
-  const aiUpdates: { id: string; fields: Record<string, unknown> }[] = []
+  const aiUpdates: { id: string; row_number: number; fields: Record<string, unknown> }[] = []
 
   for (let i = 0; i < unknowns.length; i += BATCH) {
     const batch = unknowns.slice(i, i + BATCH)
@@ -455,6 +459,7 @@ async function enrichNarrations(
       if (!id) continue
       aiUpdates.push({
         id,
+        row_number: ai.index,
         fields: {
           txn_type:            ai.txn_type,
           counterparty:        ai.counterparty        ?? null,
@@ -470,10 +475,28 @@ async function enrichNarrations(
 
   if (!aiUpdates.length) return
 
-  // Bulk upsert via POST with merge-duplicates — one request per 500 rows
+  // Bulk upsert — must include all NOT NULL columns so INSERT is valid before conflict fires
   const CHUNK = 500
   for (let i = 0; i < aiUpdates.length; i += CHUNK) {
-    const chunk = aiUpdates.slice(i, i + CHUNK).map(u => ({ id: u.id, ...u.fields }))
+    const chunk = aiUpdates.slice(i, i + CHUNK).map(u => {
+      const t = txnByRow.get(u.row_number)!
+      return {
+        id:                   u.id,
+        statement_id:         statementId,
+        company_id:           companyId,
+        bank_account_id:      bankAccountId,
+        row_number:           t.row_number,
+        txn_date:             t.txn_date,
+        value_date:           t.value_date,
+        narration:            t.narration,
+        reference:            t.reference,
+        debit:                t.debit,
+        credit:               t.credit,
+        balance:              t.balance,
+        match_status:         'unmatched',
+        ...u.fields,
+      }
+    })
     const res = await fetch(`${supabaseUrl}/rest/v1/recon_transactions?on_conflict=id`, {
       method: 'POST',
       headers: {

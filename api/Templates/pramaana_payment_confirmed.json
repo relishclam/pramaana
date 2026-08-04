@@ -1,0 +1,54 @@
+{
+  "category": "UTILITY",
+  "name": "pramaana_payment_confirmed",
+  "namespace": "63f0f6e2_780c_442c_ab96_c3cbf76a513b",
+  "languages": [
+    {
+      "id": "2455760228286426",
+      "name": "pramaana_payment_confirmed",
+      "language": "en",
+      "parameter_format": "POSITIONAL",
+      "status": "approved",
+      "rejection_reason": "NONE",
+      "default_variables": null,
+      "code": [
+        {
+          "text": "Relish Pramaana",
+          "type": "HEADER",
+          "format": "TEXT"
+        },
+        {
+          "text": "Payment of Rs.{{1}} for voucher {{2}} has been processed successfully to your account.",
+          "type": "BODY",
+          "example": {
+            "body_text": [
+              [
+                "15,000",
+                "RFPL/PYMT/2526/0142"
+              ]
+            ]
+          }
+        }
+      ],
+      "gtwy_thread_id": null,
+      "msg91_template_id": 461944,
+      "quality_score": "UNKNOWN",
+      "backup_templates": [],
+      "variables": [
+        "body_1",
+        "body_2"
+      ],
+      "variable_type": {
+        "body_1": {
+          "type": "text"
+        },
+        "body_2": {
+          "type": "text"
+        }
+      }
+    }
+  ],
+  "is_disabled": 0,
+  "ttl_in_seconds": null,
+  "gtwy_thread_id": null
+}

@@ -20,6 +20,14 @@ async function dbGet(url: string, key: string, path: string): Promise<unknown[]>
 }
 
 export default async function handler(req: Request): Promise<Response> {
+  try { return await handleRequest(req) } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('bank-recon-match crash:', msg)
+    return new Response(JSON.stringify({ error: msg }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+  }
+}
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const supabaseUrl = env('VITE_SUPABASE_URL')

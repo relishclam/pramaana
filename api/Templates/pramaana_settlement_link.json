@@ -1,0 +1,58 @@
+{
+  "category": "UTILITY",
+  "name": "pramaana_settlement_link",
+  "namespace": "63f0f6e2_780c_442c_ab96_c3cbf76a513b",
+  "languages": [
+    {
+      "id": "1069262535776350",
+      "name": "pramaana_settlement_link",
+      "language": "en",
+      "parameter_format": "POSITIONAL",
+      "status": "approved",
+      "rejection_reason": "NONE",
+      "default_variables": null,
+      "code": [
+        {
+          "text": "Dear {{1}}, you have a pending advance of Rs.{{2}} from Relish. Please submit your expenses at: {{3}} - Thank you.",
+          "type": "BODY",
+          "example": {
+            "body_text": [
+              [
+                "Ajay",
+                "5,000",
+                "https://pramaana.relish.in/settle/abc123"
+              ]
+            ]
+          }
+        },
+        {
+          "text": "Relish Pramaana Team",
+          "type": "FOOTER"
+        }
+      ],
+      "gtwy_thread_id": null,
+      "msg91_template_id": 461949,
+      "quality_score": "UNKNOWN",
+      "backup_templates": [],
+      "variables": [
+        "body_1",
+        "body_2",
+        "body_3"
+      ],
+      "variable_type": {
+        "body_1": {
+          "type": "text"
+        },
+        "body_2": {
+          "type": "text"
+        },
+        "body_3": {
+          "type": "text"
+        }
+      }
+    }
+  ],
+  "is_disabled": 0,
+  "ttl_in_seconds": null,
+  "gtwy_thread_id": null
+}

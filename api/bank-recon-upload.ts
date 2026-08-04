@@ -10,7 +10,7 @@
  * Body (Round 2): { company_id, storage_path, overlap_resolution, file_name, file_type }
  */
 
-export const config = { runtime: 'nodejs' }  // xlsx needs Node, not Edge
+export const config = { runtime: 'nodejs', maxDuration: 300 }  // xlsx + AI enrichment needs time
 
 import { runPreConverter } from './lib/bank-recon/pre-converter.js'
 import { runMatchEngine }  from './lib/bank-recon/match-engine.js'
@@ -29,7 +29,7 @@ function env(k: string): string {
   return process.env[k] ?? ''
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export async function POST(req: Request): Promise<Response> {
   try {
     return await handleRequest(req)
   } catch (e) {
@@ -42,8 +42,6 @@ export default async function handler(req: Request): Promise<Response> {
 }
 
 async function handleRequest(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
-
   const supabaseUrl = env('VITE_SUPABASE_URL')
   const serviceKey  = env('SUPABASE_SERVICE_ROLE_KEY')
   if (!supabaseUrl || !serviceKey) return json({ error: 'Server not configured' }, 500)

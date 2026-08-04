@@ -27,7 +27,15 @@ async function dbFetch(url: string, key: string, method: string, path: string, b
   return { ok: res.ok, data: res.ok ? await res.json() : await res.text() }
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export async function GET(req: Request): Promise<Response> {
+  try { return await handleRequest(req) } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('bank-recon-queries crash:', msg)
+    return new Response(JSON.stringify({ error: msg }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+  }
+}
+
+export async function PATCH(req: Request): Promise<Response> {
   try { return await handleRequest(req) } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('bank-recon-queries crash:', msg)

@@ -3,7 +3,7 @@
  * Re-run match engine on an existing statement (after new vouchers posted).
  * Body: { statement_id, company_id }
  */
-export const config = { runtime: 'nodejs' }
+export const config = { runtime: 'nodejs', maxDuration: 300 }
 
 import { runMatchEngine } from './lib/bank-recon/match-engine.js'
 
@@ -19,7 +19,7 @@ async function dbGet(url: string, key: string, path: string): Promise<unknown[]>
   return res.ok ? res.json() as Promise<unknown[]> : []
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export async function POST(req: Request): Promise<Response> {
   try { return await handleRequest(req) } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('bank-recon-match crash:', msg)
@@ -28,8 +28,6 @@ export default async function handler(req: Request): Promise<Response> {
 }
 
 async function handleRequest(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
-
   const supabaseUrl = env('VITE_SUPABASE_URL')
   const serviceKey  = env('SUPABASE_SERVICE_ROLE_KEY')
   if (!supabaseUrl || !serviceKey) return json({ error: 'Server not configured' }, 500)

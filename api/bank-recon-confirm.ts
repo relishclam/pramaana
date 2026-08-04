@@ -28,7 +28,7 @@ async function dbFetch(url: string, key: string, method: string, path: string, b
   return { ok: res.ok, data: res.ok ? await res.json() : null }
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export async function POST(req: Request): Promise<Response> {
   try { return await handleRequest(req) } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('bank-recon-confirm crash:', msg)
@@ -37,8 +37,6 @@ export default async function handler(req: Request): Promise<Response> {
 }
 
 async function handleRequest(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
-
   const supabaseUrl = env('VITE_SUPABASE_URL')
   const serviceKey  = env('SUPABASE_SERVICE_ROLE_KEY')
   if (!supabaseUrl || !serviceKey) return json({ error: 'Server not configured' }, 500)

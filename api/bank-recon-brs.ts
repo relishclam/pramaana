@@ -28,7 +28,7 @@ interface ReconItem {
   bank_txn_id: string | null
 }
 
-export default async function handler(req: Request): Promise<Response> {
+export async function GET(req: Request): Promise<Response> {
   try { return await handleRequest(req) } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('bank-recon-brs crash:', msg)
@@ -37,8 +37,6 @@ export default async function handler(req: Request): Promise<Response> {
 }
 
 async function handleRequest(req: Request): Promise<Response> {
-  if (req.method !== 'GET') return json({ error: 'Method not allowed' }, 405)
-
   const supabaseUrl = env('VITE_SUPABASE_URL')
   const serviceKey  = env('SUPABASE_SERVICE_ROLE_KEY')
   if (!supabaseUrl || !serviceKey) return json({ error: 'Server not configured' }, 500)

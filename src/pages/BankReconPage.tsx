@@ -125,12 +125,13 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
   const [bankCandidates, setBankCandidates] = useState<{ code: string; name: string; confidence: number }[]>([])
   const [selectedBank, setSelectedBank] = useState('')
   const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [pendingStatementId, setPendingStatementId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const reset = () => {
     setPhase('idle'); setError(null); setSummary(null); setMatchResult(null)
     setOverlap(null); setValidation(null); setStoragePath(null)
-    setBankCandidates([]); setSelectedBank(''); setPendingFile(null)
+    setBankCandidates([]); setSelectedBank(''); setPendingFile(null); setPendingStatementId(null)
     setPastedText('')
   }
 
@@ -210,9 +211,8 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
       setValidation(json.validation as ValidationResult)
       setSummary(json.summary as UploadSummary)
       setMatchResult((json.match_result as MatchResult) ?? null)
+      if (json.statement_id) setPendingStatementId(json.statement_id as string)
       setPhase('warn_validation')
-      // statement_id present — onComplete will be called when user clicks Proceed
-      if (json.statement_id) setPendingFile(json.statement_id as unknown as File)
       return
     }
 
@@ -418,7 +418,7 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               {summary && (
                 <button className={css.btnPrimary}
-                  onClick={() => { onComplete(pendingFile as unknown as string) }}>
+                  onClick={() => { if (pendingStatementId) onComplete(pendingStatementId) }}>
                   Go to workbench
                 </button>
               )}

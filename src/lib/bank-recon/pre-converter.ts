@@ -37,7 +37,7 @@ export async function runPreConverter(
     const text = decodeText(rawBytes)
     rows = parseCSV(text)
   } else {
-    rows = parseXLSX(rawBytes.buffer as ArrayBuffer)
+    rows = await parseXLSX(rawBytes.buffer as ArrayBuffer)
   }
 
   // Remove completely blank rows from the end

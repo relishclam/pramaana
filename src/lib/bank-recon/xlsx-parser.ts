@@ -1,13 +1,14 @@
 // ── XLSX parser — header detection + data extraction via SheetJS ──────────────
 // Server-side only. Never imported in client components.
-
-import * as XLSX from 'xlsx'
+// Dynamic import prevents Vercel esbuild from bundling xlsx at module-init time.
 
 /**
  * Parse an XLSX file buffer into rows of string arrays.
  * Uses SheetJS. Handles HDFC-style files with 15+ letterhead rows before headers.
  */
-export function parseXLSX(buffer: ArrayBuffer): string[][] {
+export async function parseXLSX(buffer: ArrayBuffer): Promise<string[][]> {
+  const XLSX = await import('xlsx')
+
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, raw: false })
 
   // Use first sheet

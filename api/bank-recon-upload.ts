@@ -31,6 +31,18 @@ function env(k: string): string {
 }
 
 export default async function handler(req: Request): Promise<Response> {
+  try {
+    return await handleRequest(req)
+  } catch (e) {
+    // Surface the real error instead of Vercel's generic FUNCTION_INVOCATION_FAILED
+    const msg = e instanceof Error ? e.message : String(e)
+    const stack = e instanceof Error ? e.stack : undefined
+    console.error('bank-recon-upload crash:', msg, stack)
+    return json({ status: 'error', error: msg }, 500)
+  }
+}
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   const supabaseUrl = env('VITE_SUPABASE_URL')

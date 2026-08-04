@@ -37,10 +37,12 @@ interface VoucherEntry {
   id: string
   voucher_id: string
   ledger_id: string
-  debit: number | null
-  credit: number | null
+  // entry_type canonical casing in DB: exactly 'Dr' or 'Cr' (no normalisation needed)
+  entry_type: 'Dr' | 'Cr'
+  amount: number
+  narration: string | null    // entry-level narration; may be null
   voucher_date: string
-  voucher_narration: string
+  voucher_narration: string   // voucher-level narration fallback
   party_name: string | null
   reference: string | null
 }
@@ -135,7 +137,7 @@ export async function runMatchEngine(
 
   // Fetch candidate voucher entries. PostgREST returns nested `vouchers` object — flatten below.
   const rawVEs = await pgFetch(
-    `voucher_entries?ledger_id=eq.${ledgerId}&select=id,voucher_id,ledger_id,debit,credit,` +
+    `voucher_entries?ledger_id=eq.${ledgerId}&select=id,voucher_id,ledger_id,entry_type,amount,narration,` +
     `vouchers!inner(id,voucher_date,narration,status,company_id,entity_id,` +
     `entities:entity_id(display_name))` +
     `&vouchers.status=eq.posted&vouchers.company_id=eq.${companyId}` +
@@ -150,8 +152,9 @@ export async function runMatchEngine(
       id:                ve['id'] as string,
       voucher_id:        ve['voucher_id'] as string,
       ledger_id:         ve['ledger_id'] as string,
-      debit:             ve['debit'] as number | null,
-      credit:            ve['credit'] as number | null,
+      entry_type:        ve['entry_type'] as 'Dr' | 'Cr',
+      amount:            ve['amount'] as number,
+      narration:         ve['narration'] as string | null,
       voucher_date:      v['voucher_date'] as string,
       voucher_narration: v['narration'] as string ?? '',
       party_name:        entity ? (entity['display_name'] as string | null) : null,
@@ -176,14 +179,13 @@ export async function runMatchEngine(
     const amount = txn.debit ?? txn.credit
     if (amount === null) continue
 
-    // Bank debit = book credit (payment out); bank credit = book debit (receipt in)
-    const bookSideField = txn.debit !== null ? 'credit' : 'debit'
+    // bank debit (out) → book 'Cr' on bank ledger; bank credit (in) → book 'Dr'
+    const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
 
     const candidates = voucherEntries.filter(ve => {
       if (matchedVoucherEntryIds.has(ve.id)) return false
-      const veAmount = ve[bookSideField as 'debit' | 'credit']
-      if (veAmount === null) return false
-      if (Math.abs(roundMoney(veAmount) - roundMoney(amount)) >= 0.01) return false
+      if (ve.entry_type !== bookSide) return false
+      if (Math.abs(roundMoney(ve.amount) - roundMoney(amount)) >= 0.01) return false
       if (ve.voucher_date !== txn.txn_date) return false
       return true
     })
@@ -228,13 +230,12 @@ export async function runMatchEngine(
     const amount = txn.debit ?? txn.credit
     if (amount === null) continue
 
-    const bookSideField = txn.debit !== null ? 'credit' : 'debit'
+    const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
 
     const candidates = voucherEntries.filter(ve => {
       if (matchedVoucherEntryIds.has(ve.id)) return false
-      const veAmount = ve[bookSideField as 'debit' | 'credit']
-      if (veAmount === null) return false
-      if (Math.abs(roundMoney(veAmount) - roundMoney(amount)) >= 0.01) return false
+      if (ve.entry_type !== bookSide) return false
+      if (Math.abs(roundMoney(ve.amount) - roundMoney(amount)) >= 0.01) return false
       const diff = dateDiffDays(txn.txn_date, ve.voucher_date)
       return diff <= 3
     })
@@ -283,12 +284,11 @@ export async function runMatchEngine(
     for (const txn of tier3Txns) {
       const amount = txn.debit ?? txn.credit
       if (amount === null) continue
-      const bookSideField = txn.debit !== null ? 'credit' : 'debit'
+      const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
       const candidates = voucherEntries.filter(ve => {
         if (matchedVoucherEntryIds.has(ve.id)) return false
-        const veAmount = ve[bookSideField as 'debit' | 'credit']
-        if (veAmount === null) return false
-        const diff = Math.abs(roundMoney(veAmount) - roundMoney(amount)) / roundMoney(amount)
+        if (ve.entry_type !== bookSide) return false
+        const diff = Math.abs(roundMoney(ve.amount) - roundMoney(amount)) / roundMoney(amount)
         const dateDiff = dateDiffDays(txn.txn_date, ve.voucher_date)
         return diff <= 0.1 && dateDiff <= 7
       }).slice(0, 5)
@@ -308,9 +308,9 @@ export async function runMatchEngine(
       [...candidateMap.entries()].map(([k, ves]) => [k, ves.map(ve => ({
         voucher_id:   ve.voucher_id,
         voucher_date: ve.voucher_date,
-        amount:       ve.debit ?? ve.credit ?? 0,
+        amount:       ve.amount,
         party_name:   ve.party_name ?? '',
-        narration:    ve.voucher_narration ?? '',
+        narration:    ve.narration ?? ve.voucher_narration ?? '',
       }))])
     )
 

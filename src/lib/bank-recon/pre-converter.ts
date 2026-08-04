@@ -132,12 +132,10 @@ export async function runPreConverter(
     format_signature: formatSig,
   }
 
-  // Sanitise account_number: Excel scientific notation (e.g. 1.01502E+13 → 10150200014513)
+  // Sanitise account_number: Excel scientific notation and reject garbage values
   if (bankResult.account_number) {
-    bankResult = {
-      ...bankResult,
-      account_number: unscientificAccountNumber(bankResult.account_number),
-    }
+    const sanitised = unscientificAccountNumber(bankResult.account_number)
+    bankResult = { ...bankResult, account_number: sanitised || null }
   }
 
   return {

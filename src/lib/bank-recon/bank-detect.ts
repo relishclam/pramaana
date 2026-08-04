@@ -134,8 +134,10 @@ function fuzzyHeaderScore(actual: string[], expected: string[]): number {
 }
 
 // Excel renders long numbers in scientific notation (e.g. 1.01502E+13 → 10150200014513)
+// Treat any result under 6 chars or non-numeric (garbage from bad conversion) as empty.
 function unscientificAccountNumber(val: string): string {
   const sci = val.trim().match(/^(\d+\.?\d*)[eE]\+(\d+)$/i)
-  if (!sci) return val
-  return Number(val).toFixed(0)
+  const converted = sci ? Number(val).toFixed(0) : val.trim()
+  if (converted.length < 6 || !/^\d+$/.test(converted)) return ''
+  return converted
 }

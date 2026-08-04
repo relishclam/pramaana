@@ -75,10 +75,11 @@ async function handleRequest(req: Request): Promise<Response> {
     const entries = (await dbGet(supabaseUrl, serviceKey,
       `voucher_entries?ledger_id=eq.${account.ledger_id}` +
       `&vouchers.voucher_date=lte.${asAtDate}&vouchers.status=eq.posted` +
-      `&select=debit,credit,vouchers!inner(voucher_date,status)`)) as { debit: number | null; credit: number | null }[]
-    const totalDebits  = entries.reduce((s, e) => s + (e.debit  ?? 0), 0)
-    const totalCredits = entries.reduce((s, e) => s + (e.credit ?? 0), 0)
-    balancePerBooks = Math.round((totalDebits - totalCredits) * 100) / 100
+      `&select=entry_type,amount,vouchers!inner(voucher_date,status)`)) as { entry_type: 'Dr' | 'Cr'; amount: number }[]
+    // Dr increases asset ledger (bank); Cr decreases it
+    const totalDr = entries.reduce((s, e) => s + (e.entry_type === 'Dr' ? e.amount : 0), 0)
+    const totalCr = entries.reduce((s, e) => s + (e.entry_type === 'Cr' ? e.amount : 0), 0)
+    balancePerBooks = Math.round((totalDr - totalCr) * 100) / 100
   }
 
   // ── Unmatched bank transactions (bank side, no book entry) ────────────────

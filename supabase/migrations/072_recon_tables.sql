@@ -14,7 +14,7 @@
 
 CREATE TABLE IF NOT EXISTS pramaana.recon_bank_accounts (
   id             uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id     uuid    NOT NULL REFERENCES pramaana.companies(id),
+  company_id     uuid    NOT NULL,  -- no FK; pramaana schema has no companies table; RLS enforces scoping
   bank_code      text    NOT NULL,
   bank_name      text    NOT NULL,
   account_number text    NOT NULL,
@@ -84,7 +84,7 @@ CREATE POLICY rfp_service_all ON pramaana.recon_format_profiles
 
 CREATE TABLE IF NOT EXISTS pramaana.recon_statements (
   id                uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id        uuid    NOT NULL REFERENCES pramaana.companies(id),
+  company_id        uuid    NOT NULL,  -- no FK; consistent with all other pramaana tables
   bank_account_id   uuid    NOT NULL REFERENCES pramaana.recon_bank_accounts(id),
   period_from       date    NOT NULL,
   period_to         date    NOT NULL,

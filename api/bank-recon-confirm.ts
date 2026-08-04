@@ -9,7 +9,9 @@ const json = (d: unknown, s = 200) =>
   new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } })
 
 function env(k: string): string {
-  return ((globalThis as Record<string, unknown>)?.['process']?.['env']?.[k] as string) ?? ''
+  const proc = (globalThis as Record<string, unknown>)['process'] as
+    { env?: Record<string, string | undefined> } | undefined
+  return proc?.env?.[k] ?? ''
 }
 
 async function dbFetch(url: string, key: string, method: string, path: string, body?: unknown, schema = 'pramaana'): Promise<{ ok: boolean; data: unknown }> {

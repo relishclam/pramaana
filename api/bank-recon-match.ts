@@ -37,9 +37,8 @@ export default async function handler(req: Request): Promise<Response> {
   try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
   if (!body.statement_id || !body.company_id) return json({ error: 'statement_id and company_id required' }, 400)
 
-  const stmts = await dbGet(supabaseUrl, serviceKey,
-    `recon_statements?id=eq.${body.statement_id}&select=bank_account_id,recon_bank_accounts(ledger_id)`)
-  as { bank_account_id: string; recon_bank_accounts: { ledger_id: string | null } }[]
+  const stmts = (await dbGet(supabaseUrl, serviceKey,
+    `recon_statements?id=eq.${body.statement_id}&select=bank_account_id,recon_bank_accounts(ledger_id)`)) as { bank_account_id: string; recon_bank_accounts: { ledger_id: string | null } }[]
 
   const ledgerId = stmts[0]?.recon_bank_accounts?.ledger_id
   if (!ledgerId) return json({ error: 'Bank account not linked to a ledger' }, 400)

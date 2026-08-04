@@ -8,7 +8,9 @@ const json = (d: unknown, s = 200) =>
   new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } })
 
 function env(k: string): string {
-  return ((globalThis as Record<string, unknown>)?.['process']?.['env']?.[k] as string) ?? ''
+  const proc = (globalThis as Record<string, unknown>)['process'] as
+    { env?: Record<string, string | undefined> } | undefined
+  return proc?.env?.[k] ?? ''
 }
 
 async function dbGet(url: string, key: string, path: string): Promise<unknown[]> {
@@ -50,37 +52,33 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Get bank account + ledger link
-  const accounts = await dbGet(supabaseUrl, serviceKey,
-    `recon_bank_accounts?id=eq.${bankAccountId}&company_id=eq.${companyId}&select=ledger_id,bank_name,account_number`)
-  as { ledger_id: string | null; bank_name: string; account_number: string }[]
+  const accounts = (await dbGet(supabaseUrl, serviceKey,
+    `recon_bank_accounts?id=eq.${bankAccountId}&company_id=eq.${companyId}&select=ledger_id,bank_name,account_number`)) as { ledger_id: string | null; bank_name: string; account_number: string }[]
 
   if (!accounts.length) return json({ error: 'Bank account not found' }, 404)
   const account = accounts[0]
 
   // ── Balance per bank (last statement closing balance on or before asAtDate) ─
-  const statements = await dbGet(supabaseUrl, serviceKey,
-    `recon_statements?bank_account_id=eq.${bankAccountId}&period_to=lte.${asAtDate}&order=period_to.desc&limit=1&select=closing_balance`)
-  as { closing_balance: number }[]
+  const statements = (await dbGet(supabaseUrl, serviceKey,
+    `recon_statements?bank_account_id=eq.${bankAccountId}&period_to=lte.${asAtDate}&order=period_to.desc&limit=1&select=closing_balance`)) as { closing_balance: number }[]
   const balancePerBank = statements[0]?.closing_balance ?? 0
 
   // ── Balance per books (ledger running balance as at asAtDate) ─────────────
   let balancePerBooks = 0
   if (account.ledger_id) {
-    const entries = await dbGet(supabaseUrl, serviceKey,
+    const entries = (await dbGet(supabaseUrl, serviceKey,
       `voucher_entries?ledger_id=eq.${account.ledger_id}` +
       `&vouchers.voucher_date=lte.${asAtDate}&vouchers.status=eq.posted` +
-      `&select=debit,credit,vouchers!inner(voucher_date,status)`)
-    as { debit: number | null; credit: number | null }[]
+      `&select=debit,credit,vouchers!inner(voucher_date,status)`)) as { debit: number | null; credit: number | null }[]
     const totalDebits  = entries.reduce((s, e) => s + (e.debit  ?? 0), 0)
     const totalCredits = entries.reduce((s, e) => s + (e.credit ?? 0), 0)
     balancePerBooks = Math.round((totalDebits - totalCredits) * 100) / 100
   }
 
   // ── Unmatched bank transactions (bank side, no book entry) ────────────────
-  const unmatchedBankTxns = await dbGet(supabaseUrl, serviceKey,
+  const unmatchedBankTxns = (await dbGet(supabaseUrl, serviceKey,
     `recon_transactions?bank_account_id=eq.${bankAccountId}` +
-    `&txn_date=lte.${asAtDate}&match_status=in.(unmatched)&select=id,txn_date,narration,debit,credit`)
-  as { id: string; txn_date: string; narration: string; debit: number | null; credit: number | null }[]
+    `&txn_date=lte.${asAtDate}&match_status=in.(unmatched)&select=id,txn_date,narration,debit,credit`)) as { id: string; txn_date: string; narration: string; debit: number | null; credit: number | null }[]
 
   const bankDebitsNotInBooks: ReconItem[] = unmatchedBankTxns
     .filter(t => t.debit !== null)

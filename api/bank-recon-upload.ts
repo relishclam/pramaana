@@ -12,12 +12,12 @@
 
 export const config = { runtime: 'nodejs' }  // xlsx needs Node, not Edge
 
-import { runPreConverter } from '../src/lib/bank-recon/pre-converter'
-import { runMatchEngine }  from '../src/lib/bank-recon/match-engine'
-import { parseNarration }  from '../src/lib/bank-recon/narration-parser'
-import { aiParseNarrations } from '../src/lib/bank-recon/ai-narration-parse'
-import { computeFormatSignature } from '../src/lib/bank-recon/format-detect'
-import type { UploadRequest, UploadResponse, CanonicalTransaction, ColumnMapping } from '../src/lib/bank-recon/types'
+import { runPreConverter } from './lib/bank-recon/pre-converter'
+import { runMatchEngine }  from './lib/bank-recon/match-engine'
+import { parseNarration }  from './lib/bank-recon/narration-parser'
+import { aiParseNarrations } from './lib/bank-recon/ai-narration-parse'
+import { computeFormatSignature } from './lib/bank-recon/format-detect'
+import type { UploadRequest, UploadResponse, CanonicalTransaction, ColumnMapping } from './lib/bank-recon/types'
 import { createHash } from 'crypto'
 
 const json = (data: unknown, status = 200) =>

@@ -5,7 +5,7 @@
  */
 export const config = { runtime: 'nodejs' }
 
-import { runMatchEngine } from '../src/lib/bank-recon/match-engine'
+import { runMatchEngine } from './lib/bank-recon/match-engine'
 
 const json = (d: unknown, s = 200) =>
   new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } })

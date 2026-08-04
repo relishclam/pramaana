@@ -1,4 +1,10 @@
-// ── New Autonomous Bank Reconciliation Page ──────────────────────────────────
+// Run with: node scripts/write-bank-recon-page.js
+const fs = require('fs')
+const path = require('path')
+
+const TARGET = path.join(__dirname, '..', 'src', 'pages', 'BankReconPage.tsx')
+
+const CONTENT = `// ── New Autonomous Bank Reconciliation Page ──────────────────────────────────
 // Replaces old 3-call architecture. Single POST /api/bank-recon-upload handles
 // detect → parse → validate → match. No bank selector. No date pickers.
 
@@ -250,7 +256,7 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
       {/* Drop zone / paste area — idle only */}
       {phase === 'idle' && !pasteMode && (
         <div
-          className={`${css.dropZone} ${drag ? css.dropZoneActive : ''}`}
+          className={\`\${css.dropZone} \${drag ? css.dropZoneActive : ''}\`}
           onDragOver={e => { e.preventDefault(); setDrag(true) }}
           onDragLeave={() => setDrag(false)}
           onDrop={handleDrop}
@@ -269,7 +275,7 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
           <textarea
             className={css.input}
             style={{ minHeight: 180, fontFamily: 'monospace', fontSize: '0.75rem', resize: 'vertical' }}
-            placeholder={"Paste CSV rows here (including the header row).\nExample: Txn Date,Value Date,Cheque No.,Description,Debit,Credit,Balance"}
+            placeholder={"Paste CSV rows here (including the header row).\\nExample: Txn Date,Value Date,Cheque No.,Description,Debit,Credit,Balance"}
             value={pastedText}
             onChange={e => setPastedText(e.target.value)}
           />
@@ -292,7 +298,7 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
               return (
                 <div key={step} className={css.progressRow}>
                   {done   && <CheckCircle size={15} className={css.progressStepDone} />}
-                  {active && <Loader size={15} className={`${css.progressStepActive} ${css.spin}`} />}
+                  {active && <Loader size={15} className={\`\${css.progressStepActive} \${css.spin}\`} />}
                   {!done && !active && <div style={{ width: 15, height: 15, borderRadius: '50%', border: '1.5px solid var(--border-2)', flexShrink: 0 }} />}
                   <span className={done ? css.progressStepDone : active ? css.progressStepActive : css.progressStep}>
                     {PROGRESS_LABELS[step]}
@@ -325,14 +331,14 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
               <option value="">— Select bank —</option>
               {(bankCandidates.length
                 ? bankCandidates
-                : ([
+                : [
                     { code: 'HDFC',    name: 'HDFC Bank' },
                     { code: 'CANARA',  name: 'Canara Bank' },
                     { code: 'FEDERAL', name: 'Federal Bank' },
                     { code: 'SIB',     name: 'South Indian Bank' },
                     { code: 'ICICI',   name: 'ICICI Bank' },
-                  ] as { code: string; name: string; confidence: number }[])
-              ).map(b => (
+                  ]
+              ).map((b: Record<string, string>) => (
                 <option key={b.code} value={b.code}>{b.name}</option>
               ))}
             </select>
@@ -459,7 +465,7 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
               </div>
               <div className={css.stat}>
                 <div className={css.statLabel}>Net</div>
-                <div className={`${css.statValue} ${(summary.closing_balance - summary.opening_balance) >= 0 ? css.statValueTeal : css.statValueError}`}
+                <div className={\`\${css.statValue} \${(summary.closing_balance - summary.opening_balance) >= 0 ? css.statValueTeal : css.statValueError}\`}
                   style={{ fontSize: '1rem' }}>
                   {fmt(summary.closing_balance - summary.opening_balance)}
                 </div>
@@ -474,15 +480,15 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
               <div className={css.statGrid}>
                 <div className={css.stat}>
                   <div className={css.statLabel}>Auto-matched</div>
-                  <div className={`${css.statValue} ${css.statValueSuccess}`}>{matchResult.exact_matches}</div>
+                  <div className={\`\${css.statValue} \${css.statValueSuccess}\`}>{matchResult.exact_matches}</div>
                 </div>
                 <div className={css.stat}>
                   <div className={css.statLabel}>Needs review</div>
-                  <div className={`${css.statValue} ${css.statValueAmber}`}>{matchResult.fuzzy_matches + matchResult.ai_matches}</div>
+                  <div className={\`\${css.statValue} \${css.statValueAmber}\`}>{matchResult.fuzzy_matches + matchResult.ai_matches}</div>
                 </div>
                 <div className={css.stat}>
                   <div className={css.statLabel}>Unmatched</div>
-                  <div className={`${css.statValue} ${matchResult.unmatched > 0 ? css.statValueError : css.statValueSuccess}`}>{matchResult.unmatched}</div>
+                  <div className={\`\${css.statValue} \${matchResult.unmatched > 0 ? css.statValueError : css.statValueSuccess}\`}>{matchResult.unmatched}</div>
                 </div>
                 <div className={css.stat}>
                   <div className={css.statLabel}>Queries raised</div>
@@ -524,7 +530,7 @@ function StatementsTab({ companyId, onSelect }: { companyId: string; onSelect: (
     e.stopPropagation()
     if (!window.confirm('Delete this statement and all its transactions, matches and queries? This cannot be undone.')) return
     setDeleting(id)
-    await fetch(`/api/bank-recon-statements?id=${id}`, { method: 'DELETE' })
+    await fetch(\`/api/bank-recon-statements?id=\${id}\`, { method: 'DELETE' })
     setDeleting(null)
     load()
   }
@@ -564,7 +570,7 @@ function StatementsTab({ companyId, onSelect }: { companyId: string; onSelect: (
               </span>
               <span className={css.stmtLines}>{s.txn_count} txns</span>
               <span className={css.stmtLines}>{fmt(s.closing_balance)}</span>
-              <span className={`${css.chip} ${STATUS_CSS[s.upload_status] ?? css.chipUnmatched}`}>
+              <span className={\`\${css.chip} \${STATUS_CSS[s.upload_status] ?? css.chipUnmatched}\`}>
                 {s.upload_status.replace(/_/g, ' ')}
               </span>
               <button
@@ -650,7 +656,7 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
           ['manual_matched', 'Confirmed',     counts.manual_matched ?? 0],
         ] as [MFilter, string, number][]).map(([k, l, c]) => (
           <button key={k}
-            className={`${css.filterPill} ${filter === k ? css.filterPillActive : ''}`}
+            className={\`\${css.filterPill} \${filter === k ? css.filterPillActive : ''}\`}
             onClick={() => setFilter(k)}>
             {l}<span className={css.pillCount}>{c}</span>
           </button>
@@ -665,7 +671,7 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 340px' : '1fr', gap: '0.75rem', alignItems: 'start' }}>
-        <div className={`${css.card} ${css.tableWrap}`}>
+        <div className={\`\${css.card} \${css.tableWrap}\`}>
           <table className={css.table}>
             <thead>
               <tr>
@@ -680,7 +686,7 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
             <tbody>
               {visible.map(txn => (
                 <tr key={txn.id}
-                  className={`${css.tableRow} ${selected?.id === txn.id ? css.tableRowSelected : ''}`}
+                  className={\`\${css.tableRow} \${selected?.id === txn.id ? css.tableRowSelected : ''}\`}
                   onClick={() => setSelected(selected?.id === txn.id ? null : txn)}>
                   <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(txn.txn_date)}</td>
                   <td style={{ maxWidth: 260 }}>
@@ -691,9 +697,9 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
                       <div className={css.mutedText}>{txn.counterparty}</div>
                     )}
                   </td>
-                  <td className={`${css.debitAmt}  ${css.right}`}>{txn.debit  != null ? fmt(txn.debit)  : ''}</td>
-                  <td className={`${css.creditAmt} ${css.right}`}>{txn.credit != null ? fmt(txn.credit) : ''}</td>
-                  <td className={`${css.monoAmt}   ${css.right}`}>{fmt(txn.balance)}</td>
+                  <td className={\`\${css.debitAmt}  \${css.right}\`}>{txn.debit  != null ? fmt(txn.debit)  : ''}</td>
+                  <td className={\`\${css.creditAmt} \${css.right}\`}>{txn.credit != null ? fmt(txn.credit) : ''}</td>
+                  <td className={\`\${css.monoAmt}   \${css.right}\`}>{fmt(txn.balance)}</td>
                   <td><StatusChip status={txn.match_status} /></td>
                 </tr>
               ))}
@@ -795,7 +801,7 @@ function QueriesTab({ companyId }: { companyId: string }) {
 
   const resolve = async (id: string) => {
     setResolving(id)
-    await fetch(`/api/bank-recon-queries?id=${id}`, {
+    await fetch(\`/api/bank-recon-queries?id=\${id}\`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'resolved', resolution_note: note[id] ?? '' }),
@@ -819,7 +825,7 @@ function QueriesTab({ companyId }: { companyId: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <div className={`${css.card} ${css.tableWrap}`}>
+      <div className={\`\${css.card} \${css.tableWrap}\`}>
         <table className={css.table}>
           <thead>
             <tr>
@@ -843,12 +849,12 @@ function QueriesTab({ companyId }: { companyId: string }) {
                       {(txn?.narration as string) ?? '—'}
                     </div>
                   </td>
-                  <td className={`${css.monoAmt} ${css.right}`}>
+                  <td className={\`\${css.monoAmt} \${css.right}\`}>
                     {txn?.debit  ? <span style={{ color: 'var(--error)' }}>{fmt(txn.debit  as number)}</span> : null}
                     {txn?.credit ? <span style={{ color: 'var(--teal)' }}>{fmt(txn.credit as number)}</span> : null}
                   </td>
                   <td>
-                    <span className={`${css.chip} ${STATUS_CSS[q.status as string] ?? css.chipUnmatched}`}>
+                    <span className={\`\${css.chip} \${STATUS_CSS[q.status as string] ?? css.chipUnmatched}\`}>
                       {(q.status as string).replace(/_/g, ' ')}
                     </span>
                   </td>
@@ -899,7 +905,7 @@ function BrsTab({ companyId }: { companyId: string }) {
   const runBrs = async () => {
     setLoading(true); setError(null)
     const res = await fetch(
-      `/api/bank-recon-brs?company_id=${companyId}&bank_account_id=${accountId}&as_at_date=${asAt}`
+      \`/api/bank-recon-brs?company_id=\${companyId}&bank_account_id=\${accountId}&as_at_date=\${asAt}\`
     )
     const json = await res.json() as Record<string, unknown>
     if (!res.ok) { setError((json.error as string) ?? 'BRS failed'); setLoading(false); return }
@@ -1042,7 +1048,7 @@ export default function BankReconPage() {
       <div className={css.tabBar} style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
         {TABS.map(t => (
           <button key={t.key}
-            className={`${css.tab} ${tab === t.key ? css.tabActive : ''}`}
+            className={\`\${css.tab} \${tab === t.key ? css.tabActive : ''}\`}
             style={{ flexShrink: 0 }}
             onClick={() => setTab(t.key)}>
             {t.label}
@@ -1052,12 +1058,12 @@ export default function BankReconPage() {
 
       {tab === 'upload' && (
         <UploadTab companyId={companyId} onComplete={id => {
-          setStmtId(id); setTab('workbench'); navigate(`/bank-recon/${id}`)
+          setStmtId(id); setTab('workbench'); navigate(\`/bank-recon/\${id}\`)
         }} />
       )}
       {tab === 'statements' && (
         <StatementsTab companyId={companyId} onSelect={id => {
-          setStmtId(id); setTab('workbench'); navigate(`/bank-recon/${id}`)
+          setStmtId(id); setTab('workbench'); navigate(\`/bank-recon/\${id}\`)
         }} />
       )}
       {tab === 'workbench' && stmtId && (
@@ -1071,3 +1077,8 @@ export default function BankReconPage() {
     </div>
   )
 }
+`
+
+fs.writeFileSync(TARGET, CONTENT, 'utf8')
+console.log('Written:', TARGET)
+console.log('Lines:', CONTENT.split('\n').length)

@@ -1,7 +1,7 @@
 // ── Heuristic bank detection from raw rows ────────────────────────────────────
 
-import { BANK_SIGNATURES, normaliseHeaderCell, GLOBAL_SKIP_PATTERNS } from './constants'
-import type { BankDetectResult } from './types'
+import { BANK_SIGNATURES, normaliseHeaderCell, GLOBAL_SKIP_PATTERNS } from './constants.js'
+import type { BankDetectResult } from './types.js'
 
 export function detectBank(rows: string[][], fileName: string): BankDetectResult {
   let bestCode   = ''

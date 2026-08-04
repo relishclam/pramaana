@@ -2,9 +2,9 @@
 // Server-side only.  Each tier updates match_status BEFORE the next tier runs
 // to prevent UNIQUE(bank_txn_id) violations on recon_matches.
 
-import { aiSuggestMatches } from './ai-match-suggest'
-import { roundMoney } from './number-utils'
-import type { MatchResult, MatchEngineResult } from './types'
+import { aiSuggestMatches } from './ai-match-suggest.js'
+import { roundMoney } from './number-utils.js'
+import type { MatchResult, MatchEngineResult } from './types.js'
 
 // Minimal Supabase client interface to keep this file portable
 interface DbClient {

@@ -2,7 +2,7 @@
 // Server-side ONLY. Never import in client components.
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { AIMatchSuggestion } from './types'
+import type { AIMatchSuggestion } from './types.js'
 
 interface UnmatchedBankTxn {
   id: string

@@ -2,7 +2,7 @@
 // Server-side ONLY. Never import in client components.
 
 import Anthropic from '@anthropic-ai/sdk'
-import type { AIParsedNarration } from './types'
+import type { AIParsedNarration } from './types.js'
 
 function getClient(): Anthropic | null {
   const proc = (globalThis as Record<string, unknown>)['process'] as

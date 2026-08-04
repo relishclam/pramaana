@@ -2,19 +2,19 @@
 // Stages: file-type → extract → header-detect → bank-detect → column-map →
 //         data-clean → sort-detect → balance-derive → dedup → (overlap — caller)
 
-import { parseCSV, looksLikeCSV, decodeText } from './csv-parser'
-import { parseXLSX } from './xlsx-parser'
-import { detectBank, findHeaderRow } from './bank-detect'
-import { detectColumns, computeFormatSignature } from './format-detect'
-import { aiDetectFormat } from './ai-format-detect'
-import { normaliseDate }  from './date-utils'
-import { stripExcelQuoting, parseAmount, roundMoney } from './number-utils'
-import { deriveOpeningBalance, validateBalanceContinuity, detectSortOrder } from './balance-validator'
-import { GLOBAL_SKIP_PATTERNS, BANK_SIGNATURES } from './constants'
+import { parseCSV, looksLikeCSV, decodeText } from './csv-parser.js'
+import { parseXLSX } from './xlsx-parser.js'
+import { detectBank, findHeaderRow } from './bank-detect.js'
+import { detectColumns, computeFormatSignature } from './format-detect.js'
+import { aiDetectFormat } from './ai-format-detect.js'
+import { normaliseDate }  from './date-utils.js'
+import { stripExcelQuoting, parseAmount, roundMoney } from './number-utils.js'
+import { deriveOpeningBalance, validateBalanceContinuity, detectSortOrder } from './balance-validator.js'
+import { GLOBAL_SKIP_PATTERNS, BANK_SIGNATURES } from './constants.js'
 import type {
   ColumnMapping, CanonicalTransaction, PreConvertResult,
   BankDetectResult, FormatDetectResult, DuplicateGroup, AIFormatResult,
-} from './types'
+} from './types.js'
 
 export interface PreConverterOptions {
   /** If provided, force a specific bank (skips detection) */

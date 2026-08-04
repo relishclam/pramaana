@@ -1,8 +1,8 @@
 // ── Heuristic column detection — maps raw headers to ColumnMapping ────────────
 
-import { BANK_SIGNATURES, normaliseHeaderCell } from './constants'
-import { findHeaderRow } from './bank-detect'
-import type { ColumnMapping } from './types'
+import { BANK_SIGNATURES, normaliseHeaderCell } from './constants.js'
+import { findHeaderRow } from './bank-detect.js'
+import type { ColumnMapping } from './types.js'
 
 const COLUMN_ALIASES: Record<keyof Pick<ColumnMapping,
   'date_col' | 'value_date_col' | 'narration_col' | 'reference_col' |

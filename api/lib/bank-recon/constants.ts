@@ -1,4 +1,4 @@
-import type { BankSignature } from './types'
+import type { BankSignature } from './types.js'
 
 export const BANK_SIGNATURES: Record<string, BankSignature> = {
   HDFC: {

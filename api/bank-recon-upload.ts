@@ -12,11 +12,11 @@
 
 export const config = { runtime: 'nodejs' }  // xlsx needs Node, not Edge
 
-import { runPreConverter } from './lib/bank-recon/pre-converter'
-import { runMatchEngine }  from './lib/bank-recon/match-engine'
-import { parseNarration }  from './lib/bank-recon/narration-parser'
-import { aiParseNarrations } from './lib/bank-recon/ai-narration-parse'
-import type { UploadRequest, UploadResponse, CanonicalTransaction, ColumnMapping } from './lib/bank-recon/types'
+import { runPreConverter } from './lib/bank-recon/pre-converter.js'
+import { runMatchEngine }  from './lib/bank-recon/match-engine.js'
+import { parseNarration }  from './lib/bank-recon/narration-parser.js'
+import { aiParseNarrations } from './lib/bank-recon/ai-narration-parse.js'
+import type { UploadRequest, UploadResponse, CanonicalTransaction, ColumnMapping } from './lib/bank-recon/types.js'
 import { createHash } from 'crypto'
 
 const json = (data: unknown, status = 200) =>
@@ -59,7 +59,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const { id: userId } = await userRes.json() as { id: string }
 
   let body: UploadRequest
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+  try { body = await req.json() as UploadRequest } catch { return json({ error: 'Invalid JSON' }, 400) }
 
   const { company_id } = body
   if (!company_id) return json({ error: 'company_id required' }, 400)

@@ -1,6 +1,6 @@
 // ── Heuristic narration parser — covers ~70% of Indian bank narrations ────────
 
-import type { ParsedNarration } from './types'
+import type { ParsedNarration } from './types.js'
 
 type PatternDef = {
   type: ParsedNarration['txn_type']

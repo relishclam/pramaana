@@ -1,7 +1,7 @@
 // ── Balance derivation and continuity validation ──────────────────────────────
 
-import { roundMoney } from './number-utils'
-import type { CanonicalTransaction, ValidationResult } from './types'
+import { roundMoney } from './number-utils.js'
+import type { CanonicalTransaction, ValidationResult } from './types.js'
 
 /**
  * Derive opening balance from the first (chronological) transaction.

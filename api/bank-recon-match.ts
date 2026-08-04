@@ -5,7 +5,7 @@
  */
 export const config = { runtime: 'nodejs' }
 
-import { runMatchEngine } from './lib/bank-recon/match-engine'
+import { runMatchEngine } from './lib/bank-recon/match-engine.js'
 
 const json = (d: unknown, s = 200) =>
   new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } })
@@ -42,7 +42,7 @@ async function handleRequest(req: Request): Promise<Response> {
   if (!userRes.ok) return json({ error: 'Unauthorized' }, 403)
 
   let body: { statement_id?: string; company_id?: string }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+  try { body = await req.json() as { statement_id?: string; company_id?: string } } catch { return json({ error: 'Invalid JSON' }, 400) }
   if (!body.statement_id || !body.company_id) return json({ error: 'statement_id and company_id required' }, 400)
 
   const stmts = (await dbGet(supabaseUrl, serviceKey,

@@ -181,7 +181,7 @@ async function handleOverlapResolution(
   supabaseUrl: string,
   serviceKey: string,
 ): Promise<Response> {
-  const { company_id, storage_path, overlap_resolution, file_name, file_type } = body
+  const { company_id, storage_path, overlap_resolution, file_name } = body
   if (!storage_path || !company_id || !file_name) {
     return json({ error: 'storage_path, company_id, file_name required for overlap resolution' }, 400)
   }
@@ -199,6 +199,41 @@ async function handleOverlapResolution(
   }
 
   const fileHash = createHash('sha256').update(rawBytes).digest('hex')
+
+  // ── Apply overlap resolution before committing ────────────────────────────
+  if (overlap_resolution === 'replace' || overlap_resolution === 'merge') {
+    const account = await getBankAccount(supabaseUrl, serviceKey, company_id,
+      preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
+    if (account) {
+      const overlapping = (await dbGet(supabaseUrl, serviceKey,
+        `recon_statements?bank_account_id=eq.${account.id}` +
+        `&period_from=lte.${preResult.period_to}&period_to=gte.${preResult.period_from}&select=id`
+      )) as { id: string }[]
+      // replace: delete existing statements (CASCADE removes txns/matches/queries)
+      for (const s of overlapping) {
+        await dbDelete(supabaseUrl, serviceKey, `recon_statements?id=eq.${s.id}`)
+      }
+    }
+  }
+
+  if (overlap_resolution === 'skip_duplicates') {
+    const account = await getBankAccount(supabaseUrl, serviceKey, company_id,
+      preResult.bank.bank_code, preResult.bank.account_number ?? 'UNKNOWN')
+    if (account) {
+      const existing = (await dbGet(supabaseUrl, serviceKey,
+        `recon_transactions?bank_account_id=eq.${account.id}` +
+        `&txn_date=gte.${preResult.period_from}&txn_date=lte.${preResult.period_to}` +
+        `&select=txn_date,debit,credit,narration`
+      )) as { txn_date: string; debit: number | null; credit: number | null; narration: string }[]
+      const existingKeys = new Set(existing.map(e => `${e.txn_date}|${e.debit}|${e.credit}|${e.narration}`))
+      preResult = {
+        ...preResult,
+        transactions: preResult.transactions.filter(
+          t => !existingKeys.has(`${t.txn_date}|${t.debit}|${t.credit}|${t.narration}`)
+        ),
+      }
+    }
+  }
 
   const statementId = await commitStatement({
     supabaseUrl, serviceKey, company_id, userId, preResult,
@@ -257,8 +292,21 @@ async function dbPost(url: string, key: string, path: string, body: unknown, sch
   return res.json() as Promise<{ id: string }[]>
 }
 
+async function dbDelete(url: string, key: string, path: string, schema = 'pramaana'): Promise<void> {
+  const res = await fetch(`${url}/rest/v1/${path}`, {
+    method: 'DELETE',
+    headers: {
+      apikey:            key,
+      Authorization:     `Bearer ${key}`,
+      'Accept-Profile':  schema,
+      'Content-Profile': schema,
+    },
+  })
+  if (!res.ok) console.error(`DB DELETE error ${res.status} on ${path}:`, await res.text())
+}
+
 async function dbPatch(url: string, key: string, path: string, body: unknown, schema = 'pramaana'): Promise<void> {
-  await fetch(`${url}/rest/v1/${path}`, {
+  const res = await fetch(`${url}/rest/v1/${path}`, {
     method: 'PATCH',
     headers: {
       apikey:            key,
@@ -270,6 +318,10 @@ async function dbPatch(url: string, key: string, path: string, body: unknown, sc
     },
     body: JSON.stringify(body),
   })
+  if (!res.ok) {
+    const err = await res.text()
+    console.error(`DB PATCH error ${res.status} on ${path}:`, err)
+  }
 }
 
 // ── Commit statement + transactions to DB ─────────────────────────────────────
@@ -331,30 +383,41 @@ async function commitStatement(opts: {
 
   const statementId = stmt.id
 
-  // Batch insert transactions (chunks of 500 to stay under Supabase limits)
+  // Batch insert transactions enriched with heuristic narration parse inline
+  // (avoids a separate N-round-trip enrichment pass after insert)
   const CHUNK = 500
   for (let i = 0; i < preResult.transactions.length; i += CHUNK) {
-    const chunk = preResult.transactions.slice(i, i + CHUNK).map(t => ({
-      statement_id:     statementId,
-      company_id,
-      bank_account_id:  bankAccount.id,
-      row_number:       t.row_number,
-      txn_date:         t.txn_date,
-      value_date:       t.value_date,
-      narration:        t.narration,
-      reference:        t.reference,
-      debit:            t.debit,
-      credit:           t.credit,
-      balance:          t.balance,
-      match_status:     'unmatched',
-    }))
+    const chunk = preResult.transactions.slice(i, i + CHUNK).map(t => {
+      const parsed = parseNarration(t.narration)
+      return {
+        statement_id:         statementId,
+        company_id,
+        bank_account_id:      bankAccount.id,
+        row_number:           t.row_number,
+        txn_date:             t.txn_date,
+        value_date:           t.value_date,
+        narration:            t.narration,
+        reference:            t.reference,
+        debit:                t.debit,
+        credit:               t.credit,
+        balance:              t.balance,
+        match_status:         'unmatched',
+        txn_type:             parsed.txn_type,
+        counterparty:         parsed.counterparty,
+        counterparty_account: parsed.counterparty_account,
+        parsed_reference:     parsed.parsed_reference,
+        parsed_purpose:       parsed.parsed_purpose,
+        is_charge:            parsed.is_charge,
+        is_reversal:          parsed.is_reversal,
+      }
+    })
     await dbPost(supabaseUrl, serviceKey, 'recon_transactions', chunk)
   }
 
   return statementId
 }
 
-// ── Narration enrichment ──────────────────────────────────────────────────────
+// ── Narration enrichment — AI pass only (heuristic is done inline at insert) ──
 
 async function enrichNarrations(
   supabaseUrl: string,
@@ -362,63 +425,68 @@ async function enrichNarrations(
   statementId: string,
   transactions: CanonicalTransaction[],
 ): Promise<void> {
-  // Load inserted transaction IDs in row_number order
-  const txnRows = (await dbGet(supabaseUrl, serviceKey,
-    `recon_transactions?statement_id=eq.${statementId}&select=id,row_number,narration&order=row_number.asc`)) as { id: string; row_number: number; narration: string }[]
-
-  // Heuristic pass
-  const unknowns: { index: number; text: string }[] = []
-  const updates: { id: string; fields: Record<string, unknown> }[] = []
-
-  for (const row of txnRows) {
-    const parsed = parseNarration(row.narration)
-    if (parsed.txn_type === 'OTHER') {
-      unknowns.push({ index: row.row_number, text: row.narration })
-    }
-    updates.push({
-      id:     row.id,
-      fields: {
-        txn_type:            parsed.txn_type,
-        counterparty:        parsed.counterparty        ?? null,
-        counterparty_account: parsed.counterparty_account ?? null,
-        parsed_reference:    parsed.parsed_reference    ?? null,
-        parsed_purpose:      parsed.parsed_purpose      ?? null,
-        is_charge:           parsed.is_charge,
-        is_reversal:         parsed.is_reversal,
-      },
+  // Only the narrations the heuristic couldn't classify need AI enrichment
+  const unknowns = transactions
+    .filter(t => {
+      const p = parseNarration(t.narration)
+      return p.txn_type === 'OTHER'
     })
-  }
+    .map(t => ({ index: t.row_number, text: t.narration }))
 
-  // AI enrichment for unknowns (batches of 50)
-  if (unknowns.length) {
-    const BATCH = 50
-    for (let i = 0; i < unknowns.length; i += BATCH) {
-      const batch = unknowns.slice(i, i + BATCH)
-      const aiResults = await aiParseNarrations(batch)
-      for (const ai of aiResults) {
-        const update = updates.find(u => {
-          const txn = txnRows.find(t => t.row_number === ai.index)
-          return txn && u.id === txn.id
-        })
-        if (update) {
-          update.fields = {
-            ...update.fields,
-            txn_type:            ai.txn_type,
-            counterparty:        ai.counterparty        ?? update.fields.counterparty,
-            counterparty_account: ai.counterparty_account ?? update.fields.counterparty_account,
-            parsed_reference:    ai.parsed_reference    ?? update.fields.parsed_reference,
-            parsed_purpose:      ai.parsed_purpose      ?? update.fields.parsed_purpose,
-            is_charge:           ai.is_charge,
-            is_reversal:         ai.is_reversal,
-          }
-        }
-      }
+  if (!unknowns.length) return
+
+  // Load the DB-assigned IDs for the 'OTHER' rows
+  const rowNumbers = unknowns.map(u => u.index).join(',')
+  const txnRows = (await dbGet(supabaseUrl, serviceKey,
+    `recon_transactions?statement_id=eq.${statementId}&row_number=in.(${rowNumbers})&select=id,row_number`
+  )) as { id: string; row_number: number }[]
+
+  const idByRow = new Map(txnRows.map(r => [r.row_number, r.id]))
+
+  // AI enrichment in batches of 50
+  const BATCH = 50
+  const aiUpdates: { id: string; fields: Record<string, unknown> }[] = []
+
+  for (let i = 0; i < unknowns.length; i += BATCH) {
+    const batch = unknowns.slice(i, i + BATCH)
+    const aiResults = await aiParseNarrations(batch)
+    for (const ai of aiResults) {
+      const id = idByRow.get(ai.index)
+      if (!id) continue
+      aiUpdates.push({
+        id,
+        fields: {
+          txn_type:            ai.txn_type,
+          counterparty:        ai.counterparty        ?? null,
+          counterparty_account: ai.counterparty_account ?? null,
+          parsed_reference:    ai.parsed_reference    ?? null,
+          parsed_purpose:      ai.parsed_purpose      ?? null,
+          is_charge:           ai.is_charge,
+          is_reversal:         ai.is_reversal,
+        },
+      })
     }
   }
 
-  // Batch update (chunks of 100 PATCH calls)
-  for (const u of updates) {
-    await dbPatch(supabaseUrl, serviceKey, `recon_transactions?id=eq.${u.id}`, u.fields)
+  if (!aiUpdates.length) return
+
+  // Bulk upsert via POST with merge-duplicates — one request per 500 rows
+  const CHUNK = 500
+  for (let i = 0; i < aiUpdates.length; i += CHUNK) {
+    const chunk = aiUpdates.slice(i, i + CHUNK).map(u => ({ id: u.id, ...u.fields }))
+    const res = await fetch(`${supabaseUrl}/rest/v1/recon_transactions?on_conflict=id`, {
+      method: 'POST',
+      headers: {
+        apikey:            serviceKey,
+        Authorization:     `Bearer ${serviceKey}`,
+        'Content-Type':    'application/json',
+        'Accept-Profile':  'pramaana',
+        'Content-Profile': 'pramaana',
+        Prefer:            'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify(chunk),
+    })
+    if (!res.ok) console.error('AI enrichment upsert error:', res.status, await res.text())
   }
 }
 
@@ -469,10 +537,10 @@ async function upsertFormatProfile(
       `recon_format_profiles?bank_code=eq.${encodeURIComponent(bankCode)}&format_signature=eq.${encodeURIComponent(signature)}&select=id`)) as { id: string }[]
 
     if (existing.length) {
-      // Increment usage counter
+      // Only update last_used_at — times_used is NOT NULL and PostgREST can't do += 1 in PATCH
       await dbPatch(url, key,
         `recon_format_profiles?bank_code=eq.${encodeURIComponent(bankCode)}&format_signature=eq.${encodeURIComponent(signature)}`,
-        { times_used: null, last_used_at: new Date().toISOString() })
+        { last_used_at: new Date().toISOString() })
       return existing[0].id
     }
 
@@ -527,7 +595,7 @@ async function storeRawFile(
   companyId: string, rawBytes: Buffer, fileName: string,
 ): Promise<string> {
   const path = `${companyId}/${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-  await fetch(`${url}/storage/v1/object/bank-recon-raw/${path}`, {
+  const res = await fetch(`${url}/storage/v1/object/bank-recon-raw/${path}`, {
     method: 'POST',
     headers: {
       apikey:         key,
@@ -536,6 +604,10 @@ async function storeRawFile(
     },
     body: new Uint8Array(rawBytes),
   })
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Storage upload failed ${res.status}: ${err}`)
+  }
   return path
 }
 

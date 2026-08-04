@@ -17,7 +17,7 @@ import { runMatchEngine }  from '../src/lib/bank-recon/match-engine'
 import { parseNarration }  from '../src/lib/bank-recon/narration-parser'
 import { aiParseNarrations } from '../src/lib/bank-recon/ai-narration-parse'
 import { computeFormatSignature } from '../src/lib/bank-recon/format-detect'
-import type { UploadRequest, UploadResponse, CanonicalTransaction } from '../src/lib/bank-recon/types'
+import type { UploadRequest, UploadResponse, CanonicalTransaction, ColumnMapping } from '../src/lib/bank-recon/types'
 import { createHash } from 'crypto'
 
 const json = (data: unknown, status = 200) =>
@@ -351,9 +351,8 @@ async function enrichNarrations(
   transactions: CanonicalTransaction[],
 ): Promise<void> {
   // Load inserted transaction IDs in row_number order
-  const txnRows = await dbGet(supabaseUrl, serviceKey,
-    `recon_transactions?statement_id=eq.${statementId}&select=id,row_number,narration&order=row_number.asc`)
-  as { id: string; row_number: number; narration: string }[]
+  const txnRows = (await dbGet(supabaseUrl, serviceKey,
+    `recon_transactions?statement_id=eq.${statementId}&select=id,row_number,narration&order=row_number.asc`)) as { id: string; row_number: number; narration: string }[]
 
   // Heuristic pass
   const unknowns: { index: number; text: string }[] = []
@@ -419,9 +418,8 @@ async function upsertBankAccount(
   accountNumber: string, ifsc: string | null,
 ): Promise<{ id: string; ledger_id: string | null }> {
   // Try to find existing
-  const existing = await dbGet(url, key,
-    `recon_bank_accounts?company_id=eq.${companyId}&bank_code=eq.${encodeURIComponent(bankCode)}&account_number=eq.${encodeURIComponent(accountNumber)}&select=id,ledger_id`)
-  as { id: string; ledger_id: string | null }[]
+  const existing = (await dbGet(url, key,
+    `recon_bank_accounts?company_id=eq.${companyId}&bank_code=eq.${encodeURIComponent(bankCode)}&account_number=eq.${encodeURIComponent(accountNumber)}&select=id,ledger_id`)) as { id: string; ledger_id: string | null }[]
 
   if (existing.length) return existing[0]
 
@@ -441,9 +439,8 @@ async function getBankAccount(
   url: string, key: string,
   companyId: string, bankCode: string, accountNumber: string,
 ): Promise<{ id: string; ledger_id: string | null } | null> {
-  const rows = await dbGet(url, key,
-    `recon_bank_accounts?company_id=eq.${companyId}&bank_code=eq.${encodeURIComponent(bankCode)}&account_number=eq.${encodeURIComponent(accountNumber)}&select=id,ledger_id`)
-  as { id: string; ledger_id: string | null }[]
+  const rows = (await dbGet(url, key,
+    `recon_bank_accounts?company_id=eq.${companyId}&bank_code=eq.${encodeURIComponent(bankCode)}&account_number=eq.${encodeURIComponent(accountNumber)}&select=id,ledger_id`)) as { id: string; ledger_id: string | null }[]
   return rows[0] ?? null
 }
 
@@ -456,9 +453,8 @@ async function upsertFormatProfile(
   method: 'heuristic' | 'ai',
 ): Promise<string | null> {
   try {
-    const existing = await dbGet(url, key,
-      `recon_format_profiles?bank_code=eq.${encodeURIComponent(bankCode)}&format_signature=eq.${encodeURIComponent(signature)}&select=id`)
-    as { id: string }[]
+    const existing = (await dbGet(url, key,
+      `recon_format_profiles?bank_code=eq.${encodeURIComponent(bankCode)}&format_signature=eq.${encodeURIComponent(signature)}&select=id`)) as { id: string }[]
 
     if (existing.length) {
       // Increment usage counter
@@ -491,10 +487,9 @@ async function checkOverlap(
   const account = await getBankAccount(url, key, companyId, bankCode, accountNumber)
   if (!account) return null
 
-  const overlapping = await dbGet(url, key,
+  const overlapping = (await dbGet(url, key,
     `recon_statements?bank_account_id=eq.${account.id}` +
-    `&period_from=lte.${periodTo}&period_to=gte.${periodFrom}&select=id,period_from,period_to`)
-  as { id: string; period_from: string; period_to: string }[]
+    `&period_from=lte.${periodTo}&period_to=gte.${periodFrom}&select=id,period_from,period_to`)) as { id: string; period_from: string; period_to: string }[]
 
   if (!overlapping.length) return null
 
@@ -527,7 +522,7 @@ async function storeRawFile(
       Authorization:  `Bearer ${key}`,
       'Content-Type': 'application/octet-stream',
     },
-    body: rawBytes,
+    body: new Uint8Array(rawBytes),
   })
   return path
 }
@@ -544,14 +539,13 @@ async function downloadRawFile(url: string, key: string, path: string): Promise<
 
 async function loadFormatProfiles(
   url: string, key: string, bankCode?: string,
-): Promise<Map<string, { id: string; column_mapping: import('../src/lib/bank-recon/types').ColumnMapping }>> {
+): Promise<Map<string, { id: string; column_mapping: ColumnMapping }>> {
   const path = bankCode
     ? `recon_format_profiles?bank_code=eq.${encodeURIComponent(bankCode)}&select=id,bank_code,format_signature,column_mapping`
     : `recon_format_profiles?select=id,bank_code,format_signature,column_mapping&limit=500`
-  const rows = await dbGet(url, key, path)
-    as { id: string; bank_code: string; format_signature: string; column_mapping: import('../src/lib/bank-recon/types').ColumnMapping }[]
+  const rows = (await dbGet(url, key, path)) as { id: string; bank_code: string; format_signature: string; column_mapping: ColumnMapping }[]
 
-  const map = new Map<string, { id: string; column_mapping: import('../src/lib/bank-recon/types').ColumnMapping }>()
+  const map = new Map<string, { id: string; column_mapping: ColumnMapping }>()
   for (const r of rows) {
     map.set(`${r.bank_code}:${r.format_signature}`, { id: r.id, column_mapping: r.column_mapping })
   }

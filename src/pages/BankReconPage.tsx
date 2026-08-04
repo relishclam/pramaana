@@ -175,9 +175,11 @@ function UploadTab({ companyId, onComplete }: { companyId: string; onComplete: (
     let json: Record<string, unknown>
     try {
       setPhase('detecting')
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token ?? ''
       const res = await fetch('/api/bank-recon-upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(body),
       })
       json = await res.json() as Record<string, unknown>

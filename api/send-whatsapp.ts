@@ -2,9 +2,13 @@
  * Vercel Edge Function — send WhatsApp messages via MSG91.
  * POST /api/send-whatsapp
  *
+ * ROUTING RULE:
+ *   Payment OTP  → send-sms (2Factor SMS only — NOT this endpoint)
+ *   All other notifications → this endpoint (MSG91 WhatsApp)
+ *
  * Body:
  *   {
- *     template: 'payment-otp' | 'payment-confirmed' | 'settlement-link',
+ *     template: 'payment-confirmed' | 'settlement-link' | 'bank-recon-query',
  *     mobile:   string,   // 10-digit Indian mobile, or +91…, or 91…
  *     vars:     string[], // ordered substitution values for the template
  *   }
@@ -14,16 +18,12 @@
  *   MSG91_WHATSAPP_NUMBER   — Sender WhatsApp Business number incl. country code
  *                             e.g. "916282427364"
  *
- * MSG91 WhatsApp templates (pre-approved, body MUST start with static text):
- *
- *   pramaana_payment_otp
- *     Body: "Relish Pramaana: Your payment OTP is {{1}}. Amount Rs.{{2}} for
- *            {{3}}. Valid for 10 minutes. Do not share this OTP."
- *     Params: {{1}}=OTP  {{2}}=amount  {{3}}=payee name
+ * Approved MSG91 WhatsApp templates:
  *
  *   pramaana_payment_confirmed
- *     Body: "Relish Pramaana: Payment of Rs.{{1}} for voucher {{2}} has been
- *            processed successfully to your account."
+ *     Body:   "Relish Pramaana · Payment of Rs.{{1}} for voucher {{2}} has been
+ *              processed successfully to your account."
+ *     Header: "Relish Pramaana" (TEXT)
  *     Params: {{1}}=amount  {{2}}=voucher#
  *
  *   pramaana_settlement_link
@@ -31,6 +31,12 @@
  *              Please submit your expenses at: {{3}} - Thank you."
  *     Footer: "Relish Pramaana Team"
  *     Params: {{1}}=first name  {{2}}=amount  {{3}}=url
+ *
+ *   pramaana_bank_recon_query
+ *     Body:   "Pramaana Bank Recon: Query {{1}} raised — {{2}} ({{3}} lines).
+ *              Please log in to Pramaana and respond."
+ *     Footer: "Relish Pramaana Team"
+ *     Params: {{1}}=query#  {{2}}=subject  {{3}}=line count
  */
 
 export const config = { runtime: 'edge' }
@@ -38,17 +44,17 @@ export const config = { runtime: 'edge' }
 const MSG91_API = 'https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/'
 const PROVIDER_TIMEOUT_MS = 12000
 
-// Template names as registered and approved in MSG91 dashboard
+// Only the 3 approved templates — OTP is handled by send-sms (2Factor) not here
 const TEMPLATE_NAMES: Record<string, string> = {
-  'payment-otp':       'pramaana_payment_otp',
   'payment-confirmed': 'pramaana_payment_confirmed',
   'settlement-link':   'pramaana_settlement_link',
   'bank-recon-query':  'pramaana_bank_recon_query',
 }
 
 function env(name: string): string | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (globalThis as any)?.process?.env?.[name] as string | undefined
+  const proc = (globalThis as Record<string, unknown>)['process'] as
+    { env?: Record<string, string | undefined> } | undefined
+  return proc?.env?.[name]
 }
 
 function normalizeIndianMobile(input: string): string | null {
@@ -172,9 +178,9 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   if (!res.ok || data.type === 'error') {
-    console.error('MSG91 WhatsApp error:', data)
+    console.error('MSG91 WhatsApp error:', JSON.stringify(data))
     return new Response(
-      JSON.stringify({ error: data.message ?? `HTTP ${res.status}` }),
+      JSON.stringify({ error: data.message ?? `HTTP ${res.status}`, detail: data }),
       { status: 502, headers: { 'Content-Type': 'application/json' } },
     )
   }

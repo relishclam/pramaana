@@ -542,6 +542,8 @@ function StatementsTab({ companyId, onSelect }: { companyId: string; onSelect: (
     e.stopPropagation()
     if (!window.confirm('Delete this statement and all its transactions, matches and queries? This cannot be undone.')) return
     setDeleting(id)
+    // Optimistically remove so the UI clears immediately even before load() re-fetches
+    setStmts(prev => prev.filter(s => s.id !== id))
     const { data: { session } } = await supabase.auth.getSession()
     await fetch(`/api/bank-recon-statements?id=${id}&company_id=${companyId}`, {
       method: 'DELETE',

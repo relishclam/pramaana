@@ -315,80 +315,63 @@ export async function runMatchEngine(
   // Date is NOT a criterion — RFPL narrations use payee-typed voucher numbers.
   const refMatches: MatchResult[] = []
   const refTxns = txns.filter(t => !matchedTxnIds.has(t.id))
-  console.error(`[T1.2] starting: ${refTxns.length} txns to check, ${refVoucherEntries.length} ref candidates`)
 
   for (const txn of refTxns) {
     const amount = txn.debit ?? txn.credit
     if (amount === null) continue
     const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
     const refs = extractVoucherRefs(txn.narration)
-    // (a) trace every txn that has VCH refs
-    if (refs.length) console.error(`[T1.2] txn="${txn.narration.slice(-40)}" amt=${amount} side=${bookSide} refs=${JSON.stringify(refs)}`)
     if (!refs.length) continue
 
     // Find unmatched candidates matching each ref by voucher_number suffix — use unrestricted pool
-    const refCandidates = refs.flatMap(ref => {
-      const raw = String(ref); const p5 = raw.padStart(5, '0')
-      // Log the exact suffixes being tested and a sample of what's in the pool
-      const sample = refVoucherEntries.slice(0, 3).map(v => v.voucher_number)
-      console.error(`[T1.2-inner] ref=${ref} trying endsWith('-${p5}') or endsWith('-${raw}'); pool[0..2]=${JSON.stringify(sample)}`)
-      return refVoucherEntries.filter(ve => {
-        const alreadyMatched = matchedVoucherEntryIds.has(ve.id)
-        const sideOk = ve.entry_type === bookSide
-        const numOk  = voucherNumberMatchesRef(ve.voucher_number, ref)
-        // Log any candidate that passes the VCH-series guard so we can see why it still fails
-        if (numOk || (ve.voucher_number ?? '').includes(raw)) {
-          console.error(`[T1.2-inner]   cand ve.id=${ve.id} vno=${ve.voucher_number} alreadyMatched=${alreadyMatched} side=${ve.entry_type}(want ${bookSide}) numOk=${numOk}`)
-        }
-        return !alreadyMatched && sideOk && numOk
-      })
-    })
-    // (b) trace voucher_number lookup result
-    console.error(`[T1.2]   voucher candidates for refs ${JSON.stringify(refs)}: ${refCandidates.length} found`)
-    if (refCandidates.length) refCandidates.forEach(ve => console.error(`[T1.2]     ve.id=${ve.id} vno=${ve.voucher_number} amt=${ve.amount} entry=${ve.entry_type}`))
+    const refCandidates = refs.flatMap(ref =>
+      refVoucherEntries.filter(ve =>
+        !matchedVoucherEntryIds.has(ve.id) &&
+        ve.entry_type === bookSide &&
+        voucherNumberMatchesRef(ve.voucher_number, ref)
+      )
+    )
     if (!refCandidates.length) continue
 
-    // Single ref, exact amount
-    if (refs.length === 1 && refCandidates.length === 1 &&
-        Math.abs(roundMoney(refCandidates[0].amount) - roundMoney(amount)) < 0.01) {
-      const ve = refCandidates[0]
-      // (c) trace match row before insert
-      console.error(`[T1.2]   MATCH single ref=${refs[0]} vno=${ve.voucher_number} inserting row`)
-      refMatches.push({
-        bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
-        match_method: 'reference', match_confidence: 97,
-        match_reason: `Narration ref VCH-${refs[0]} matches voucher ${ve.voucher_number ?? ve.voucher_id}`,
-        company_id: companyId,
-      })
-      matchedVoucherEntryIds.add(ve.id); matchedTxnIds.add(txn.id)
-      continue
-    }
-
-    // Multiple refs: sum of matching entries equals bank amount
     const uniqueCandidates = refCandidates.filter((ve, i, a) => a.findIndex(x => x.id === ve.id) === i)
     const sumAmt = roundMoney(uniqueCandidates.reduce((s, ve) => s + ve.amount, 0))
-    console.error(`[T1.2]   multi-ref sumAmt=${sumAmt} bankAmt=${amount} match=${Math.abs(sumAmt-roundMoney(amount))<0.01}`)
-    if (Math.abs(sumAmt - roundMoney(amount)) < 0.01) {
+    const amountMatches = Math.abs(sumAmt - roundMoney(amount)) < 0.01
+
+    if (amountMatches) {
+      // Amounts agree — high-confidence auto match
       for (const ve of uniqueCandidates) {
-        console.error(`[T1.2]   MATCH multi-ref inserting ve.id=${ve.id}`)
         refMatches.push({
           bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
           match_method: 'reference', match_confidence: 97,
-          match_reason: `Narration multi-ref sum ₹${sumAmt} matches ${refs.join('+')} on VCH refs`,
+          match_reason: `Narration ref matches voucher ${ve.voucher_number ?? ve.voucher_id}; amounts agree ₹${sumAmt}`,
           company_id: companyId,
         })
         matchedVoucherEntryIds.add(ve.id)
       }
       matchedTxnIds.add(txn.id)
+    } else if (refs.length === 1 && uniqueCandidates.length === 1) {
+      // Explicit single ref, no amount match — bank charge / split-ledger case.
+      // Bank entry (₹3.54 IMPS charge) is on this ledger; actual payment is on party ledger.
+      // Reference is trustworthy enough to flag for review.
+      const ve = uniqueCandidates[0]
+      refMatches.push({
+        bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
+        match_method: 'reference', match_confidence: 75,
+        match_reason: `Narration ref matches voucher ${ve.voucher_number ?? ve.voucher_id}; ledger entry ₹${ve.amount} ≠ bank ₹${amount} (likely split-ledger payment)`,
+        company_id: companyId,
+      })
+      matchedVoucherEntryIds.add(ve.id)
+      matchedTxnIds.add(txn.id)
     }
   }
 
-  // (d) trace post-insert
   console.error(`[T1.2] done: ${refMatches.length} reference matches produced`)
+  const refAutoIds   = [...new Set(refMatches.filter(m => m.match_confidence >= 90).map(m => m.bank_txn_id))]
+  const refReviewIds = [...new Set(refMatches.filter(m => m.match_confidence  < 90).map(m => m.bank_txn_id))]
   if (refMatches.length) {
     await pgPost('recon_matches', refMatches, true)
-    const refTxnIds = [...new Set(refMatches.map(m => m.bank_txn_id))]
-    await pgPatch(`recon_transactions?id=in.(${refTxnIds.join(',')})`, { match_status: 'auto_matched' })
+    if (refAutoIds.length)   await pgPatch(`recon_transactions?id=in.(${refAutoIds.join(',')})`,   { match_status: 'auto_matched' })
+    if (refReviewIds.length) await pgPatch(`recon_transactions?id=in.(${refReviewIds.join(',')})`, { match_status: 'pending_review' })
   }
 
   // ── TIER 2: Fuzzy match (exact amount, ±3 days) ───────────────────────────

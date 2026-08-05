@@ -317,39 +317,41 @@ export async function runMatchEngine(
     )
     if (!refCandidates.length) continue
 
-    if (refs.length === 1 && refCandidates.length === 1 &&
-        Math.abs(roundMoney(refCandidates[0].amount) - roundMoney(amount)) < 0.01) {
-      const ve = refCandidates[0]
-      refMatches.push({
-        bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
-        match_method: 'reference', match_confidence: 97,
-        match_reason: `Narration ref VCH-${refs[0]} matches voucher ${ve.voucher_number ?? ve.voucher_id}`,
-        company_id: companyId,
-      })
-      matchedVoucherEntryIds.add(ve.id); matchedTxnIds.add(txn.id)
-      continue
-    }
-
     const uniqueCandidates = refCandidates.filter((ve, i, a) => a.findIndex(x => x.id === ve.id) === i)
     const sumAmt = roundMoney(uniqueCandidates.reduce((s, ve) => s + ve.amount, 0))
-    if (Math.abs(sumAmt - roundMoney(amount)) < 0.01) {
+    const amountMatches = Math.abs(sumAmt - roundMoney(amount)) < 0.01
+
+    if (amountMatches) {
       for (const ve of uniqueCandidates) {
         refMatches.push({
           bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
           match_method: 'reference', match_confidence: 97,
-          match_reason: `Narration multi-ref sum ₹${sumAmt} matches ${refs.join('+')} on VCH refs`,
+          match_reason: `Narration ref matches voucher ${ve.voucher_number ?? ve.voucher_id}; amounts agree ₹${sumAmt}`,
           company_id: companyId,
         })
         matchedVoucherEntryIds.add(ve.id)
       }
       matchedTxnIds.add(txn.id)
+    } else if (refs.length === 1 && uniqueCandidates.length === 1) {
+      // Explicit single ref, no amount match — bank charge / split-ledger case.
+      const ve = uniqueCandidates[0]
+      refMatches.push({
+        bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
+        match_method: 'reference', match_confidence: 75,
+        match_reason: `Narration ref matches voucher ${ve.voucher_number ?? ve.voucher_id}; ledger entry ₹${ve.amount} ≠ bank ₹${amount} (likely split-ledger payment)`,
+        company_id: companyId,
+      })
+      matchedVoucherEntryIds.add(ve.id)
+      matchedTxnIds.add(txn.id)
     }
   }
 
+  const refAutoIds   = [...new Set(refMatches.filter(m => m.match_confidence >= 90).map(m => m.bank_txn_id))]
+  const refReviewIds = [...new Set(refMatches.filter(m => m.match_confidence  < 90).map(m => m.bank_txn_id))]
   if (refMatches.length) {
     await pgPost('recon_matches', refMatches, true)
-    const refTxnIds = [...new Set(refMatches.map(m => m.bank_txn_id))]
-    await pgPatch(`recon_transactions?id=in.(${refTxnIds.join(',')})`, { match_status: 'auto_matched' })
+    if (refAutoIds.length)   await pgPatch(`recon_transactions?id=in.(${refAutoIds.join(',')})`,   { match_status: 'auto_matched' })
+    if (refReviewIds.length) await pgPatch(`recon_transactions?id=in.(${refReviewIds.join(',')})`, { match_status: 'pending_review' })
   }
 
   // ── TIER 2: Fuzzy match (exact amount, ±3 days) ───────────────────────────
@@ -569,12 +571,16 @@ function extractVoucherRefs(narration: string): number[] {
   return [...new Set(refs)]
 }
 
-// Only matches VCH-YYYY-YY-NNNNN series — refs in bank narrations are always VCH-series.
-// Slash-separated series (RFPL/PYMT/…) must never be matched against a VCH narration ref.
+// Matches both VCH-YYYY-YY-NNNNN (dash+5-digit) and RFPL/PYMT/YYYY/NNNN (slash+4-digit) series.
 function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
   if (!voucherNumber) return false
-  if (!/^VCH-/i.test(voucherNumber)) return false
   const raw = String(ref)
   const padded5 = raw.padStart(5, '0')
-  return voucherNumber.endsWith('-' + padded5) || voucherNumber.endsWith('-' + raw)
+  const padded4 = raw.padStart(4, '0')
+  return (
+    voucherNumber.endsWith('-' + padded5) ||
+    voucherNumber.endsWith('-' + raw) ||
+    voucherNumber.endsWith('/' + padded4) ||
+    voucherNumber.endsWith('/' + raw)
+  )
 }

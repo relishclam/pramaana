@@ -354,7 +354,8 @@ export async function runMatchEngine(
     if (refReviewIds.length) await pgPatch(`recon_transactions?id=in.(${refReviewIds.join(',')})`, { match_status: 'pending_review' })
   }
 
-  // ── TIER 2: Fuzzy match (exact amount, ±3 days) ───────────────────────────
+  // ── TIER 2: Amount match against unrestricted pool (no date wall) ────────
+  // FY25-26 vouchers have dates months before FY26-27 bank transactions.
   const tier2Txns = txns.filter(t => !matchedTxnIds.has(t.id))
   for (const txn of tier2Txns) {
     const amount = txn.debit ?? txn.credit
@@ -362,49 +363,46 @@ export async function runMatchEngine(
 
     const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
 
-    const candidates = voucherEntries.filter(ve => {
+    const candidates = refVoucherEntries.filter(ve => {
       if (matchedVoucherEntryIds.has(ve.id)) return false
       if (ve.entry_type !== bookSide) return false
-      if (Math.abs(roundMoney(ve.amount) - roundMoney(amount)) >= 0.01) return false
-      const diff = dateDiffDays(txn.txn_date, ve.voucher_date)
-      return diff <= 3
+      return Math.abs(roundMoney(ve.amount) - roundMoney(amount)) < 0.01
     })
 
     if (!candidates.length) continue
 
-    // Score each candidate
+    // Score by date proximity + reference; unique-amount match gets higher confidence
     let best = candidates[0]
     let bestScore = 0
     for (const ve of candidates) {
       let score = 70
       const diff = dateDiffDays(txn.txn_date, ve.voucher_date)
-      score += diff === 0 ? 10 : diff === 1 ? 7 : diff === 2 ? 4 : 0
+      score += diff === 0 ? 20 : diff <= 3 ? 15 : diff <= 14 ? 8 : diff <= 60 ? 4 : 1
       if (refMatch(txn, ve)) score += 10
       if (score > bestScore) { bestScore = score; best = ve }
     }
-    if (bestScore < 70) continue
+
+    const confidence = candidates.length === 1 ? Math.min(bestScore, 94) : Math.min(bestScore - 10, 80)
 
     fuzzyMatches.push({
       bank_txn_id:      txn.id,
       voucher_id:       best.voucher_id,
       voucher_entry_id: best.id,
       match_method:     'fuzzy',
-      match_confidence: Math.min(bestScore, 94),
-      match_reason:     `Fuzzy match — amount ₹${amount}, date diff ${dateDiffDays(txn.txn_date, best.voucher_date)}d`,
+      match_confidence: confidence,
+      match_reason:     `Amount ₹${amount} matches${candidates.length > 1 ? ` (${candidates.length} candidates, best by date)` : ''}, voucher ${best.voucher_number ?? best.voucher_id}`,
       company_id:       companyId,
     })
     matchedVoucherEntryIds.add(best.id)
     matchedTxnIds.add(txn.id)
   }
 
-  // Insert Tier 2; set pending_review so re-runs don't reprocess them in Tier 3
   if (fuzzyMatches.length) {
     await pgPost('recon_matches', fuzzyMatches, true)
-    const tier2TxnIds = fuzzyMatches.map(m => m.bank_txn_id)
-    await pgPatch(
-      `recon_transactions?id=in.(${tier2TxnIds.join(',')})`,
-      { match_status: 'pending_review' }
-    )
+    const t2AutoIds   = fuzzyMatches.filter(m => m.match_confidence >= 85).map(m => m.bank_txn_id)
+    const t2ReviewIds = fuzzyMatches.filter(m => m.match_confidence  < 85).map(m => m.bank_txn_id)
+    if (t2AutoIds.length)   await pgPatch(`recon_transactions?id=in.(${t2AutoIds.join(',')})`,   { match_status: 'auto_matched' })
+    if (t2ReviewIds.length) await pgPatch(`recon_transactions?id=in.(${t2ReviewIds.join(',')})`, { match_status: 'pending_review' })
   }
 
   // ── TIER 3: AI match ──────────────────────────────────────────────────────
@@ -567,6 +565,12 @@ function extractVoucherRefs(narration: string): number[] {
       if (n >= 100) refs.push(n)   // skip single/double-digit trailing noise
       tail = tail.slice(extra[0].length)
     }
+  }
+  // Fallback: bare OTH-NNN without a preceding VCH token (e.g. "OTH-421")
+  if (!refs.length) {
+    const othPattern = /\bOTH-0*(\d{3,5})\b/gi
+    let om: RegExpExecArray | null
+    while ((om = othPattern.exec(narration)) !== null) refs.push(parseInt(om[1], 10))
   }
   return [...new Set(refs)]
 }

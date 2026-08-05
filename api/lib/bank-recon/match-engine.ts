@@ -135,6 +135,10 @@ export async function runMatchEngine(
 
   // ── Diagnostic: confirm what ledger this run is scoped to ────────────────
   console.error(`[match] runMatchEngine statementId=${statementId} companyId=${companyId} ledgerId=${ledgerId} txnCount=${txns.length}`)
+  // Engine is additive-only: never clears existing matches. 409 duplicates are silently ignored.
+  const existingMatchCount = await pgFetch(`recon_matches?bank_txn_id=in.(${txns.slice(0,200).map(t=>t.id).join(',')})&select=id`)
+    .then(rows => rows.length).catch(() => -1)
+  console.error(`[match] existing matches visible for first 200 txns: ${existingMatchCount}`)
 
   if (!txns.length) {
     return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: 0, queries_created: 0 }
@@ -374,7 +378,9 @@ export async function runMatchEngine(
     if (refReviewIds.length) await pgPatch(`recon_transactions?id=in.(${refReviewIds.join(',')})`, { match_status: 'pending_review' })
   }
 
-  // ── TIER 2: Fuzzy match (exact amount, ±3 days) ───────────────────────────
+  // ── TIER 2: Amount match against unrestricted pool (no date wall) ────────
+  // FY25-26 vouchers have dates months before FY26-27 bank transactions.
+  // Using refVoucherEntries (all-time) instead of the date-windowed pool.
   const tier2Txns = txns.filter(t => !matchedTxnIds.has(t.id))
   for (const txn of tier2Txns) {
     const amount = txn.debit ?? txn.credit
@@ -382,49 +388,48 @@ export async function runMatchEngine(
 
     const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
 
-    const candidates = voucherEntries.filter(ve => {
+    const candidates = refVoucherEntries.filter(ve => {
       if (matchedVoucherEntryIds.has(ve.id)) return false
       if (ve.entry_type !== bookSide) return false
-      if (Math.abs(roundMoney(ve.amount) - roundMoney(amount)) >= 0.01) return false
-      const diff = dateDiffDays(txn.txn_date, ve.voucher_date)
-      return diff <= 3
+      return Math.abs(roundMoney(ve.amount) - roundMoney(amount)) < 0.01
     })
 
     if (!candidates.length) continue
 
-    // Score each candidate
+    // Score each candidate — date proximity + reference overlap
     let best = candidates[0]
     let bestScore = 0
     for (const ve of candidates) {
       let score = 70
       const diff = dateDiffDays(txn.txn_date, ve.voucher_date)
-      score += diff === 0 ? 10 : diff === 1 ? 7 : diff === 2 ? 4 : 0
+      score += diff === 0 ? 20 : diff <= 3 ? 15 : diff <= 14 ? 8 : diff <= 60 ? 4 : 1
       if (refMatch(txn, ve)) score += 10
       if (score > bestScore) { bestScore = score; best = ve }
     }
-    if (bestScore < 70) continue
+
+    // Confidence: unique-amount match (no ambiguity) → higher; multiple candidates → review
+    const confidence = candidates.length === 1 ? Math.min(bestScore, 94) : Math.min(bestScore - 10, 80)
+    const status: 'auto_matched' | 'pending_review' = confidence >= 85 ? 'auto_matched' : 'pending_review'
 
     fuzzyMatches.push({
       bank_txn_id:      txn.id,
       voucher_id:       best.voucher_id,
       voucher_entry_id: best.id,
       match_method:     'fuzzy',
-      match_confidence: Math.min(bestScore, 94),
-      match_reason:     `Fuzzy match — amount ₹${amount}, date diff ${dateDiffDays(txn.txn_date, best.voucher_date)}d`,
+      match_confidence: confidence,
+      match_reason:     `Amount ₹${amount} matches${candidates.length > 1 ? ` (${candidates.length} candidates, best by date)` : ''}, voucher ${best.voucher_number ?? best.voucher_id}`,
       company_id:       companyId,
     })
     matchedVoucherEntryIds.add(best.id)
     matchedTxnIds.add(txn.id)
   }
 
-  // Insert Tier 2; set pending_review so re-runs don't reprocess them in Tier 3
   if (fuzzyMatches.length) {
     await pgPost('recon_matches', fuzzyMatches, true)
-    const tier2TxnIds = fuzzyMatches.map(m => m.bank_txn_id)
-    await pgPatch(
-      `recon_transactions?id=in.(${tier2TxnIds.join(',')})`,
-      { match_status: 'pending_review' }
-    )
+    const t2AutoIds   = fuzzyMatches.filter(m => m.match_confidence >= 85).map(m => m.bank_txn_id)
+    const t2ReviewIds = fuzzyMatches.filter(m => m.match_confidence  < 85).map(m => m.bank_txn_id)
+    if (t2AutoIds.length)   await pgPatch(`recon_transactions?id=in.(${t2AutoIds.join(',')})`,   { match_status: 'auto_matched' })
+    if (t2ReviewIds.length) await pgPatch(`recon_transactions?id=in.(${t2ReviewIds.join(',')})`, { match_status: 'pending_review' })
   }
 
   // ── TIER 3: AI match ──────────────────────────────────────────────────────
@@ -540,13 +545,15 @@ export async function runMatchEngine(
     { upload_status: 'matched', updated_at: new Date().toISOString() }
   )
 
-  return {
+  const result = {
     exact_matches: exactMatches.length,
     fuzzy_matches: fuzzyMatches.length,
     ai_matches:    aiMatchCount,
     unmatched:     stillUnmatched.length,
     queries_created: queriesCreated,
   }
+  console.error(`[match] runMatchEngine END: exact=${result.exact_matches} ref=N/A fuzzy=${result.fuzzy_matches} ai=${result.ai_matches} unmatched=${result.unmatched}`)
+  return result
 }
 
 // ── Date math helpers (no external dependencies) ─────────────────────────────
@@ -579,7 +586,7 @@ function refMatch(txn: ReconTransaction, ve: VoucherEntry): boolean {
 }
 
 // Extract voucher sequence numbers referenced in a bank narration.
-// Handles: "VCH 596", "VCH-2026-27-00596", "VCH 596 598" (multiple after one VCH token)
+// Handles: "VCH 596", "VCH-2026-27-00596", "OTH-421" (bare OTH-NNN without VCH token)
 function extractVoucherRefs(narration: string): number[] {
   const refs: number[] = []
   // Primary: VCH token optionally followed by year and a number
@@ -597,11 +604,15 @@ function extractVoucherRefs(narration: string): number[] {
       tail = tail.slice(extra[0].length)
     }
   }
+  // Fallback: bare OTH-NNN without a preceding VCH token (e.g. "OTH-421")
+  if (!refs.length) {
+    const othPattern = /\bOTH-0*(\d{3,5})\b/gi
+    let om: RegExpExecArray | null
+    while ((om = othPattern.exec(narration)) !== null) refs.push(parseInt(om[1], 10))
+  }
   return [...new Set(refs)]
 }
 
-// Only matches VCH-YYYY-YY-NNNNN series — refs in bank narrations are always VCH-series.
-// Slash-separated series (RFPL/PYMT/…) must never be matched against a VCH narration ref.
 // Matches both VCH-YYYY-YY-NNNNN (dash+5-digit) and RFPL/PYMT/YYYY/NNNN (slash+4-digit) series.
 function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
   if (!voucherNumber) return false

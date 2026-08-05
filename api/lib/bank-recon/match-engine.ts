@@ -135,19 +135,27 @@ export async function runMatchEngine(
   const minDate = subtractDays(dates[0], 7)
   const maxDate = addDays(dates[dates.length - 1], 7)
 
-  // Fetch candidate voucher entries. PostgREST returns nested `vouchers` object — flatten below.
-  const rawVEs = await pgFetch(
+  // Fetch candidate voucher entries. Entities fetched separately to avoid cross-schema join limits.
+  const rawVEsRes = await fetch(`${supabaseUrl}/rest/v1/` +
     `voucher_entries?ledger_id=eq.${ledgerId}&select=id,voucher_id,ledger_id,entry_type,amount,narration,` +
-    `vouchers!inner(id,voucher_date,narration,status,company_id,entity_id,` +
-    `entities:entity_id(display_name))` +
+    `vouchers!inner(id,voucher_date,narration,status,company_id,entity_id)` +
     `&vouchers.status=eq.posted&vouchers.company_id=eq.${companyId}` +
-    `&vouchers.voucher_date=gte.${minDate}&vouchers.voucher_date=lte.${maxDate}`
-  ).catch(() => [] as unknown[]) as Array<Record<string, unknown>>
+    `&vouchers.voucher_date=gte.${minDate}&vouchers.voucher_date=lte.${maxDate}`, {
+    headers: {
+      apikey: serviceKey, Authorization: `Bearer ${serviceKey}`,
+      'Accept-Profile': 'pramaana', 'Content-Profile': 'pramaana',
+    },
+  })
+  if (!rawVEsRes.ok) {
+    const err = await rawVEsRes.text()
+    console.error('[match] voucher fetch failed', rawVEsRes.status, err)
+    throw new Error(`Voucher fetch failed ${rawVEsRes.status}: ${err}`)
+  }
+  const rawVEs = await rawVEsRes.json() as Array<Record<string, unknown>>
 
   // Flatten nested PostgREST join shape into a typed flat VoucherEntry[]
   const voucherEntries: VoucherEntry[] = rawVEs.map(ve => {
     const v = ve['vouchers'] as Record<string, unknown> | null ?? {}
-    const entity = v['entities'] as Record<string, unknown> | null
     return {
       id:                ve['id'] as string,
       voucher_id:        ve['voucher_id'] as string,
@@ -157,10 +165,41 @@ export async function runMatchEngine(
       narration:         ve['narration'] as string | null,
       voucher_date:      v['voucher_date'] as string,
       voucher_narration: v['narration'] as string ?? '',
-      party_name:        entity ? (entity['display_name'] as string | null) : null,
+      party_name:        null,   // filled by entity lookup below
       reference:         null,
-    }
+      _entity_id:        v['entity_id'] as string | null,
+    } as VoucherEntry & { _entity_id: string | null }
   })
+  console.log('[match] candidates loaded:', voucherEntries.length)
+
+  // Fetch party names from registry.entities in a single second query (Tier 3 AI context only)
+  const entityIds = [...new Set(
+    (voucherEntries as Array<VoucherEntry & { _entity_id: string | null }>)
+      .map(ve => ve._entity_id).filter(Boolean) as string[]
+  )]
+  if (entityIds.length) {
+    try {
+      const entRes = await fetch(
+        `${supabaseUrl}/rest/v1/entities?id=in.(${entityIds.join(',')})&select=id,display_name`, {
+          headers: {
+            apikey: serviceKey, Authorization: `Bearer ${serviceKey}`,
+            'Accept-Profile': 'registry',
+          },
+        }
+      )
+      if (entRes.ok) {
+        const entRows = await entRes.json() as { id: string; display_name: string }[]
+        const entMap = new Map(entRows.map(e => [e.id, e.display_name]))
+        ;(voucherEntries as Array<VoucherEntry & { _entity_id: string | null }>).forEach(ve => {
+          if (ve._entity_id) ve.party_name = entMap.get(ve._entity_id) ?? null
+        })
+      } else {
+        console.error('[match] entity lookup failed', entRes.status)
+      }
+    } catch (e) {
+      console.error('[match] entity lookup error:', e)
+    }
+  }
 
   // Scope to only the candidate VE IDs to avoid a full-company scan
   const matchedVoucherEntryIds = new Set<string>()

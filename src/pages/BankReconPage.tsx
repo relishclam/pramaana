@@ -544,7 +544,7 @@ function StatementsTab({ companyId, onSelect }: { companyId: string; onSelect: (
     setDeleting(id)
     // Optimistically remove so the UI clears immediately even before load() re-fetches
     setStmts(prev => prev.filter(s => s.id !== id))
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.refreshSession()
     await fetch(`/api/bank-recon-statements?id=${id}&company_id=${companyId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
@@ -646,7 +646,7 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
 
   const doAction = async (txnId: string, action: 'confirm' | 'reject') => {
     setConfirming(txnId)
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.refreshSession()
     await fetch('/api/bank-recon-confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
@@ -658,7 +658,7 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
   const rerunMatch = async () => {
     setRerunning(true); setRerunError(null)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const { data: { session } } = await supabase.auth.refreshSession()
       const res = await fetch('/api/bank-recon-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
@@ -853,7 +853,7 @@ function QueriesTab({ companyId }: { companyId: string }) {
 
   const resolve = async (id: string) => {
     setResolving(id)
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.refreshSession()
     await fetch(`/api/bank-recon-queries?id=${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
@@ -957,7 +957,7 @@ function BrsTab({ companyId }: { companyId: string }) {
 
   const runBrs = async () => {
     setLoading(true); setError(null)
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session } } = await supabase.auth.refreshSession()
     const res = await fetch(
       `/api/bank-recon-brs?company_id=${companyId}&bank_account_id=${accountId}&as_at_date=${asAt}`,
       { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } }

@@ -619,11 +619,16 @@ function extractVoucherRefs(narration: string): number[] {
 
 // Only matches VCH-YYYY-YY-NNNNN series — refs in bank narrations are always VCH-series.
 // Slash-separated series (RFPL/PYMT/…) must never be matched against a VCH narration ref.
+// Matches both VCH-YYYY-YY-NNNNN (dash+5-digit) and RFPL/PYMT/YYYY/NNNN (slash+4-digit) series.
 function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
   if (!voucherNumber) return false
-  // Must be a VCH-series voucher (dash separator before the sequence number)
-  if (!/^VCH-/i.test(voucherNumber)) return false
   const raw = String(ref)
   const padded5 = raw.padStart(5, '0')
-  return voucherNumber.endsWith('-' + padded5) || voucherNumber.endsWith('-' + raw)
+  const padded4 = raw.padStart(4, '0')
+  return (
+    voucherNumber.endsWith('-' + padded5) ||
+    voucherNumber.endsWith('-' + raw) ||
+    voucherNumber.endsWith('/' + padded4) ||
+    voucherNumber.endsWith('/' + raw)
+  )
 }

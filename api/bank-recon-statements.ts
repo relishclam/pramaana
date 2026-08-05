@@ -3,7 +3,7 @@
  * GET  /api/bank-recon-statements?id=...               (single statement with transactions)
  * DELETE /api/bank-recon-statements?id=...&company_id=...
  */
-export const config = { runtime: 'edge' }
+export const config = { runtime: 'nodejs', maxDuration: 30 }
 
 const json = (d: unknown, s = 200) =>
   new Response(JSON.stringify(d), { status: s, headers: { 'Content-Type': 'application/json' } })
@@ -64,8 +64,14 @@ async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'DELETE') {
     if (!id || !companyId) return json({ error: 'id and company_id required' }, 400)
     // CASCADE deletes recon_transactions, recon_matches, recon_queries
-    await dbFetch(supabaseUrl, serviceKey, 'DELETE', `recon_statements?id=eq.${id}&company_id=eq.${companyId}`)
-    return json({ status: 'deleted' })
+    const { ok, data } = await dbFetch(supabaseUrl, serviceKey, 'DELETE', `recon_statements?id=eq.${id}&company_id=eq.${companyId}`)
+    if (!ok) {
+      console.error('recon_statements DELETE failed:', data)
+      return json({ error: `Delete failed: ${data}` }, 500)
+    }
+    const deleted = data as unknown[]
+    if (!deleted.length) return json({ error: 'Statement not found or already deleted' }, 404)
+    return json({ status: 'deleted', id })
   }
 
   if (req.method === 'GET') {

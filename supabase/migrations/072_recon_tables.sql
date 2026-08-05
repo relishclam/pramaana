@@ -267,7 +267,7 @@ CREATE POLICY rm_service_all ON pramaana.recon_matches
 CREATE TABLE IF NOT EXISTS pramaana.recon_queries (
   id                    uuid    PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id            uuid    NOT NULL,
-  bank_txn_id           uuid    REFERENCES pramaana.recon_transactions(id),
+  bank_txn_id           uuid    REFERENCES pramaana.recon_transactions(id) ON DELETE CASCADE,
   voucher_id            uuid    REFERENCES pramaana.vouchers(id),
   query_type            text    NOT NULL
                         CHECK (query_type IN (

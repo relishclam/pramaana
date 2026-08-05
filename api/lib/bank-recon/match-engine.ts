@@ -279,12 +279,15 @@ export async function runMatchEngine(
   // Date is NOT a criterion — RFPL narrations use payee-typed voucher numbers.
   const refMatches: MatchResult[] = []
   const refTxns = txns.filter(t => !matchedTxnIds.has(t.id))
+  console.error(`[T1.2] starting: ${refTxns.length} txns to check, ${voucherEntries.length} candidates`)
 
   for (const txn of refTxns) {
     const amount = txn.debit ?? txn.credit
     if (amount === null) continue
     const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
     const refs = extractVoucherRefs(txn.narration)
+    // (a) trace every txn that has VCH refs
+    if (refs.length) console.error(`[T1.2] txn="${txn.narration.slice(-40)}" amt=${amount} side=${bookSide} refs=${JSON.stringify(refs)}`)
     if (!refs.length) continue
 
     // Find unmatched candidates matching each ref by voucher_number suffix
@@ -295,12 +298,19 @@ export async function runMatchEngine(
         voucherNumberMatchesRef(ve.voucher_number, ref)
       )
     )
+    // (b) trace voucher_number lookup result
+    console.error(`[T1.2]   voucher candidates for refs ${JSON.stringify(refs)}: ${refCandidates.length} found`)
+    if (refCandidates.length) refCandidates.forEach(ve => console.error(`[T1.2]     ve.id=${ve.id} vno=${ve.voucher_number} amt=${ve.amount} entry=${ve.entry_type}`))
+    // sample first few voucherEntries voucher_numbers for debugging
+    if (!refCandidates.length) console.error(`[T1.2]   sample voucher_numbers:`, voucherEntries.slice(0,5).map(ve=>ve.voucher_number))
     if (!refCandidates.length) continue
 
     // Single ref, exact amount
     if (refs.length === 1 && refCandidates.length === 1 &&
         Math.abs(roundMoney(refCandidates[0].amount) - roundMoney(amount)) < 0.01) {
       const ve = refCandidates[0]
+      // (c) trace match row before insert
+      console.error(`[T1.2]   MATCH single ref=${refs[0]} vno=${ve.voucher_number} inserting row`)
       refMatches.push({
         bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
         match_method: 'reference', match_confidence: 97,
@@ -314,8 +324,10 @@ export async function runMatchEngine(
     // Multiple refs: sum of matching entries equals bank amount
     const uniqueCandidates = refCandidates.filter((ve, i, a) => a.findIndex(x => x.id === ve.id) === i)
     const sumAmt = roundMoney(uniqueCandidates.reduce((s, ve) => s + ve.amount, 0))
+    console.error(`[T1.2]   multi-ref sumAmt=${sumAmt} bankAmt=${amount} match=${Math.abs(sumAmt-roundMoney(amount))<0.01}`)
     if (Math.abs(sumAmt - roundMoney(amount)) < 0.01) {
       for (const ve of uniqueCandidates) {
+        console.error(`[T1.2]   MATCH multi-ref inserting ve.id=${ve.id}`)
         refMatches.push({
           bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
           match_method: 'reference', match_confidence: 97,
@@ -328,6 +340,8 @@ export async function runMatchEngine(
     }
   }
 
+  // (d) trace post-insert
+  console.error(`[T1.2] done: ${refMatches.length} reference matches produced`)
   if (refMatches.length) {
     await pgPost('recon_matches', refMatches)
     const refTxnIds = [...new Set(refMatches.map(m => m.bank_txn_id))]

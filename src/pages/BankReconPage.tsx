@@ -624,6 +624,8 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
   const [filter, setFilter]       = useState<MFilter>('all')
   const [selected, setSelected]   = useState<ReconTxn | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  const [rerunning, setRerunning]   = useState(false)
+  const [rerunError, setRerunError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -654,13 +656,24 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
   }
 
   const rerunMatch = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    await fetch('/api/bank-recon-match', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ statement_id: statementId, company_id: companyId }),
-    })
-    load()
+    setRerunning(true); setRerunError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/bank-recon-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ statement_id: statementId, company_id: companyId }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setRerunError((body as { error?: string }).error ?? `Server error ${res.status}`)
+      }
+    } catch (e) {
+      setRerunError(e instanceof Error ? e.message : 'Network error')
+    } finally {
+      setRerunning(false)
+      load()
+    }
   }
 
   if (loading) return <div className={css.loading}><Loader size={16} className={css.spin} /> Loading…</div>
@@ -687,9 +700,14 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
           <RefreshCw size={13} /> Refresh
         </button>
         <button className={css.btnSecondary} style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
-          onClick={rerunMatch}>
-          Re-run matching
+          disabled={rerunning} onClick={rerunMatch}>
+          {rerunning ? <><Loader size={13} className={css.spin} /> Matching…</> : 'Re-run matching'}
         </button>
+        {rerunError && (
+          <span style={{ fontSize: '0.72rem', color: 'var(--color-danger, #e53e3e)', marginLeft: '0.25rem' }}>
+            {rerunError}
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 340px' : '1fr', gap: '0.75rem', alignItems: 'start' }}>

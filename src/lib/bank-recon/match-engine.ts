@@ -211,12 +211,35 @@ export async function runMatchEngine(
     return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: txns.length, queries_created: queries.length }
   }
 
+  // ── Unrestricted candidate pool for Tier 1.2 (no date filter) ──
+  const refVEsRes = await fetch(
+    `${supabaseUrl}/rest/v1/voucher_entries?ledger_id=eq.${ledgerId}` +
+    `&select=id,voucher_id,ledger_id,entry_type,amount,narration,vouchers!inner(id,voucher_date,voucher_number,narration,status,company_id)` +
+    `&vouchers.status=eq.posted&vouchers.company_id=eq.${companyId}`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Accept-Profile': 'pramaana', 'Content-Profile': 'pramaana' },
+  })
+  const refVoucherEntries: VoucherEntry[] = refVEsRes.ok
+    ? ((await refVEsRes.json() as Array<Record<string, unknown>>).map(ve => {
+        const v = ve['vouchers'] as Record<string, unknown> | null ?? {}
+        return {
+          id: ve['id'] as string, voucher_id: ve['voucher_id'] as string, ledger_id: ve['ledger_id'] as string,
+          entry_type: ve['entry_type'] as 'Dr' | 'Cr', amount: ve['amount'] as number,
+          narration: ve['narration'] as string | null, voucher_number: v['voucher_number'] as string | null,
+          voucher_date: v['voucher_date'] as string, voucher_narration: v['narration'] as string ?? '',
+          party_name: null, reference: null,
+        }
+      }))
+    : []
+
   // Scope to only the candidate VE IDs to avoid a full-company scan
   const matchedVoucherEntryIds = new Set<string>()
-  const candidateVeIds = voucherEntries.map(ve => ve.id)
-  if (candidateVeIds.length) {
+  const allCandidateIds = [
+    ...voucherEntries.map(ve => ve.id),
+    ...refVoucherEntries.map(ve => ve.id),
+  ].filter((id, i, a) => a.indexOf(id) === i)
+  if (allCandidateIds.length) {
     const existingMatches = await pgFetch(
-      `recon_matches?voucher_entry_id=in.(${candidateVeIds.join(',')})&select=voucher_entry_id`
+      `recon_matches?voucher_entry_id=in.(${allCandidateIds.join(',')})&select=voucher_entry_id`
     ).catch(() => [] as unknown[]) as { voucher_entry_id: string }[]
     existingMatches.forEach(m => { if (m.voucher_entry_id) matchedVoucherEntryIds.add(m.voucher_entry_id) })
   }
@@ -285,7 +308,7 @@ export async function runMatchEngine(
     if (!refs.length) continue
 
     const refCandidates = refs.flatMap(ref =>
-      voucherEntries.filter(ve =>
+      refVoucherEntries.filter(ve =>
         !matchedVoucherEntryIds.has(ve.id) &&
         ve.entry_type === bookSide &&
         voucherNumberMatchesRef(ve.voucher_number, ref)
@@ -547,6 +570,13 @@ function extractVoucherRefs(narration: string): number[] {
 
 function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
   if (!voucherNumber) return false
-  const padded = String(ref).padStart(5, '0')
-  return voucherNumber.endsWith('-' + padded) || voucherNumber.endsWith('-' + String(ref))
+  const raw = String(ref)
+  const padded5 = raw.padStart(5, '0')  // VCH-2026-27-00437 style
+  const padded4 = raw.padStart(4, '0')  // RFPL/PYMT/2526/0819 style
+  return (
+    voucherNumber.endsWith('-' + padded5) ||
+    voucherNumber.endsWith('-' + raw) ||
+    voucherNumber.endsWith('/' + padded4) ||
+    voucherNumber.endsWith('/' + raw)
+  )
 }

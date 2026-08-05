@@ -212,12 +212,38 @@ export async function runMatchEngine(
     return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: txns.length, queries_created: queries.length }
   }
 
+  // ── Unrestricted candidate pool for Tier 1.2 (no date filter — refs match globally) ──
+  // The date-windowed `voucherEntries` above is too narrow for narration reference matching
+  // because it's built from the unmatched subset's date range, not the full ledger history.
+  const refVEsRes = await fetch(
+    `${supabaseUrl}/rest/v1/voucher_entries?ledger_id=eq.${ledgerId}` +
+    `&select=id,voucher_id,ledger_id,entry_type,amount,narration,vouchers!inner(id,voucher_date,voucher_number,narration,status,company_id)` +
+    `&vouchers.status=eq.posted&vouchers.company_id=eq.${companyId}`, {
+    headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Accept-Profile': 'pramaana', 'Content-Profile': 'pramaana' },
+  })
+  const refVoucherEntries: VoucherEntry[] = refVEsRes.ok
+    ? ((await refVEsRes.json() as Array<Record<string, unknown>>).map(ve => {
+        const v = ve['vouchers'] as Record<string, unknown> | null ?? {}
+        return {
+          id: ve['id'] as string, voucher_id: ve['voucher_id'] as string, ledger_id: ve['ledger_id'] as string,
+          entry_type: ve['entry_type'] as 'Dr' | 'Cr', amount: ve['amount'] as number,
+          narration: ve['narration'] as string | null, voucher_number: v['voucher_number'] as string | null,
+          voucher_date: v['voucher_date'] as string, voucher_narration: v['narration'] as string ?? '',
+          party_name: null, reference: null,
+        }
+      }))
+    : []
+  console.error(`[T1.2-pool] unrestricted refVoucherEntries: ${refVoucherEntries.length} (vs windowed ${voucherEntries.length})`)
+
   // Scope to only the candidate VE IDs to avoid a full-company scan
   const matchedVoucherEntryIds = new Set<string>()
-  const candidateVeIds = voucherEntries.map(ve => ve.id)
-  if (candidateVeIds.length) {
+  const allCandidateIds = [
+    ...voucherEntries.map(ve => ve.id),
+    ...refVoucherEntries.map(ve => ve.id),
+  ].filter((id, i, a) => a.indexOf(id) === i)
+  if (allCandidateIds.length) {
     const existingMatches = await pgFetch(
-      `recon_matches?voucher_entry_id=in.(${candidateVeIds.join(',')})&select=voucher_entry_id`
+      `recon_matches?voucher_entry_id=in.(${allCandidateIds.join(',')})&select=voucher_entry_id`
     ).catch(() => [] as unknown[]) as { voucher_entry_id: string }[]
     existingMatches.forEach(m => { if (m.voucher_entry_id) matchedVoucherEntryIds.add(m.voucher_entry_id) })
   }
@@ -279,7 +305,7 @@ export async function runMatchEngine(
   // Date is NOT a criterion — RFPL narrations use payee-typed voucher numbers.
   const refMatches: MatchResult[] = []
   const refTxns = txns.filter(t => !matchedTxnIds.has(t.id))
-  console.error(`[T1.2] starting: ${refTxns.length} txns to check, ${voucherEntries.length} candidates`)
+  console.error(`[T1.2] starting: ${refTxns.length} txns to check, ${refVoucherEntries.length} ref candidates`)
 
   for (const txn of refTxns) {
     const amount = txn.debit ?? txn.credit
@@ -290,9 +316,9 @@ export async function runMatchEngine(
     if (refs.length) console.error(`[T1.2] txn="${txn.narration.slice(-40)}" amt=${amount} side=${bookSide} refs=${JSON.stringify(refs)}`)
     if (!refs.length) continue
 
-    // Find unmatched candidates matching each ref by voucher_number suffix
+    // Find unmatched candidates matching each ref by voucher_number suffix — use unrestricted pool
     const refCandidates = refs.flatMap(ref =>
-      voucherEntries.filter(ve =>
+      refVoucherEntries.filter(ve =>
         !matchedVoucherEntryIds.has(ve.id) &&
         ve.entry_type === bookSide &&
         voucherNumberMatchesRef(ve.voucher_number, ref)
@@ -301,8 +327,6 @@ export async function runMatchEngine(
     // (b) trace voucher_number lookup result
     console.error(`[T1.2]   voucher candidates for refs ${JSON.stringify(refs)}: ${refCandidates.length} found`)
     if (refCandidates.length) refCandidates.forEach(ve => console.error(`[T1.2]     ve.id=${ve.id} vno=${ve.voucher_number} amt=${ve.amount} entry=${ve.entry_type}`))
-    // sample first few voucherEntries voucher_numbers for debugging
-    if (!refCandidates.length) console.error(`[T1.2]   sample voucher_numbers:`, voucherEntries.slice(0,5).map(ve=>ve.voucher_number))
     if (!refCandidates.length) continue
 
     // Single ref, exact amount
@@ -577,6 +601,13 @@ function extractVoucherRefs(narration: string): number[] {
 // True if voucher_number ends with the zero-padded ref (e.g. 'VCH-2026-27-00596' ends with '00596' or '596')
 function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
   if (!voucherNumber) return false
-  const padded = String(ref).padStart(5, '0')
-  return voucherNumber.endsWith('-' + padded) || voucherNumber.endsWith('-' + String(ref))
+  const raw = String(ref)
+  const padded5 = raw.padStart(5, '0')  // VCH-2026-27-00437 style
+  const padded4 = raw.padStart(4, '0')  // RFPL/PYMT/2526/0819 style
+  return (
+    voucherNumber.endsWith('-' + padded5) ||
+    voucherNumber.endsWith('-' + raw) ||
+    voucherNumber.endsWith('/' + padded4) ||
+    voucherNumber.endsWith('/' + raw)
+  )
 }

@@ -82,7 +82,7 @@ export async function runMatchEngine(
     return res.json() as Promise<unknown[]>
   }
 
-  async function pgPost(path: string, body: unknown): Promise<void> {
+  async function pgPost(path: string, body: unknown, upsert = false): Promise<void> {
     const res = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
       method: 'POST',
       headers: {
@@ -91,7 +91,8 @@ export async function runMatchEngine(
         'Content-Type':   'application/json',
         'Accept-Profile': 'pramaana',
         'Content-Profile': 'pramaana',
-        Prefer:           'return=minimal',
+        // upsert=true → ignore duplicate unique-constraint violations (safe re-run)
+        Prefer:           upsert ? 'return=minimal,resolution=ignore-duplicates' : 'return=minimal',
       },
       body: JSON.stringify(body),
     })
@@ -292,7 +293,7 @@ export async function runMatchEngine(
 
   // Insert Tier 1 matches and update statuses BEFORE Tier 1.2
   if (exactMatches.length) {
-    await pgPost('recon_matches', exactMatches)
+    await pgPost('recon_matches', exactMatches, true)
     const tier1TxnIds = exactMatches.map(m => m.bank_txn_id)
     await pgPatch(
       `recon_transactions?id=in.(${tier1TxnIds.join(',')})`,
@@ -367,7 +368,7 @@ export async function runMatchEngine(
   // (d) trace post-insert
   console.error(`[T1.2] done: ${refMatches.length} reference matches produced`)
   if (refMatches.length) {
-    await pgPost('recon_matches', refMatches)
+    await pgPost('recon_matches', refMatches, true)
     const refTxnIds = [...new Set(refMatches.map(m => m.bank_txn_id))]
     await pgPatch(`recon_transactions?id=in.(${refTxnIds.join(',')})`, { match_status: 'auto_matched' })
   }
@@ -417,7 +418,7 @@ export async function runMatchEngine(
 
   // Insert Tier 2; set pending_review so re-runs don't reprocess them in Tier 3
   if (fuzzyMatches.length) {
-    await pgPost('recon_matches', fuzzyMatches)
+    await pgPost('recon_matches', fuzzyMatches, true)
     const tier2TxnIds = fuzzyMatches.map(m => m.bank_txn_id)
     await pgPatch(
       `recon_transactions?id=in.(${tier2TxnIds.join(',')})`,
@@ -491,7 +492,7 @@ export async function runMatchEngine(
       }
 
       if (aiMatches.length) {
-        await pgPost('recon_matches', aiMatches)
+        await pgPost('recon_matches', aiMatches, true)
         aiMatchCount = aiMatches.length
         await pgPatch(
           `recon_transactions?id=in.(${aiMatches.map(m => m.bank_txn_id).join(',')})`,
@@ -598,16 +599,13 @@ function extractVoucherRefs(narration: string): number[] {
   return [...new Set(refs)]
 }
 
-// True if voucher_number ends with the zero-padded ref (e.g. 'VCH-2026-27-00596' ends with '00596' or '596')
+// Only matches VCH-YYYY-YY-NNNNN series — refs in bank narrations are always VCH-series.
+// Slash-separated series (RFPL/PYMT/…) must never be matched against a VCH narration ref.
 function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
   if (!voucherNumber) return false
+  // Must be a VCH-series voucher (dash separator before the sequence number)
+  if (!/^VCH-/i.test(voucherNumber)) return false
   const raw = String(ref)
-  const padded5 = raw.padStart(5, '0')  // VCH-2026-27-00437 style
-  const padded4 = raw.padStart(4, '0')  // RFPL/PYMT/2526/0819 style
-  return (
-    voucherNumber.endsWith('-' + padded5) ||
-    voucherNumber.endsWith('-' + raw) ||
-    voucherNumber.endsWith('/' + padded4) ||
-    voucherNumber.endsWith('/' + raw)
-  )
+  const padded5 = raw.padStart(5, '0')
+  return voucherNumber.endsWith('-' + padded5) || voucherNumber.endsWith('-' + raw)
 }

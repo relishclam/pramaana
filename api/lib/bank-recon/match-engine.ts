@@ -318,13 +318,22 @@ export async function runMatchEngine(
     if (!refs.length) continue
 
     // Find unmatched candidates matching each ref by voucher_number suffix — use unrestricted pool
-    const refCandidates = refs.flatMap(ref =>
-      refVoucherEntries.filter(ve =>
-        !matchedVoucherEntryIds.has(ve.id) &&
-        ve.entry_type === bookSide &&
-        voucherNumberMatchesRef(ve.voucher_number, ref)
-      )
-    )
+    const refCandidates = refs.flatMap(ref => {
+      const raw = String(ref); const p5 = raw.padStart(5, '0')
+      // Log the exact suffixes being tested and a sample of what's in the pool
+      const sample = refVoucherEntries.slice(0, 3).map(v => v.voucher_number)
+      console.error(`[T1.2-inner] ref=${ref} trying endsWith('-${p5}') or endsWith('-${raw}'); pool[0..2]=${JSON.stringify(sample)}`)
+      return refVoucherEntries.filter(ve => {
+        const alreadyMatched = matchedVoucherEntryIds.has(ve.id)
+        const sideOk = ve.entry_type === bookSide
+        const numOk  = voucherNumberMatchesRef(ve.voucher_number, ref)
+        // Log any candidate that passes the VCH-series guard so we can see why it still fails
+        if (numOk || (ve.voucher_number ?? '').includes(raw)) {
+          console.error(`[T1.2-inner]   cand ve.id=${ve.id} vno=${ve.voucher_number} alreadyMatched=${alreadyMatched} side=${ve.entry_type}(want ${bookSide}) numOk=${numOk}`)
+        }
+        return !alreadyMatched && sideOk && numOk
+      })
+    })
     // (b) trace voucher_number lookup result
     console.error(`[T1.2]   voucher candidates for refs ${JSON.stringify(refs)}: ${refCandidates.length} found`)
     if (refCandidates.length) refCandidates.forEach(ve => console.error(`[T1.2]     ve.id=${ve.id} vno=${ve.voucher_number} amt=${ve.amount} entry=${ve.entry_type}`))

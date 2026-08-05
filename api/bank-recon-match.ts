@@ -47,6 +47,7 @@ async function handleRequest(req: Request): Promise<Response> {
     `recon_statements?id=eq.${body.statement_id}&select=bank_account_id,recon_bank_accounts(ledger_id)`)) as { bank_account_id: string; recon_bank_accounts: { ledger_id: string | null } }[]
 
   const ledgerId = stmts[0]?.recon_bank_accounts?.ledger_id
+  console.error(`[bank-recon-match] statementId=${body.statement_id} bank_account_id=${stmts[0]?.bank_account_id} resolved ledgerId=${ledgerId}`)
   if (!ledgerId) return json({ error: 'Bank account not linked to a ledger' }, 400)
 
   const result = await runMatchEngine(body.statement_id, body.company_id, ledgerId, supabaseUrl, serviceKey)

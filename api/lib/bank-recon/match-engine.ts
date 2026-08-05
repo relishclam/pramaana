@@ -97,6 +97,12 @@ export async function runMatchEngine(
       body: JSON.stringify(body),
     })
     if (!res.ok) {
+      // 409 on recon_matches = duplicate unique key; ignore-duplicates Prefer header should prevent
+      // this, but guard here too in case PostgREST version doesn't honour the header.
+      if (upsert && res.status === 409) {
+        console.error(`[match] pgPost ${path}: 409 duplicate ignored (upsert mode)`)
+        return
+      }
       const err = await res.text()
       throw new Error(`DB insert error ${res.status}: ${err}`)
     }
@@ -126,6 +132,9 @@ export async function runMatchEngine(
   const txns = await pgFetch(
     `recon_transactions?statement_id=eq.${statementId}&match_status=in.(unmatched,pending_review)&select=*`
   ) as ReconTransaction[]
+
+  // ── Diagnostic: confirm what ledger this run is scoped to ────────────────
+  console.error(`[match] runMatchEngine statementId=${statementId} companyId=${companyId} ledgerId=${ledgerId} txnCount=${txns.length}`)
 
   if (!txns.length) {
     return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: 0, queries_created: 0 }

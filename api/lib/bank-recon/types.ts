@@ -166,7 +166,7 @@ export interface MatchResult {
   bank_txn_id: string
   voucher_id: string | null
   voucher_entry_id: string | null
-  match_method: 'exact' | 'fuzzy' | 'ai' | 'manual'
+  match_method: 'exact' | 'reference' | 'fuzzy' | 'ai' | 'manual'
   match_confidence: number
   match_reason: string
   company_id: string

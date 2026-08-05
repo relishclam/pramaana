@@ -41,6 +41,7 @@ interface VoucherEntry {
   entry_type: 'Dr' | 'Cr'
   amount: number
   narration: string | null    // entry-level narration; may be null
+  voucher_number: string | null
   voucher_date: string
   voucher_narration: string   // voucher-level narration fallback
   party_name: string | null
@@ -138,7 +139,7 @@ export async function runMatchEngine(
   // Fetch candidate voucher entries. Entities fetched separately to avoid cross-schema join limits.
   const rawVEsRes = await fetch(`${supabaseUrl}/rest/v1/` +
     `voucher_entries?ledger_id=eq.${ledgerId}&select=id,voucher_id,ledger_id,entry_type,amount,narration,` +
-    `vouchers!inner(id,voucher_date,narration,status,company_id,entity_id)` +
+    `vouchers!inner(id,voucher_date,voucher_number,narration,status,company_id,entity_id)` +
     `&vouchers.status=eq.posted&vouchers.company_id=eq.${companyId}` +
     `&vouchers.voucher_date=gte.${minDate}&vouchers.voucher_date=lte.${maxDate}`, {
     headers: {
@@ -163,6 +164,7 @@ export async function runMatchEngine(
       entry_type:        ve['entry_type'] as 'Dr' | 'Cr',
       amount:            ve['amount'] as number,
       narration:         ve['narration'] as string | null,
+      voucher_number:    v['voucher_number'] as string | null,
       voucher_date:      v['voucher_date'] as string,
       voucher_narration: v['narration'] as string ?? '',
       party_name:        null,   // filled by entity lookup below
@@ -199,6 +201,15 @@ export async function runMatchEngine(
     } catch (e) {
       console.error('[match] entity lookup error:', e)
     }
+  }
+
+  if (!voucherEntries.length) {
+    console.log('[match] no candidates — skipping matching tiers')
+    // Still create orphan queries for all unmatched txns
+    const queries = txns.map(txn => ({ company_id: companyId, bank_txn_id: txn.id, query_type: 'bank_orphan', status: 'open' }))
+    if (queries.length) await pgPost('recon_queries', queries)
+    await pgPatch(`recon_statements?id=eq.${statementId}`, { upload_status: 'matched', updated_at: new Date().toISOString() })
+    return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: txns.length, queries_created: queries.length }
   }
 
   // Scope to only the candidate VE IDs to avoid a full-company scan
@@ -253,7 +264,7 @@ export async function runMatchEngine(
     matchedTxnIds.add(txn.id)
   }
 
-  // Insert Tier 1 matches and update statuses BEFORE Tier 2
+  // Insert Tier 1 matches and update statuses BEFORE Tier 1.2
   if (exactMatches.length) {
     await pgPost('recon_matches', exactMatches)
     const tier1TxnIds = exactMatches.map(m => m.bank_txn_id)
@@ -261,6 +272,66 @@ export async function runMatchEngine(
       `recon_transactions?id=in.(${tier1TxnIds.join(',')})`,
       { match_status: 'auto_matched' }
     )
+  }
+
+  // ── TIER 1.2: Narration voucher-reference matching ─────────────────────────
+  // Matches bank txns whose narration contains VCH-YYYY-YY-NNNNN refs.
+  // Date is NOT a criterion — RFPL narrations use payee-typed voucher numbers.
+  const refMatches: MatchResult[] = []
+  const refTxns = txns.filter(t => !matchedTxnIds.has(t.id))
+
+  for (const txn of refTxns) {
+    const amount = txn.debit ?? txn.credit
+    if (amount === null) continue
+    const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
+    const refs = extractVoucherRefs(txn.narration)
+    if (!refs.length) continue
+
+    // Find unmatched candidates matching each ref by voucher_number suffix
+    const refCandidates = refs.flatMap(ref =>
+      voucherEntries.filter(ve =>
+        !matchedVoucherEntryIds.has(ve.id) &&
+        ve.entry_type === bookSide &&
+        voucherNumberMatchesRef(ve.voucher_number, ref)
+      )
+    )
+    if (!refCandidates.length) continue
+
+    // Single ref, exact amount
+    if (refs.length === 1 && refCandidates.length === 1 &&
+        Math.abs(roundMoney(refCandidates[0].amount) - roundMoney(amount)) < 0.01) {
+      const ve = refCandidates[0]
+      refMatches.push({
+        bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
+        match_method: 'reference', match_confidence: 97,
+        match_reason: `Narration ref VCH-${refs[0]} matches voucher ${ve.voucher_number ?? ve.voucher_id}`,
+        company_id: companyId,
+      })
+      matchedVoucherEntryIds.add(ve.id); matchedTxnIds.add(txn.id)
+      continue
+    }
+
+    // Multiple refs: sum of matching entries equals bank amount
+    const uniqueCandidates = refCandidates.filter((ve, i, a) => a.findIndex(x => x.id === ve.id) === i)
+    const sumAmt = roundMoney(uniqueCandidates.reduce((s, ve) => s + ve.amount, 0))
+    if (Math.abs(sumAmt - roundMoney(amount)) < 0.01) {
+      for (const ve of uniqueCandidates) {
+        refMatches.push({
+          bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
+          match_method: 'reference', match_confidence: 97,
+          match_reason: `Narration multi-ref sum ₹${sumAmt} matches ${refs.join('+')} on VCH refs`,
+          company_id: companyId,
+        })
+        matchedVoucherEntryIds.add(ve.id)
+      }
+      matchedTxnIds.add(txn.id)
+    }
+  }
+
+  if (refMatches.length) {
+    await pgPost('recon_matches', refMatches)
+    const refTxnIds = [...new Set(refMatches.map(m => m.bank_txn_id))]
+    await pgPatch(`recon_transactions?id=in.(${refTxnIds.join(',')})`, { match_status: 'auto_matched' })
   }
 
   // ── TIER 2: Fuzzy match (exact amount, ±3 days) ───────────────────────────
@@ -331,10 +402,16 @@ export async function runMatchEngine(
         const dateDiff = dateDiffDays(txn.txn_date, ve.voucher_date)
         return diff <= 0.1 && dateDiff <= 7
       }).slice(0, 5)
-      candidateMap.set(txn.id, candidates)
+      // Only include txns with at least one candidate — skip sending to AI otherwise
+      if (candidates.length > 0) candidateMap.set(txn.id, candidates)
     }
 
-    const aiInput = tier3Txns.map(t => ({
+    const tier3WithCandidates = tier3Txns.filter(t => candidateMap.has(t.id))
+    if (!tier3WithCandidates.length) {
+      console.log('[match] no Tier 3 candidates — skipping AI')
+    } else {
+
+    const aiInput = tier3WithCandidates.map(t => ({
       id:        t.id,
       txn_date:  t.txn_date,
       debit:     t.debit,
@@ -386,19 +463,35 @@ export async function runMatchEngine(
     } catch (err) {
       console.error('Tier 3 AI match skipped — Anthropic API unavailable:', err)
     }
+    } // end tier3WithCandidates block
   }
 
-  // ── Create queries for genuinely unmatched items ──────────────────────────
+  // ── Query hygiene: resolve open queries for now-matched txns ───────────────────
+  if (matchedTxnIds.size) {
+    const method = 'exact/reference/fuzzy/ai'
+    await pgPatch(
+      `recon_queries?bank_txn_id=in.(${[...matchedTxnIds].join(',')})&status=in.(open,investigating)`,
+      { status: 'resolved', resolution_note: `Auto-resolved: matched (${method})`, resolved_at: new Date().toISOString() }
+    ).catch(e => console.error('[match] query resolve error:', e))
+  }
+
+  // ── Create queries for genuinely unmatched items (deduped) ──────────────────
   const stillUnmatched = txns.filter(t => !matchedTxnIds.has(t.id))
   if (stillUnmatched.length) {
-    const queries = stillUnmatched.map(txn => ({
-      company_id:  companyId,
-      bank_txn_id: txn.id,
-      query_type:  'bank_orphan',
-      status:      'open',
-    }))
-    await pgPost('recon_queries', queries)
-    queriesCreated = queries.length
+    // Fetch existing open query txn_ids for this statement to avoid duplicates
+    const existingQueryTxnIds = new Set<string>()
+    try {
+      const existing = await pgFetch(
+        `recon_queries?bank_txn_id=in.(${stillUnmatched.map(t => t.id).join(',')})&status=in.(open,investigating)&select=bank_txn_id`
+      ) as { bank_txn_id: string }[]
+      existing.forEach(q => { if (q.bank_txn_id) existingQueryTxnIds.add(q.bank_txn_id) })
+    } catch { /* non-fatal */ }
+
+    const newQueries = stillUnmatched
+      .filter(t => !existingQueryTxnIds.has(t.id))
+      .map(txn => ({ company_id: companyId, bank_txn_id: txn.id, query_type: 'bank_orphan', status: 'open' }))
+    if (newQueries.length) await pgPost('recon_queries', newQueries)
+    queriesCreated = newQueries.length
   }
 
   // ── Update statement status ───────────────────────────────────────────────
@@ -443,4 +536,32 @@ function refMatch(txn: ReconTransaction, ve: VoucherEntry): boolean {
   if (!r1 || !r2) return false
   if (r1.length < 6 || r2.length < 6) return r1 === r2
   return r1.includes(r2) || r2.includes(r1)
+}
+
+// Extract voucher sequence numbers referenced in a bank narration.
+// Handles: "VCH 596", "VCH-2026-27-00596", "VCH 596 598" (multiple after one VCH token)
+function extractVoucherRefs(narration: string): number[] {
+  const refs: number[] = []
+  // Primary: VCH token optionally followed by year and a number
+  const primary = /VCH[-\s]*(?:20\d{2}[-\s]*\d{2}[-\s]*)?0*(\d{1,5})/gi
+  let m: RegExpExecArray | null
+  while ((m = primary.exec(narration)) !== null) {
+    refs.push(parseInt(m[1], 10))
+    // Consume any immediately following standalone 1-5 digit numbers (combo payments)
+    let tail = narration.slice(primary.lastIndex)
+    let extra: RegExpExecArray | null
+    const trailingNum = /^[-\s]+0*(\d{1,5})(?=\s|$|[^\d])/
+    while ((extra = trailingNum.exec(tail)) !== null) {
+      refs.push(parseInt(extra[1], 10))
+      tail = tail.slice(extra[0].length)
+    }
+  }
+  return [...new Set(refs)]
+}
+
+// True if voucher_number ends with the zero-padded ref (e.g. 'VCH-2026-27-00596' ends with '00596' or '596')
+function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boolean {
+  if (!voucherNumber) return false
+  const padded = String(ref).padStart(5, '0')
+  return voucherNumber.endsWith('-' + padded) || voucherNumber.endsWith('-' + String(ref))
 }

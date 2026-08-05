@@ -50,7 +50,7 @@ async function handleRequest(req: Request): Promise<Response> {
   const { id: userId } = await userRes.json() as { id: string }
 
   let body: { match_id?: string; action?: string; correct_voucher_id?: string }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+  try { body = await req.json() as { match_id?: string; action?: string; correct_voucher_id?: string } } catch { return json({ error: 'Invalid JSON' }, 400) }
   if (!body.match_id || !body.action) return json({ error: 'match_id and action required' }, 400)
   if (!['confirm', 'reject'].includes(body.action)) return json({ error: 'action must be confirm or reject' }, 400)
 

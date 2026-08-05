@@ -78,7 +78,7 @@ async function handleRequest(req: Request): Promise<Response> {
   if (req.method === 'PATCH') {
     if (!id) return json({ error: 'id required' }, 400)
     let body: Record<string, unknown>
-    try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+    try { body = await req.json() as Record<string, unknown> } catch { return json({ error: 'Invalid JSON' }, 400) }
     const { data } = await dbFetch(supabaseUrl, serviceKey, 'PATCH',
       `recon_bank_accounts?id=eq.${id}`,
       { ...body, updated_at: new Date().toISOString() })
@@ -87,7 +87,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (req.method === 'POST') {
     let body: Record<string, unknown>
-    try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+    try { body = await req.json() as Record<string, unknown> } catch { return json({ error: 'Invalid JSON' }, 400) }
     const { data } = await dbFetch(supabaseUrl, serviceKey, 'POST', 'recon_bank_accounts', body)
     return json(data)
   }

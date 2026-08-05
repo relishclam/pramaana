@@ -75,7 +75,7 @@ async function handleRequest(req: Request): Promise<Response> {
     const id = params.get('id')
     if (!id) return json({ error: 'id required' }, 400)
     let body: Record<string, unknown>
-    try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+    try { body = await req.json() as Record<string, unknown> } catch { return json({ error: 'Invalid JSON' }, 400) }
     const update: Record<string, unknown> = { ...body, updated_at: new Date().toISOString() }
     if (body.status === 'resolved' || body.status === 'written_off' || body.status === 'adjusted') {
       update.resolved_by = userId

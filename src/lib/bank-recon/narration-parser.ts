@@ -110,6 +110,12 @@ const PATTERNS: PatternDef[] = [
     pattern: /^ATM[-\s]?(Cash|CASH|WDL|CASH\s*WDL)/i,
     extract: () => ({}),
   },
+  // Federal Bank ATM: TO ATM/<ref>/<location>
+  {
+    type: 'ATM',
+    pattern: /^TO\s+ATM\//i,
+    extract: () => ({}),
+  },
   // POS
   {
     type: 'POS',

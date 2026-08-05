@@ -38,6 +38,14 @@ const MATCH_STATUS_LABELS: Record<string, string> = {
   written_off:    'Written off',
 }
 
+const MATCH_METHOD_LABELS: Record<string, string> = {
+  exact:     'Exact',
+  reference: 'VCH ref',
+  fuzzy:     'Fuzzy',
+  ai:        'AI',
+  manual:    'Manual',
+}
+
 const MATCH_STATUS_CSS: Record<string, string> = {
   unmatched:      css.chipUnmatched,
   auto_matched:   css.chipMatched,
@@ -766,7 +774,7 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
                     </div>
                     <div style={{ color: 'var(--text-muted)' }}>{match.match_reason}</div>
                     <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      Method: {match.match_method}
+                      Method: {MATCH_METHOD_LABELS[match.match_method] ?? match.match_method}
                     </div>
                   </div>
                 ) : null
@@ -929,8 +937,10 @@ function BrsTab({ companyId }: { companyId: string }) {
 
   const runBrs = async () => {
     setLoading(true); setError(null)
+    const { data: { session } } = await supabase.auth.getSession()
     const res = await fetch(
-      `/api/bank-recon-brs?company_id=${companyId}&bank_account_id=${accountId}&as_at_date=${asAt}`
+      `/api/bank-recon-brs?company_id=${companyId}&bank_account_id=${accountId}&as_at_date=${asAt}`,
+      { headers: { Authorization: `Bearer ${session?.access_token ?? ''}` } }
     )
     const json = await res.json() as Record<string, unknown>
     if (!res.ok) { setError((json.error as string) ?? 'BRS failed'); setLoading(false); return }

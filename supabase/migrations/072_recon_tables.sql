@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS pramaana.recon_matches (
   voucher_id        uuid    REFERENCES pramaana.vouchers(id),
   voucher_entry_id  uuid    REFERENCES pramaana.voucher_entries(id),
   match_method      text    NOT NULL
-                    CHECK (match_method IN ('exact', 'fuzzy', 'ai', 'manual')),
+                    CHECK (match_method IN ('exact', 'reference', 'fuzzy', 'ai', 'manual')),
   match_confidence  numeric(5,2),
   match_reason      text,
   matched_by        uuid    REFERENCES auth.users(id),

@@ -537,7 +537,8 @@ function extractVoucherRefs(narration: string): number[] {
     let extra: RegExpExecArray | null
     const trailingNum = /^[-\s]+0*(\d{1,5})(?=\s|$|[^\d])/
     while ((extra = trailingNum.exec(tail)) !== null) {
-      refs.push(parseInt(extra[1], 10))
+      const n = parseInt(extra[1], 10)
+      if (n >= 100) refs.push(n)   // skip single/double-digit trailing noise
       tail = tail.slice(extra[0].length)
     }
   }

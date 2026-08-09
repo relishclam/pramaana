@@ -46,6 +46,7 @@ interface VoucherEntry {
   voucher_narration: string   // voucher-level narration fallback
   party_name: string | null
   reference: string | null
+  utr_number?: string | null
 }
 
 export async function runMatchEngine(
@@ -128,7 +129,7 @@ export async function runMatchEngine(
   ) as ReconTransaction[]
 
   if (!txns.length) {
-    return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: 0, queries_created: 0 }
+    return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, utr_matches: 0, unmatched: 0, queries_created: 0 }
   }
 
   // ── Fetch candidate voucher entries (posted only) ─────────────────────────
@@ -209,13 +210,13 @@ export async function runMatchEngine(
     const queries = txns.map(txn => ({ company_id: companyId, bank_txn_id: txn.id, query_type: 'bank_orphan', status: 'open' }))
     if (queries.length) await pgPost('recon_queries', queries)
     await pgPatch(`recon_statements?id=eq.${statementId}`, { upload_status: 'matched', updated_at: new Date().toISOString() })
-    return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: txns.length, queries_created: queries.length }
+    return { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, utr_matches: 0, unmatched: txns.length, queries_created: queries.length }
   }
 
   // ── Unrestricted candidate pool for Tier 1.2 (no date filter) ──
   const refVEsRes = await fetch(
     `${supabaseUrl}/rest/v1/voucher_entries?ledger_id=eq.${ledgerId}` +
-    `&select=id,voucher_id,ledger_id,entry_type,amount,narration,vouchers!inner(id,voucher_date,voucher_number,narration,status,company_id)` +
+    `&select=id,voucher_id,ledger_id,entry_type,amount,narration,vouchers!inner(id,voucher_date,voucher_number,narration,status,company_id,utr_number)` +
     `&vouchers.status=eq.posted&vouchers.company_id=eq.${companyId}`, {
     headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Accept-Profile': 'pramaana', 'Content-Profile': 'pramaana' },
   })
@@ -227,7 +228,7 @@ export async function runMatchEngine(
           entry_type: ve['entry_type'] as 'Dr' | 'Cr', amount: ve['amount'] as number,
           narration: ve['narration'] as string | null, voucher_number: v['voucher_number'] as string | null,
           voucher_date: v['voucher_date'] as string, voucher_narration: v['narration'] as string ?? '',
-          party_name: null, reference: null,
+          party_name: null, reference: null, utr_number: v['utr_number'] as string | null,
         }
       }))
     : []
@@ -245,9 +246,63 @@ export async function runMatchEngine(
     existingMatches.forEach(m => { if (m.voucher_entry_id) matchedVoucherEntryIds.add(m.voucher_entry_id) })
   }
 
-  // ── TIER 1: Exact match (same date, exact amount, optionally reference) ────
   const matchedTxnIds = new Set<string>()
 
+  // ── TIER 0: UTR match ──────────────────────────────────────────────────────
+  // Runs first; matched txns/VEs leave the pool before Tier 1.
+  const utrMatches: MatchResult[] = []
+  const utrIndex = new Map<string, (VoucherEntry & { utr_number?: string | null })[]>()
+  for (const ve of refVoucherEntries as Array<VoucherEntry & { utr_number?: string | null }>) {
+    if (!ve.utr_number) continue
+    const list = utrIndex.get(ve.utr_number) ?? []
+    list.push(ve)
+    utrIndex.set(ve.utr_number, list)
+  }
+  for (const txn of txns) {
+    const txnAmount = txn.debit ?? txn.credit
+    if (txnAmount === null) continue
+    const bookSide: 'Dr' | 'Cr' = txn.debit !== null ? 'Cr' : 'Dr'
+    // Direct candidates from pre-parsed fields first, then narration tokenization.
+    // parsed_reference/reference are already clean refs from the bank statement importer.
+    const directCandidates = [txn.parsed_reference, txn.reference]
+      .filter((r): r is string => typeof r === 'string' && r.length >= 9 && r.length <= 16 && /^[A-Z0-9]+$/i.test(r))
+      .map(r => r.toUpperCase())
+    const allCandidates = [...new Set([...directCandidates, ...extractUtrCandidates(txn.narration)])]
+    for (const utrToken of allCandidates) {
+      const batchVEs = (utrIndex.get(utrToken) ?? []).filter(
+        ve => !matchedVoucherEntryIds.has(ve.id) && ve.entry_type === bookSide
+      )
+      if (!batchVEs.length) continue
+      const batchSum = roundMoney(batchVEs.reduce((s, ve) => s + ve.amount, 0))
+      if (Math.abs(batchSum - roundMoney(txnAmount)) <= 1) {
+        for (const ve of batchVEs) {
+          utrMatches.push({
+            bank_txn_id: txn.id, voucher_id: ve.voucher_id, voucher_entry_id: ve.id,
+            match_method: 'utr', match_confidence: 100,
+            match_reason: `UTR ${utrToken} — ${batchVEs.length > 1 ? `${batchVEs.length}-voucher batch` : 'single voucher'} ₹${batchSum}`,
+            company_id: companyId,
+          })
+          matchedVoucherEntryIds.add(ve.id)
+        }
+        matchedTxnIds.add(txn.id)
+        break
+      } else {
+        // UTR hit but amount sum mismatch — data problem, never a silent skip
+        console.error(
+          `[UTR-REVIEW] txn=${txn.id} utr=${utrToken} batchVEs=${batchVEs.length}` +
+          ` batchSum=₹${batchSum} txnAmount=₹${txnAmount} narration="${txn.narration.slice(0, 80)}"`
+        )
+      }
+    }
+  }
+  if (utrMatches.length) {
+    await pgPost('recon_matches', utrMatches, true)
+    const utrTxnIds = [...new Set(utrMatches.map(m => m.bank_txn_id))]
+    await pgPatch(`recon_transactions?id=in.(${utrTxnIds.join(',')})`, { match_status: 'auto_matched' })
+  }
+  console.error(`[T0-UTR] ${utrMatches.length} matches written`)
+
+  // ── TIER 1: Exact match (same date, exact amount, optionally reference) ────
   for (const txn of txns) {
     const amount = txn.debit ?? txn.credit
     if (amount === null) continue
@@ -517,6 +572,7 @@ export async function runMatchEngine(
     exact_matches: exactMatches.length,
     fuzzy_matches: fuzzyMatches.length,
     ai_matches:    aiMatchCount,
+    utr_matches:   utrMatches.length,
     unmatched:     stillUnmatched.length,
     queries_created: queriesCreated,
   }
@@ -587,4 +643,15 @@ function voucherNumberMatchesRef(voucherNumber: string | null, ref: number): boo
     voucherNumber.endsWith('/' + padded4) ||
     voucherNumber.endsWith('/' + raw)
   )
+}
+
+// Extract UTR candidate tokens from a bank narration.
+// Tokens: 9–16 chars, uppercase alphanumeric (A-Z + 0-9), must contain ≥1 digit.
+// Returned as strings — never cast to integer; preserves leading zeros.
+function extractUtrCandidates(narration: string): string[] {
+  return [...new Set(
+    narration.toUpperCase().split(/[^A-Z0-9]/).filter(
+      t => t.length >= 9 && t.length <= 16 && /^[A-Z0-9]+$/.test(t) && /[0-9]/.test(t)
+    )
+  )]
 }

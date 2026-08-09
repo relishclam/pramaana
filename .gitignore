@@ -9,3 +9,6 @@ probe_ra_s3.py
 ra_to_pramaana_migration.py
 tally_xml_import.py
 unmapped_ledgers.csv
+receipt_diagnostic.csv
+scripts/__pycache__/
+diagnose_receipt_attachments.py

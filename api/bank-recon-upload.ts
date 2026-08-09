@@ -161,7 +161,7 @@ async function handleRequest(req: Request): Promise<Response> {
   mark('enriched')
 
   // ── Match engine ─────────────────────────────────────────────────────
-  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
+  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, utr_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
   if (bankAccount?.ledger_id) {
     matchResult = await runMatchEngine(statementId, company_id, bankAccount.ledger_id, supabaseUrl, serviceKey)
   }
@@ -250,7 +250,7 @@ async function handleOverlapResolution(
 
   await enrichNarrations(supabaseUrl, serviceKey, statementId, company_id, bankAccount?.id ?? '', preResult.transactions)
 
-  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
+  let matchResult = { exact_matches: 0, fuzzy_matches: 0, ai_matches: 0, utr_matches: 0, unmatched: preResult.transactions.length, queries_created: 0 }
   if (bankAccount?.ledger_id) {
     matchResult = await runMatchEngine(statementId, company_id, bankAccount.ledger_id, supabaseUrl, serviceKey)
   }

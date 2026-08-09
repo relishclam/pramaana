@@ -202,21 +202,29 @@ export default function SettlementSheet({
         });
         if (docErr) throw docErr;
 
-        // Task 4: derive advance_outstanding from the actual ledger balance
+        // Task 4: derive advance_outstanding from the actual ledger balance.
+        // Must include the ledger's opening_balance — posted entries alone miss the initial advance.
         const advLedgerId = await advanceLedgerResolver(ledgerId);
         setAdvanceLedgerId(advLedgerId);
         if (cfg && advLedgerId) {
-          const { data: entries } = await supabasePramaana
-            .from('voucher_entries')
-            .select('entry_type, amount, vouchers!inner(status, company_id)')
-            .eq('ledger_id', advLedgerId)
-            .eq('vouchers.company_id', companyId)
-            .eq('vouchers.status', 'posted');
-          if (entries) {
-            const liveBalance = (entries as { entry_type: string; amount: number }[])
-              .reduce((s, e) => s + (e.entry_type === 'Cr' ? e.amount : -e.amount), 0);
-            setPartyConfig({ ...(cfg as PartyConfig), advance_outstanding: Math.max(0, liveBalance) });
-          }
+          const [{ data: advLedger }, { data: entries }] = await Promise.all([
+            supabasePramaana.from('ledgers').select('opening_balance, opening_dr_cr').eq('id', advLedgerId).single(),
+            supabasePramaana
+              .from('voucher_entries')
+              .select('entry_type, amount, vouchers!inner(status, company_id)')
+              .eq('ledger_id', advLedgerId)
+              .eq('vouchers.company_id', companyId)
+              .eq('vouchers.status', 'posted'),
+          ]);
+          const openingAmt = advLedger
+            ? ((advLedger as { opening_balance: number; opening_dr_cr: string }).opening_dr_cr === 'Cr'
+                ? (advLedger as { opening_balance: number }).opening_balance
+                : -(advLedger as { opening_balance: number }).opening_balance)
+            : 0;
+          const entrySum = (entries as { entry_type: string; amount: number }[] ?? [])
+            .reduce((s, e) => s + (e.entry_type === 'Cr' ? e.amount : -e.amount), 0);
+          const liveBalance = openingAmt + entrySum;
+          setPartyConfig({ ...(cfg as PartyConfig), advance_outstanding: Math.max(0, liveBalance) });
         }
 
         setDocuments(

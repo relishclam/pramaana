@@ -151,6 +151,7 @@ export interface UploadResponse {
     exact_matches: number
     fuzzy_matches: number
     ai_matches: number
+    utr_matches: number
     unmatched: number
     queries_created: number
   }
@@ -166,7 +167,7 @@ export interface MatchResult {
   bank_txn_id: string
   voucher_id: string | null
   voucher_entry_id: string | null
-  match_method: 'exact' | 'reference' | 'fuzzy' | 'ai' | 'manual'
+  match_method: 'exact' | 'reference' | 'fuzzy' | 'ai' | 'manual' | 'utr'
   match_confidence: number
   match_reason: string
   company_id: string
@@ -177,6 +178,7 @@ export interface MatchEngineResult {
   exact_matches: number
   fuzzy_matches: number
   ai_matches: number
+  utr_matches: number
   unmatched: number
   queries_created: number
 }

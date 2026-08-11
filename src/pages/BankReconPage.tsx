@@ -100,6 +100,8 @@ interface ReconTxn {
   counterparty: string | null; match_status: string
   // PostgREST returns joined rows as an array even with UNIQUE constraint
   recon_matches: {
+    id: string
+    voucher_id: string
     match_method: string; match_confidence: number
     match_reason: string; is_confirmed: boolean
   }[] | null
@@ -627,10 +629,22 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
   const [rerunning, setRerunning]   = useState(false)
   const [rerunError, setRerunError] = useState<string | null>(null)
 
+  // Voucher detail for the selected match
+  type VoucherDetail = { id: string; voucher_number: string; voucher_date: string; amount: number; narration: string | null; party: string | null }
+  const [voucherDetail,  setVoucherDetail]  = useState<VoucherDetail | null>(null)
+  const [voucherLoading, setVoucherLoading] = useState(false)
+
+  // "Match to different voucher" search
+  const [showPicker,     setShowPicker]     = useState(false)
+  const [voucherSearch,  setVoucherSearch]  = useState('')
+  const [searchResults,  setSearchResults]  = useState<VoucherDetail[]>([])
+  const [searching,      setSearching]      = useState(false)
+  const [pickedVoucher,  setPickedVoucher]  = useState<VoucherDetail | null>(null)
+
   const load = useCallback(() => {
     setLoading(true)
     supabase.schema('pramaana').from('recon_transactions')
-      .select('id, row_number, txn_date, narration, reference, debit, credit, balance, counterparty, match_status, recon_matches(match_method, match_confidence, match_reason, is_confirmed)')
+      .select('id, row_number, txn_date, narration, reference, debit, credit, balance, counterparty, match_status, recon_matches(id, voucher_id, match_method, match_confidence, match_reason, is_confirmed)')
       .eq('statement_id', statementId)
       .order('row_number')
       .limit(1000)
@@ -639,19 +653,68 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
 
   useEffect(() => { load() }, [load])
 
+  // Fetch proposed voucher details whenever the selected transaction changes
+  useEffect(() => {
+    setVoucherDetail(null); setShowPicker(false); setVoucherSearch(''); setSearchResults([]); setPickedVoucher(null)
+    if (!selected) return
+    const match = Array.isArray(selected.recon_matches) ? selected.recon_matches[0] ?? null : selected.recon_matches
+    if (!match?.voucher_id) return
+    setVoucherLoading(true)
+    supabase.schema('pramaana').from('vouchers')
+      .select('id, voucher_number, voucher_date, amount, narration, entity_id')
+      .eq('id', match.voucher_id).single()
+      .then(async ({ data }) => {
+        if (!data) { setVoucherLoading(false); return }
+        let party: string | null = null
+        if (data.entity_id) {
+          const { data: ent } = await supabase.schema('registry').from('entities')
+            .select('display_name').eq('id', data.entity_id as string).single()
+          party = (ent as { display_name: string } | null)?.display_name ?? null
+        }
+        setVoucherDetail({ id: data.id as string, voucher_number: data.voucher_number as string, voucher_date: data.voucher_date as string, amount: data.amount as number, narration: data.narration as string | null, party })
+        setVoucherLoading(false)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id])
+
+  // Search vouchers by number for manual re-matching
+  useEffect(() => {
+    if (!voucherSearch.trim() || voucherSearch.length < 2) { setSearchResults([]); return }
+    const term = voucherSearch.trim()
+    setSearching(true)
+    supabase.schema('pramaana').from('vouchers')
+      .select('id, voucher_number, voucher_date, amount, narration, entity_id')
+      .eq('company_id', companyId).eq('status', 'posted')
+      .ilike('voucher_number', `%${term}%`)
+      .order('voucher_date', { ascending: false }).limit(8)
+      .then(async ({ data }) => {
+        const rows = (data ?? []) as { id: string; voucher_number: string; voucher_date: string; amount: number; narration: string | null; entity_id: string | null }[]
+        const entityIds = [...new Set(rows.map(r => r.entity_id).filter(Boolean) as string[])]
+        const entMap = new Map<string, string>()
+        if (entityIds.length) {
+          const { data: ents } = await supabase.schema('registry').from('entities').select('id, display_name').in('id', entityIds)
+          ;((ents ?? []) as { id: string; display_name: string }[]).forEach(e => entMap.set(e.id, e.display_name))
+        }
+        setSearchResults(rows.map(r => ({ id: r.id, voucher_number: r.voucher_number, voucher_date: r.voucher_date, amount: r.amount, narration: r.narration, party: r.entity_id ? (entMap.get(r.entity_id) ?? null) : null })))
+        setSearching(false)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voucherSearch, companyId])
+
   const counts: Record<string, number> = {}
   txns.forEach(t => { counts[t.match_status] = (counts[t.match_status] ?? 0) + 1 })
 
   const visible = filter === 'all' ? txns : txns.filter(t => t.match_status === filter)
 
-  const doAction = async (txnId: string, action: 'confirm' | 'reject') => {
+  const doAction = async (txnId: string, action: 'confirm' | 'reject' | 'write_off', correctVoucherId?: string) => {
     setConfirming(txnId)
     const { data: { session } } = await supabase.auth.refreshSession()
-    await fetch('/api/bank-recon-confirm', {
+    const res = await fetch('/api/bank-recon-confirm', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
-      body: JSON.stringify({ bank_txn_id: txnId, action }),
+      body: JSON.stringify({ bank_txn_id: txnId, action, correct_voucher_id: correctVoucherId }),
     })
+    if (!res.ok) console.error('confirm error:', await res.text())
     setConfirming(null); setSelected(null); load()
   }
 
@@ -769,39 +832,50 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
               <button className={css.btnGhost} onClick={() => setSelected(null)}><X size={14} /></button>
             </div>
             <div className={css.cardBody} style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+
+              {/* Bank transaction */}
               <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{fmtDate(selected.txn_date)}</div>
-              <div style={{ fontSize: '0.875rem' }}>{selected.narration}</div>
-              {selected.reference && (
-                <div className={css.mutedText}>Ref: {selected.reference}</div>
-              )}
+              <div style={{ fontSize: '0.875rem', wordBreak: 'break-all' }}>{selected.narration}</div>
+              {selected.reference && <div className={css.mutedText}>Ref: {selected.reference}</div>}
               <div style={{ display: 'flex', gap: '1rem', marginTop: '0.25rem' }}>
                 {selected.debit  != null && <span style={{ color: 'var(--error)',  fontFamily: 'var(--font-mono)' }}>−{fmt(selected.debit)}</span>}
                 {selected.credit != null && <span style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>+{fmt(selected.credit)}</span>}
               </div>
 
-              {selected.recon_matches && (() => {
-                const match = Array.isArray(selected.recon_matches)
-                  ? selected.recon_matches[0] ?? null
-                  : selected.recon_matches
-                return match ? (
-                  <div style={{
-                    marginTop: '0.5rem', padding: '0.625rem 0.75rem',
-                    background: 'var(--surface-2)', borderRadius: 'var(--radius)',
-                    fontSize: '0.8125rem',
-                  }}>
-                    <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                      Suggested match — {match.match_confidence?.toFixed(0)}% confidence
+              {/* Proposed voucher card */}
+              {(() => {
+                const match = Array.isArray(selected.recon_matches) ? selected.recon_matches[0] ?? null : selected.recon_matches
+                if (!match) return null
+                return (
+                  <div style={{ marginTop: '0.5rem', padding: '0.625rem 0.75rem', background: 'var(--surface-2)', borderRadius: 'var(--radius)', fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 600 }}>Proposed match — {match.match_confidence?.toFixed(0)}% confidence</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 4 }}>
+                        {MATCH_METHOD_LABELS[match.match_method] ?? match.match_method}
+                      </span>
                     </div>
-                    <div style={{ color: 'var(--text-muted)' }}>{match.match_reason}</div>
-                    <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      Method: {MATCH_METHOD_LABELS[match.match_method] ?? match.match_method}
-                    </div>
+                    {voucherLoading
+                      ? <div style={{ color: 'var(--text-dim)' }}><Loader size={12} className={css.spin} /> Loading voucher…</div>
+                      : voucherDetail
+                        ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <strong style={{ color: 'var(--teal)' }}>{voucherDetail.voucher_number}</strong>
+                              <span style={{ fontFamily: 'var(--font-mono)' }}>{fmt(voucherDetail.amount)}</span>
+                            </div>
+                            <div style={{ color: 'var(--text-muted)' }}>{fmtDate(voucherDetail.voucher_date)}{voucherDetail.party ? ` · ${voucherDetail.party}` : ''}</div>
+                            {voucherDetail.narration && <div style={{ color: 'var(--text-dim)', fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{voucherDetail.narration}</div>}
+                          </div>
+                        )
+                        : <div style={{ color: 'var(--text-dim)' }}>{match.match_reason}</div>
+                    }
                   </div>
-                ) : null
+                )
               })()}
 
+              {/* Action buttons for pending_review */}
               {selected.match_status === 'pending_review' && (
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                   <button className={css.btnPrimary} disabled={confirming === selected.id}
                     onClick={() => doAction(selected.id, 'confirm')}>
                     {confirming === selected.id ? <Loader size={13} className={css.spin} /> : <Check size={13} />}
@@ -813,6 +887,8 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
                   </button>
                 </div>
               )}
+
+              {/* Un-match for auto_matched */}
               {selected.match_status === 'auto_matched' && (
                 <button className={css.btnSecondary} disabled={confirming === selected.id}
                   onClick={() => doAction(selected.id, 'reject')}
@@ -820,6 +896,68 @@ function WorkbenchTab({ statementId, companyId }: { statementId: string; company
                   <X size={13} /> Un-match
                 </button>
               )}
+
+              {/* ── Match to a different voucher ───────────────────────── */}
+              {(selected.match_status === 'pending_review' || selected.match_status === 'unmatched' || selected.match_status === 'auto_matched') && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.625rem', marginTop: '0.25rem' }}>
+                  <button className={css.btnGhost} style={{ fontSize: '0.8rem', padding: '2px 0' }}
+                    onClick={() => { setShowPicker(p => !p); setPickedVoucher(null); setVoucherSearch('') }}>
+                    {showPicker ? '▲' : '▼'} Match to a different voucher
+                  </button>
+
+                  {showPicker && (
+                    <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                      <input
+                        className={css.input}
+                        style={{ fontSize: '0.8125rem', padding: '0.3rem 0.5rem' }}
+                        placeholder="Type voucher number (e.g. VCH-2026-27-00123)"
+                        value={voucherSearch}
+                        onChange={e => { setVoucherSearch(e.target.value); setPickedVoucher(null) }}
+                        autoFocus
+                      />
+                      {searching && <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}><Loader size={11} className={css.spin} /> Searching…</div>}
+                      {searchResults.map(v => (
+                        <div key={v.id}
+                          onClick={() => { setPickedVoucher(v); setVoucherSearch(v.voucher_number) }}
+                          style={{
+                            padding: '0.375rem 0.5rem', borderRadius: 'var(--radius)',
+                            background: pickedVoucher?.id === v.id ? 'var(--teal-dim)' : 'var(--surface-2)',
+                            border: pickedVoucher?.id === v.id ? '1px solid var(--teal)' : '1px solid transparent',
+                            cursor: 'pointer', fontSize: '0.8125rem',
+                          }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <strong>{v.voucher_number}</strong>
+                            <span style={{ fontFamily: 'var(--font-mono)' }}>{fmt(v.amount)}</span>
+                          </div>
+                          <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                            {fmtDate(v.voucher_date)}{v.party ? ` · ${v.party}` : ''}
+                          </div>
+                        </div>
+                      ))}
+                      {pickedVoucher && (
+                        <button className={css.btnPrimary} disabled={confirming === selected.id}
+                          onClick={() => doAction(selected.id, 'reject', pickedVoucher.id)}>
+                          {confirming === selected.id ? <Loader size={13} className={css.spin} /> : <Check size={13} />}
+                          {' '}Link to {pickedVoucher.voucher_number}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Mark as excluded (bank charges, fees, etc.) ────────── */}
+              {(selected.match_status === 'unmatched' || selected.match_status === 'pending_review') && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.625rem', marginTop: '0.25rem' }}>
+                  <button className={css.btnGhost}
+                    style={{ fontSize: '0.8rem', color: 'var(--text-dim)', padding: '2px 0' }}
+                    disabled={confirming === selected.id}
+                    onClick={() => doAction(selected.id, 'write_off')}>
+                    Mark as excluded (bank charge / no voucher)
+                  </button>
+                </div>
+              )}
+
             </div>
           </div>
         )}

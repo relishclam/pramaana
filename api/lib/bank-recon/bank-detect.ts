@@ -18,14 +18,29 @@ export function detectBank(rows: string[][], fileName: string): BankDetectResult
       const match = metaRows.find(r => pat.test(r))
       if (match) {
         if (95 > bestScore) { bestScore = 95; bestCode = code }
-        // Try to extract account number from metadata rows
+        // Try to extract account number from the matching row first
         if (!accountNumber) {
           // Account numbers sometimes come through as Excel scientific notation (1.01502E+13)
-          const rawAcct = match.match(/(?:account\s*(?:no|number|#)\s*[:\-]?\s*)([\d.eE+]+)/i)
+          const rawAcct = match.match(/(?:account\s*(?:number|no\.?|#)\s*[:\-]?\s*)([\d.eE+]+)/i)
           if (rawAcct) accountNumber = unscientificAccountNumber(rawAcct[1])
           const ifscMatch = match.match(/(?:IFSC\s*[:\-]?\s*)([A-Z]{4}0[A-Z0-9]{6})/i)
           if (ifscMatch) ifsc = ifscMatch[1]
         }
+      }
+    }
+  }
+
+  // Fallback: bank name and account number are often on different letterhead rows.
+  // Scan ALL 20 meta rows for account/IFSC when the matching row didn't carry them.
+  if (bestCode && (!accountNumber || !ifsc)) {
+    for (const row of metaRows) {
+      if (!accountNumber) {
+        const rawAcct = row.match(/(?:account\s*(?:number|no\.?|#)\s*[:\-]?\s*)([\d.eE+]+)/i)
+        if (rawAcct) accountNumber = unscientificAccountNumber(rawAcct[1])
+      }
+      if (!ifsc) {
+        const ifscMatch = row.match(/(?:IFSC\s*[:\-]?\s*)([A-Z]{4}0[A-Z0-9]{6})/i)
+        if (ifscMatch) ifsc = ifscMatch[1]
       }
     }
   }

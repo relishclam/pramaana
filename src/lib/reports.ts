@@ -144,18 +144,27 @@ export async function fetchLedgerStatement(
     ? (ledger.opening_balance as number)
     : -(ledger.opening_balance as number)
 
-  // Fetch accounting-visible vouchers (approved → posted) for this company within date range
-  const { data: vouchers, error: vErr } = await supabase
-    .schema('pramaana').from('vouchers')
-    .select('id, voucher_date, voucher_number, entity_id, voucher_types(name)')
-    .eq('company_id', companyId).in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
-    .gte('voucher_date', from).lte('voucher_date', to)
-    .order('voucher_date', { ascending: true })
-    .order('voucher_number', { ascending: true })
+  // Single query: entries for this ledger, joining to vouchers for company/date/status filter.
+  // !inner means only entries whose parent voucher passes all filters are returned —
+  // avoids a separate voucher fetch and the URL-busting voucher_id=in.(...) approach.
+  const { data: entries, error: eErr } = await supabase
+    .schema('pramaana').from('voucher_entries')
+    .select(`
+      id, entry_type, amount, narration, voucher_id,
+      vouchers!inner(
+        voucher_date, voucher_number, entity_id,
+        voucher_types(name)
+      )
+    `)
+    .eq('ledger_id', ledgerId)
+    .eq('vouchers.company_id', companyId)
+    .in('vouchers.status', ['approved', 'completed', 'awaiting_payment', 'posted'])
+    .gte('vouchers.voucher_date', from)
+    .lte('vouchers.voucher_date', to)
 
-  if (vErr) throw new Error(vErr.message)
+  if (eErr) throw new Error(eErr.message)
 
-  if (!vouchers?.length) {
+  if (!entries?.length) {
     return {
       ledger_name:     ledger.name as string,
       group_name:      (ledger.ledger_groups as unknown as { name: string } | null)?.name ?? '—',
@@ -167,29 +176,19 @@ export async function fetchLedgerStatement(
     }
   }
 
-  const voucherIds = vouchers.map(v => v.id)
-  const voucherMap = new Map(vouchers.map(v => [v.id, v]))
-
-  // Entries for this ledger within those vouchers
-  const { data: entries, error: eErr } = await supabase
-    .schema('pramaana').from('voucher_entries')
-    .select('id, entry_type, amount, narration, voucher_id')
-    .eq('ledger_id', ledgerId).in('voucher_id', voucherIds)
-
-  if (eErr) throw new Error(eErr.message)
-
-  // Sort by voucher date/number order
-  const sorted = [...(entries ?? [])].sort((a, b) => {
-    const av = voucherMap.get(a.voucher_id)
-    const bv = voucherMap.get(b.voucher_id)
-    if (!av || !bv) return 0
+  // Sort client-side by voucher_date then voucher_number
+  const sorted = [...entries].sort((a, b) => {
+    const av = a.vouchers as unknown as { voucher_date: string; voucher_number: string }
+    const bv = b.vouchers as unknown as { voucher_date: string; voucher_number: string }
     return av.voucher_date.localeCompare(bv.voucher_date) ||
            av.voucher_number.localeCompare(bv.voucher_number)
   })
 
-  // Entity names (cross-schema)
+  // Entity names (cross-schema) — collect from the embedded voucher rows
   const entityIds = [...new Set(
-    vouchers.map(v => v.entity_id).filter(Boolean) as string[]
+    sorted
+      .map(e => (e.vouchers as unknown as { entity_id: string | null }).entity_id)
+      .filter(Boolean) as string[]
   )]
   const entityMap = new Map<string, string>()
   if (entityIds.length > 0) {
@@ -201,13 +200,18 @@ export async function fetchLedgerStatement(
 
   let running = openingNet
   const rows: LedgerStatementRow[] = sorted.map(e => {
-    const v = voucherMap.get(e.voucher_id)!
+    const v = e.vouchers as unknown as {
+      voucher_date:  string
+      voucher_number: string
+      entity_id:     string | null
+      voucher_types: { name: string } | null
+    }
     running += e.entry_type === 'Dr' ? (e.amount as number) : -(e.amount as number)
     return {
       id:                e.id,
       voucher_date:      v.voucher_date,
       voucher_number:    v.voucher_number,
-      voucher_type_name: (v.voucher_types as unknown as { name: string } | null)?.name ?? '—',
+      voucher_type_name: v.voucher_types?.name ?? '—',
       party_name:        v.entity_id ? (entityMap.get(v.entity_id) ?? null) : null,
       entry_type:        e.entry_type as 'Dr' | 'Cr',
       amount:            e.amount as number,

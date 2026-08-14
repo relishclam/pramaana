@@ -66,8 +66,8 @@ serve(async (req: Request) => {
       return json({ error: 'Invalid or expired session' }, 401)
     }
 
-    const body = await req.json().catch(() => ({}))
-      as { email?: string; redirectTo?: string; userId?: string; password?: string; fullName?: string }
+    type ReqBody = { email?: string; redirectTo?: string; userId?: string; password?: string; fullName?: string }
+    const body = await req.json().catch(() => ({})) as ReqBody
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },

@@ -262,15 +262,17 @@ export default function SettlementSheet({
     if (!selectedDoc) return;
 
     const isFirstSettlement = selectedDoc.outstanding >= selectedDoc.doc_total - 1.0;
+    // Opening Balance is a brought-forward arrear — TDS/advance don't apply
+    const isOpeningBalance = selectedDoc.voucher_number === 'Opening Balance';
 
-    if (isFirstSettlement && partyConfig?.tds_rate) {
+    if (!isOpeningBalance && isFirstSettlement && partyConfig?.tds_rate) {
       const base = selectedDoc.doc_total / tdsBaseDivisor;
       setTdsAmount(((base * partyConfig.tds_rate) / 100).toFixed(2));
     } else {
       setTdsAmount('0');
     }
 
-    if (isFirstSettlement && partyConfig?.advance_recovery_monthly) {
+    if (!isOpeningBalance && isFirstSettlement && partyConfig?.advance_recovery_monthly) {
       setAdvanceAmount(
         Math.min(partyConfig.advance_recovery_monthly, partyConfig.advance_outstanding).toFixed(2),
       );

@@ -66,7 +66,7 @@ serve(async (req: Request) => {
       return json({ error: 'Invalid or expired session' }, 401)
     }
 
-    type ReqBody = { email?: string; redirectTo?: string; userId?: string; password?: string; fullName?: string }
+    type ReqBody = { email?: string; redirectTo?: string; userId?: string; password?: string; fullName?: string; companyId?: string; role?: string }
     const body = await req.json().catch(() => ({})) as ReqBody
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
@@ -112,14 +112,32 @@ serve(async (req: Request) => {
           .schema('registry')
           .from('profiles')
           .upsert(
-            { id: userId, email, is_active: true, is_super_admin: false },
-            { onConflict: 'id', ignoreDuplicates: true },
+            { id: userId, email, full_name: body.fullName ?? null, is_active: true, is_super_admin: false },
+            { onConflict: 'id', ignoreDuplicates: false },
           )
         if (profileErr) {
           console.error('invite-user: profile upsert failed (non-fatal):', profileErr.message)
         }
       } catch (profileEx) {
         console.error('invite-user: profile upsert threw (non-fatal):', profileEx)
+      }
+
+      // Auto-assign company if provided — non-fatal if assignment already exists.
+      if (body.companyId && body.role) {
+        try {
+          const { error: cuErr } = await admin
+            .schema('registry')
+            .from('company_users')
+            .upsert(
+              { user_id: userId, company_id: body.companyId, role: body.role },
+              { onConflict: 'user_id,company_id', ignoreDuplicates: true },
+            )
+          if (cuErr) {
+            console.error('invite-user: company_users upsert failed (non-fatal):', cuErr.message)
+          }
+        } catch (cuEx) {
+          console.error('invite-user: company_users upsert threw (non-fatal):', cuEx)
+        }
       }
     }
 

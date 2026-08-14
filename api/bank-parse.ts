@@ -391,22 +391,22 @@ export default async function handler(
 
   try {
     // ── Load statement + format config ──────────────────────────────────────
-    const stmts: {
+    const stmts = await supabaseGet(
+      `bank_statements?id=eq.${statement_id}&select=id,company_id,bank_format_id,raw_content,period_from,period_to,status`
+    ) as {
       id: string; company_id: string; bank_format_id: string;
       raw_content: string | null; period_from: string; period_to: string; status: string;
-    }[] = await supabaseGet(
-      `bank_statements?id=eq.${statement_id}&select=id,company_id,bank_format_id,raw_content,period_from,period_to,status`
-    )
+    }[]
     if (!stmts.length) throw new Error('Statement not found')
     const stmt = stmts[0]
     if (stmt.status !== 'uploaded') throw new Error(`Expected status=uploaded, got ${stmt.status}`)
 
-    const bfcs: {
+    const bfcs = await supabaseGet(
+      `bank_format_config?id=eq.${stmt.bank_format_id}&select=id,file_type,encoding,header_row,column_map,date_format,skip_footer_rows`
+    ) as {
       id: string; file_type: string; encoding: string; header_row: number;
       column_map: Record<string, string>; date_format: string; skip_footer_rows: number;
-    }[] = await supabaseGet(
-      `bank_format_config?id=eq.${stmt.bank_format_id}&select=id,file_type,encoding,header_row,column_map,date_format,skip_footer_rows`
-    )
+    }[]
     if (!bfcs.length) throw new Error('Bank format config not found')
     const fmt = bfcs[0]
 

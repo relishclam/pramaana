@@ -80,7 +80,7 @@ export default async function handler(req: Request): Promise<Response> {
   // ── Parse body ──────────────────────────────────────────────────────────────
   let body: { template?: string; mobile?: string; vars?: unknown }
   try {
-    body = await req.json()
+    body = await req.json() as typeof body
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
@@ -172,7 +172,7 @@ export default async function handler(req: Request): Promise<Response> {
   // ── Parse response ──────────────────────────────────────────────────────────
   let data: { type?: string; message?: string; [k: string]: unknown }
   try {
-    data = await res.json()
+    data = await res.json() as typeof data
   } catch {
     data = {}
   }

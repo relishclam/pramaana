@@ -24,7 +24,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   let body: { statement_id?: string }
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+  try { body = await req.json() as typeof body } catch { return json({ error: 'Invalid JSON' }, 400) }
 
   const { statement_id } = body
   if (!statement_id) return json({ error: 'statement_id required' }, 400)

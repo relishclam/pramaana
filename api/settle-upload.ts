@@ -25,7 +25,7 @@ export default async function handler(req: Request): Promise<Response> {
   // ── Parse body ─────────────────────────────────────────────────────────────
   let body: { token?: string; fileName?: string; fileType?: string; fileBase64?: string }
   try {
-    body = await req.json()
+    body = await req.json() as typeof body
   } catch {
     return json({ error: 'Invalid JSON' }, 400)
   }
@@ -91,7 +91,7 @@ export default async function handler(req: Request): Promise<Response> {
         'Content-Type':  fileType || 'application/octet-stream',
         'x-upsert':      'false',
       },
-      body: bytes as BodyInit,
+      body: bytes,
     },
   )
 

@@ -102,7 +102,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST')   return jsonRes({ error: 'Method not allowed' }, 405)
 
   let body: { fileBase64?: string; fileType?: string }
-  try { body = await req.json() } catch { return jsonRes({ error: 'Invalid JSON body' }, 400) }
+  try { body = await req.json() as typeof body } catch { return jsonRes({ error: 'Invalid JSON body' }, 400) }
 
   const { fileBase64, fileType } = body
   if (!fileBase64) return jsonRes({ error: 'Missing fileBase64' }, 400)

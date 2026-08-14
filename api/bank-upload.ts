@@ -40,7 +40,7 @@ export default async function handler(req: Request): Promise<Response> {
     file_base64?: string
   }
   try {
-    body = await req.json()
+    body = await req.json() as typeof body
   } catch {
     return json({ error: 'Invalid JSON' }, 400)
   }

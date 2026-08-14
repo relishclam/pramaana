@@ -74,7 +74,7 @@ export default async function handler(req: Request): Promise<Response> {
   // ── Parse body ─────────────────────────────────────────────────────────────
   let body: { action?: string; otp?: string; hash?: string; sessionId?: string }
   try {
-    body = await req.json()
+    body = await req.json() as typeof body
   } catch {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400,

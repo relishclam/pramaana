@@ -30,7 +30,7 @@ export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
   let body: Record<string, unknown>
-  try { body = await req.json() } catch { return json({ error: 'Invalid JSON' }, 400) }
+  try { body = await req.json() as typeof body } catch { return json({ error: 'Invalid JSON' }, 400) }
 
   const { action } = body
   if (!action) return json({ error: 'action required' }, 400)

@@ -66,18 +66,36 @@ serve(async (req: Request) => {
       return json({ error: 'Invalid or expired session' }, 401)
     }
 
-    // ── 2. Validate email ──────────────────────────────────────────────────────
-    const body = await req.json().catch(() => ({})) as { email?: string; redirectTo?: string }
+    const body = await req.json().catch(() => ({}))
+      as { email?: string; redirectTo?: string; userId?: string; password?: string; fullName?: string }
+
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+
+    // ── 2a. Set-password path: { userId, password } ────────────────────────────
+    // Used by the Edit User panel to set/reset a user's password server-side.
+    if (body.userId && body.password) {
+      if (body.password.length < 8) {
+        return json({ error: 'Password must be at least 8 characters' }, 400)
+      }
+      const { error: pwErr } = await admin.auth.admin.updateUserById(
+        body.userId,
+        { password: body.password },
+      )
+      if (pwErr) {
+        return json({ error: pwErr.message }, 400)
+      }
+      return json({ success: true, userId: body.userId })
+    }
+
+    // ── 2b. Invite path: { email, redirectTo? } ────────────────────────────────
     const email = (body.email ?? '').trim().toLowerCase()
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return json({ error: 'Invalid email address' }, 400)
     }
     const redirectTo: string | undefined = body.redirectTo ?? undefined
 
-    // ── 3. Send the magic-link invite ──────────────────────────────────────────
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
     const { data, error: inviteErr } = await admin.auth.admin.inviteUserByEmail(
       email,
       redirectTo ? { redirectTo } : undefined,
@@ -88,12 +106,7 @@ serve(async (req: Request) => {
 
     const userId = data.user?.id
     if (userId) {
-      // ── 4. Bootstrap a profile row so the user can log in ──────────────────
-      // Requires migration 055_grant_registry_profiles_write.sql to be applied.
-      // ON CONFLICT DO NOTHING — safe to call even if profile already exists.
-      // NON-FATAL: the invite email was already sent; a profile error must not
-      // block the response. The user can still log in; profile will be created
-      // on first sign-in via the auth hook.
+      // Bootstrap a profile row — non-fatal if it already exists.
       try {
         const { error: profileErr } = await admin
           .schema('registry')

@@ -106,23 +106,19 @@ serve(async (req: Request) => {
 
     const userId = data.user?.id
     if (userId) {
-      // Bootstrap a profile row — non-fatal if it already exists.
-      try {
-        const { error: profileErr } = await admin
-          .schema('registry')
-          .from('profiles')
-          .upsert(
-            { id: userId, email, full_name: body.fullName ?? null, is_active: true, is_super_admin: false },
-            { onConflict: 'id', ignoreDuplicates: false },
-          )
-        if (profileErr) {
-          console.error('invite-user: profile upsert failed (non-fatal):', profileErr.message)
-        }
-      } catch (profileEx) {
-        console.error('invite-user: profile upsert threw (non-fatal):', profileEx)
+      // Profile row is required — a missing profile breaks every RLS policy.
+      const { error: profileErr } = await admin
+        .schema('registry')
+        .from('profiles')
+        .upsert(
+          { id: userId, email, full_name: body.fullName ?? null, is_active: true, is_super_admin: false },
+          { onConflict: 'id', ignoreDuplicates: false },
+        )
+      if (profileErr) {
+        return json({ error: `Invite sent but profile creation failed: ${profileErr.message}` }, 500)
       }
 
-      // Auto-assign company if provided — non-fatal if assignment already exists.
+      // Auto-assign company if provided — non-fatal: duplicate assignment is acceptable.
       if (body.companyId && body.role) {
         try {
           const { error: cuErr } = await admin

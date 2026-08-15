@@ -4,6 +4,10 @@ dist
 .env.local
 supabase/.temp/
 
+# Excel temporary lock files (created when a workbook is open)
+~$*.xlsx
+~$*.xls
+
 # Local scripts & data files
 probe_ra_s3.py
 ra_to_pramaana_migration.py

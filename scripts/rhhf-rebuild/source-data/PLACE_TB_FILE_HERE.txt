@@ -1,0 +1,13 @@
+Place the following files here before running Phase 3:
+
+  TrialBal_20260815_Final.xlsx
+    - Period: 1-Nov-2025 to 31-Jul-2026
+    - Columns: Particulars | Opening Dr | Opening Cr | Trans Dr | Trans Cr | Closing Dr | Closing Cr
+    - Grand total must be balanced
+    - This is read by phase3_opening_balances.py for the "etc." expense heads
+
+The explicitly stated amounts in phase3_opening_balances.py (EXPLICIT_BALANCES list)
+take precedence.  The TB file fills in any additional lines not individually listed
+in the work order.
+
+DO NOT put RFPL files here.

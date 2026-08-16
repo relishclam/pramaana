@@ -11,6 +11,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // pramaana-schema-scoped client — used by the Settlement module and any other
 // code that must hit pramaana tables/RPCs directly from the browser.
+// separate storageKey avoids the "multiple GoTrueClient instances" warning
 export const supabasePramaana = createClient(supabaseUrl, supabaseAnonKey, {
   db: { schema: 'pramaana' },
+  auth: { storageKey: 'sb-pramaana-schema' },
 })

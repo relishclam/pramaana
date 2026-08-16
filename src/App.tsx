@@ -60,7 +60,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const pathGroupKey = (p: string) => {
     if (['/ledgers','/vouchers','/suspense','/invoices'].some(r => p === r || p.startsWith(r + '/'))) return 'books'
     if (p.startsWith('/approvals') || p.startsWith('/payments')) return 'workflow'
-    if (p.startsWith('/settlement') || p.startsWith('/bank-recon') || p.startsWith('/compliance')) return 'recon'
+    if (p.startsWith('/settlement') || p.startsWith('/bank-recon')) return 'recon'
+    if (p.startsWith('/compliance') || p === '/reports/gst' || p === '/reports/tds' || p === '/reports/schedule-iii') return 'compliance'
     if (p.startsWith('/inventory')) return 'inventory'
     if (p.startsWith('/reports/')) return 'reports'
     if (p.startsWith('/admin') || p.startsWith('/tally-export')) return 'admin'
@@ -69,7 +70,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   const [groupOpen, setGroupOpen] = useState(() => {
     const active = pathGroupKey(location.pathname)
-    return { books: active === 'books', workflow: active === 'workflow', recon: active === 'recon', inventory: active === 'inventory', reports: active === 'reports', admin: active === 'admin' }
+    return { books: active === 'books', workflow: active === 'workflow', recon: active === 'recon', compliance: active === 'compliance', inventory: active === 'inventory', reports: active === 'reports', admin: active === 'admin' }
   })
 
   // Auto-expand the group containing the newly active route
@@ -94,11 +95,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
     { to: '/reports/balance-sheet',        label: 'Balance Sheet'        },
     { to: '/reports/receivables-payables', label: 'Receivables/Payables' },
     { to: '/reports/cash-flow',            label: 'Cash Flow'            },
-    { to: '/reports/gst',                  label: 'GST Reports'          },
     { to: '/reports/ratios',               label: 'Ratio Analysis'       },
     { to: '/reports/exceptions',           label: 'Exception Reports'    },
-    { to: '/reports/schedule-iii',         label: 'Schedule III'         },
-    { to: '/reports/tds',                  label: 'TDS Reports'          },
   ]
 
   const canViewReports =
@@ -222,9 +220,40 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <div className={`${css.groupBody}${groupOpen.recon ? ` ${css.groupBodyOpen}` : ''}`}>
             <NavLink to="/settlement" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Settlement</span></NavLink>
             <NavLink to="/bank-recon" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Bank Recon</span></NavLink>
-            <NavLink to="/compliance" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Compliance</span></NavLink>
           </div>
         </div>
+
+        {/* COMPLIANCE */}
+        {canViewReports && (
+          <div className={css.navGroup}>
+            <button className={css.navGroupToggle} onClick={() => toggleGroup('compliance')} aria-expanded={groupOpen.compliance}>
+              <span>Compliance</span>
+              <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.compliance ? ` ${css.groupChevronOpen}` : ''}`} />
+            </button>
+            <div className={`${css.groupBody}${groupOpen.compliance ? ` ${css.groupBodyOpen}` : ''}`}>
+              <NavLink to="/compliance" end className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>Calendar</NavLink>
+              <NavLink to="/reports/gst" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>GST Reports</NavLink>
+              <NavLink to="/reports/tds" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>TDS Reports</NavLink>
+              <NavLink to="/reports/schedule-iii" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>Schedule III</NavLink>
+            </div>
+          </div>
+        )}
+
+        {/* COMPLIANCE */}
+        {canViewReports && (
+          <div className={css.navGroup}>
+            <button className={css.navGroupToggle} onClick={() => toggleGroup('compliance')} aria-expanded={groupOpen.compliance}>
+              <span>Compliance</span>
+              <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.compliance ? ` ${css.groupChevronOpen}` : ''}`} />
+            </button>
+            <div className={`${css.groupBody}${groupOpen.compliance ? ` ${css.groupBodyOpen}` : ''}`}>
+              <NavLink to="/compliance" end className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>Calendar</NavLink>
+              <NavLink to="/reports/gst" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>GST Reports</NavLink>
+              <NavLink to="/reports/tds" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>TDS Reports</NavLink>
+              <NavLink to="/reports/schedule-iii" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>Schedule III</NavLink>
+            </div>
+          </div>
+        )}
 
         {/* INVENTORY */}
         <div className={css.navGroup}>

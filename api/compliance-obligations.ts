@@ -49,6 +49,8 @@ async function authUserId(req: Request, supabaseUrl: string, serviceKey: string)
   if (!res.ok) return null
   return ((await res.json()) as { id: string }).id
 }
+
+export async function GET(req: Request): Promise<Response> {
   try {
     const url        = new URL(req.url)
     const companyId  = url.searchParams.get('company_id')

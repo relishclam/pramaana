@@ -3,8 +3,7 @@
 // Shows upcoming/overdue compliance obligations with mark-as-filed workflow.
 
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, CheckCircle, Clock, RefreshCw } from 'lucide-react'
+import { CheckCircle, RefreshCw } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase } from '@/lib/supabase'
 import css from './CompliancePage.module.css'
@@ -148,7 +147,6 @@ const FILTERS = ['All', 'Overdue', 'Upcoming', 'GST', 'TDS', 'ROC', 'IT'] as con
 export default function CompliancePage() {
   const { user } = useAuth()
   const companyId = user?.activeCompany?.id
-  const navigate      = useNavigate()
 
   const [rows, setRows]         = useState<Obligation[]>([])
   const [loading, setLoading]   = useState(true)

@@ -252,7 +252,7 @@ export default function CompliancePage() {
               <th>Status</th>
               <th>Reference</th>
               <th>Notes</th>
-              <th></th>
+              <th style={{ width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -283,10 +283,10 @@ export default function CompliancePage() {
                   </span>
                 </td>
                 <td style={{ fontSize: '0.8rem', color: '#aaa' }}>{row.filed_ref ?? '—'}</td>
-                <td style={{ fontSize: '0.8rem', color: '#888', maxWidth: 200 }}>
-                  <span title={row.notes ?? ''}>
-                    {row.notes ? (row.notes.length > 60 ? row.notes.slice(0, 57) + '…' : row.notes) : '—'}
-                  </span>
+                <td style={{ fontSize: '0.8rem', color: '#888', maxWidth: 200, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+                    title={row.notes ?? ''}>
+                  {row.notes ?? '—'}
+                </td>
                 </td>
                 <td>
                   {row.status !== 'filed' && (

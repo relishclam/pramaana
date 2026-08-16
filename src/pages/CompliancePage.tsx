@@ -50,6 +50,7 @@ const OBLIGATION_CATEGORY: Record<string, string> = {
   'AOC-4': 'ROC', 'MGT-7': 'ROC', 'DIR-3-KYC': 'ROC', 'ADT-1': 'ROC', 'AGM': 'ROC',
   'ITR': 'IT', '44AB': 'IT',
   'LUT': 'GST', 'QRMP-PMT-06': 'GST',
+  'IEC-renewal': 'IT', 'MSME-return': 'ROC',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -72,11 +73,13 @@ function DaysLabel({ iso }: { iso: string }) {
 function FiledDrawer({
   item, onClose, onSaved,
 }: { item: Obligation; onClose: () => void; onSaved: () => void }) {
-  const [status, setStatus]       = useState<string>(item.status)
-  const [filedRef, setFiledRef]   = useState(item.filed_ref ?? '')
-  const [filedDate, setFiledDate] = useState(item.filed_date ?? new Date().toISOString().slice(0, 10))
-  const [notes, setNotes]         = useState(item.notes ?? '')
-  const [saving, setSaving]       = useState(false)
+  const [status, setStatus]             = useState<string>(item.status)
+  const [filedRef, setFiledRef]         = useState(item.filed_ref ?? '')
+  const [filedDate, setFiledDate]       = useState(item.filed_date ?? new Date().toISOString().slice(0, 10))
+  const [amountPayable, setAmtPayable]  = useState(item.amount_payable?.toString() ?? '')
+  const [amountPaid, setAmtPaid]        = useState(item.amount_paid?.toString() ?? '')
+  const [notes, setNotes]               = useState(item.notes ?? '')
+  const [saving, setSaving]             = useState(false)
 
   const save = async () => {
     setSaving(true)
@@ -86,7 +89,14 @@ function FiledDrawer({
       const res = await fetch(`/api/compliance-obligations?id=${item.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status, filed_ref: filedRef || null, filed_date: filedDate || null, notes: notes || null }),
+        body: JSON.stringify({
+          status,
+          filed_ref: filedRef || null,
+          filed_date: filedDate || null,
+          amount_payable: amountPayable ? parseFloat(amountPayable) : null,
+          amount_paid:    amountPaid    ? parseFloat(amountPaid)    : null,
+          notes: notes || null,
+        }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Save failed' })) as { error?: string }
@@ -124,6 +134,16 @@ function FiledDrawer({
             <input type="date" value={filedDate} onChange={e => setFiledDate(e.target.value)} />
           </div>
           <div className={css.field}>
+            <label>Amount Payable (₹)</label>
+            <input type="number" step="0.01" value={amountPayable}
+              onChange={e => setAmtPayable(e.target.value)} placeholder="0.00" />
+          </div>
+          <div className={css.field}>
+            <label>Amount Paid (₹)</label>
+            <input type="number" step="0.01" value={amountPaid}
+              onChange={e => setAmtPaid(e.target.value)} placeholder="0.00" />
+          </div>
+          <div className={css.field}>
             <label>Notes</label>
             <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
               placeholder="Any remarks…" />
@@ -159,8 +179,9 @@ export default function CompliancePage() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const token = session?.access_token ?? ''
+      // fetch all non-terminal rows; overdue is derived client-side from due_date
       const res = await fetch(
-        `/api/compliance-obligations?company_id=${companyId}&status=upcoming,in_progress,overdue&limit=100`,
+        `/api/compliance-obligations?company_id=${companyId}&status=upcoming,in_progress&limit=100`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
       const data = await res.json() as unknown
@@ -251,15 +272,16 @@ export default function CompliancePage() {
               <th>Due Date</th>
               <th>Status</th>
               <th>Reference</th>
+              <th>Amount (₹)</th>
               <th>Notes</th>
               <th style={{ width: 80 }}></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>Loading…</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>Loading…</td></tr>
             ) : visible.length === 0 ? (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
                 {filter === 'All' ? 'No obligations loaded' : `No ${filter} obligations`}
               </td></tr>
             ) : visible.map(row => (
@@ -283,6 +305,13 @@ export default function CompliancePage() {
                   </span>
                 </td>
                 <td style={{ fontSize: '0.8rem', color: '#aaa' }}>{row.filed_ref ?? '—'}</td>
+                <td style={{ fontSize: '0.8rem', color: '#aaa', textAlign: 'right' }}>
+                  {row.amount_paid != null
+                    ? row.amount_paid.toLocaleString('en-IN')
+                    : row.amount_payable != null
+                      ? <span style={{ color: '#666' }}>{row.amount_payable.toLocaleString('en-IN')}</span>
+                      : '—'}
+                </td>
                 <td style={{ fontSize: '0.8rem', color: '#888', maxWidth: 200, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
                     title={row.notes ?? ''}>
                   {row.notes ?? '—'}

@@ -1,0 +1,209 @@
+.page {
+  padding: 2rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: 1.75rem;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.header p {
+  color: var(--color-text-secondary, #888);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+/* ── Status chips ── */
+.chipUpcoming    { background: #1a3a5c; color: #7ec8ff; border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; white-space: nowrap; }
+.chipInProgress  { background: #3a2800; color: #ffc76e; border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; white-space: nowrap; }
+.chipFiled       { background: #0d3320; color: #4ade80; border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; white-space: nowrap; }
+.chipOverdue     { background: #3a0d0d; color: #f87171; border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; white-space: nowrap; }
+.chipNa          { background: #2a2a2a; color: #888;    border-radius: 12px; padding: 2px 10px; font-size: 0.75rem; white-space: nowrap; }
+
+/* ── Urgency row highlight ── */
+.rowOverdue  { background: rgba(248, 113, 113, 0.06); }
+.rowImminent { background: rgba(255, 199, 110, 0.06); }  /* due within 7 days */
+
+/* ── Table ── */
+.tableWrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #2a2a2a);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+th {
+  text-align: left;
+  padding: 0.625rem 1rem;
+  color: var(--color-text-secondary, #888);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border, #2a2a2a);
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid var(--color-border-subtle, #1e1e1e);
+  vertical-align: middle;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── Controls ── */
+.controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.filterBtn {
+  padding: 0.35rem 0.875rem;
+  border-radius: 20px;
+  border: 1px solid var(--color-border, #2a2a2a);
+  background: transparent;
+  color: var(--color-text, #e0e0e0);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.filterBtn:hover   { background: rgba(255,255,255,0.06); }
+.filterBtnActive   { background: var(--color-primary, #00b4a2); border-color: var(--color-primary, #00b4a2); color: #fff; }
+
+.actionBtn {
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #2a2a2a);
+  background: transparent;
+  color: var(--color-text, #e0e0e0);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.actionBtn:hover { background: rgba(255,255,255,0.06); }
+
+/* ── Quick stats ── */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.statCard {
+  background: var(--color-surface, #111);
+  border: 1px solid var(--color-border, #2a2a2a);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.statCard .label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #888);
+  margin-bottom: 0.35rem;
+}
+
+.statCard .value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.statOverdue  { color: #f87171; }
+.statImminent { color: #ffc76e; }
+.statOk       { color: #4ade80; }
+
+/* ── Mark filed drawer ── */
+.drawer {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.drawerPanel {
+  background: var(--color-surface, #111);
+  border-top: 1px solid var(--color-border, #2a2a2a);
+  border-radius: 12px 12px 0 0;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 560px;
+}
+
+.drawerPanel h3 { margin: 0 0 1rem; font-size: 1rem; }
+
+.fieldRow {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.field label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #888);
+  margin-bottom: 0.3rem;
+}
+
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-bg, #0a0a0a);
+  border: 1px solid var(--color-border, #2a2a2a);
+  border-radius: 6px;
+  color: var(--color-text, #e0e0e0);
+  font-size: 0.875rem;
+}
+
+.drawerActions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.btnPrimary {
+  padding: 0.5rem 1.25rem;
+  background: var(--color-primary, #00b4a2);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.btnSecondary {
+  padding: 0.5rem 1.25rem;
+  background: transparent;
+  color: var(--color-text, #e0e0e0);
+  border: 1px solid var(--color-border, #2a2a2a);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.days {
+  font-size: 0.7rem;
+  color: var(--color-text-secondary, #888);
+  margin-left: 6px;
+}
+
+.daysOverdue { color: #f87171; }
+.daysImminent { color: #ffc76e; }

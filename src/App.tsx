@@ -38,6 +38,7 @@ import DashboardPage from '@/pages/Dashboard'
 import AwaitingPayments from '@/pages/AwaitingPayments'
 import SettlementPage from '@/pages/SettlementPage'
 import BankReconPage from '@/pages/BankReconPage'
+import CompliancePage from '@/pages/CompliancePage'
 import { ScanUpload, ScanInbox, ScanDetail } from '@/modules/invoice-scan'
 
 function fmtRole(role: string | null | undefined): string {
@@ -59,7 +60,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const pathGroupKey = (p: string) => {
     if (['/ledgers','/vouchers','/suspense','/invoices'].some(r => p === r || p.startsWith(r + '/'))) return 'books'
     if (p.startsWith('/approvals') || p.startsWith('/payments')) return 'workflow'
-    if (p.startsWith('/settlement') || p.startsWith('/bank-recon')) return 'recon'
+    if (p.startsWith('/settlement') || p.startsWith('/bank-recon') || p.startsWith('/compliance')) return 'recon'
     if (p.startsWith('/inventory')) return 'inventory'
     if (p.startsWith('/reports/')) return 'reports'
     if (p.startsWith('/admin') || p.startsWith('/tally-export')) return 'admin'
@@ -221,6 +222,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <div className={`${css.groupBody}${groupOpen.recon ? ` ${css.groupBodyOpen}` : ''}`}>
             <NavLink to="/settlement" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Settlement</span></NavLink>
             <NavLink to="/bank-recon" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Bank Recon</span></NavLink>
+            <NavLink to="/compliance" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Compliance</span></NavLink>
           </div>
         </div>
 
@@ -623,6 +625,7 @@ function AppRoutes() {
         <Route path="/settlement"       element={<SettlementGuard />} />
         <Route path="/bank-recon"         element={<BankReconGuard />} />
         <Route path="/bank-recon/:statementId" element={<BankReconGuard />} />
+        <Route path="/compliance"           element={<ReportGuard><CompliancePage /></ReportGuard>} />
         <Route path="/inventory"      element={<InventoryGuard />} />
         <Route path="/invoices/scan"              element={<InvoiceScanUploadGuard />} />
         <Route path="/invoices/inbox"             element={<InvoiceScanInboxGuard />} />

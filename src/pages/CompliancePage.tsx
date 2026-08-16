@@ -287,7 +287,6 @@ export default function CompliancePage() {
                     title={row.notes ?? ''}>
                   {row.notes ?? '—'}
                 </td>
-                </td>
                 <td>
                   {row.status !== 'filed' && (
                     <button className={css.actionBtn} onClick={() => setSelected(row)}>

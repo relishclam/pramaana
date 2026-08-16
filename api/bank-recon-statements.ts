@@ -63,14 +63,19 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (req.method === 'DELETE') {
     if (!id || !companyId) return json({ error: 'id and company_id required' }, 400)
-    // CASCADE deletes recon_transactions, recon_matches, recon_queries
-    const { ok, data } = await dbFetch(supabaseUrl, serviceKey, 'DELETE', `recon_statements?id=eq.${id}&company_id=eq.${companyId}`)
-    if (!ok) {
-      console.error('recon_statements DELETE failed:', data)
-      return json({ error: `Delete failed: ${data}` }, 500)
+    // PostgREST returns 204 No Content for DELETE — don't try to parse JSON body
+    const res = await fetch(`${supabaseUrl}/rest/v1/recon_statements?id=eq.${id}&company_id=eq.${companyId}`, {
+      method: 'DELETE',
+      headers: {
+        apikey: serviceKey, Authorization: `Bearer ${serviceKey}`,
+        'Accept-Profile': 'pramaana', 'Content-Profile': 'pramaana',
+      },
+    })
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error('recon_statements DELETE failed:', errText)
+      return json({ error: `Delete failed: ${errText}` }, 500)
     }
-    const deleted = data as unknown[]
-    if (!deleted.length) return json({ error: 'Statement not found or already deleted' }, 404)
     return json({ status: 'deleted', id })
   }
 

@@ -141,10 +141,10 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- TDS Payable ledgers
+    -- TDS Payable ledgers — is_tds_applicable must be true when tds_section_code is set (constraint 048)
     INSERT INTO pramaana.ledgers (company_id, group_id, name, tally_ledger_name, is_bank_account,
-        opening_balance, opening_dr_cr, is_system, is_active, tds_section_code)
-    SELECT v_company.id, v_liab_grp, l.name, l.name, FALSE, 0, 'Cr', FALSE, TRUE, l.section
+        opening_balance, opening_dr_cr, is_system, is_active, tds_section_code, is_tds_applicable)
+    SELECT v_company.id, v_liab_grp, l.name, l.name, FALSE, 0, 'Cr', FALSE, TRUE, l.section, TRUE
     FROM (VALUES
       ('TDS Payable — 192 (Salaries)', '192'),
       ('TDS Payable — 194C (Contractors)', '194C'),

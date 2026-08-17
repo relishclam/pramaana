@@ -126,29 +126,30 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // ── Build MSG91 payload ─────────────────────────────────────────────────────
-  // Each element of vars becomes a {{N}} template parameter component
-  const parameters = (vars as string[]).map((text) => ({
-    type: 'text',
-    text: String(text),
-  }))
+  // Variables map to body_1, body_2, … named keys (MSG91 positional format)
+  const components: Record<string, { type: string; value: string }> = {}
+  ;(vars as string[]).forEach((v, i) => {
+    components[`body_${i + 1}`] = { type: 'text', value: String(v) }
+  })
 
-  // /bulk/ endpoint requires payload array; omit messaging_product (MSG91-specific, not Meta)
   const payload = {
     integrated_number: senderNumber,
     content_type: 'template',
-    payload: [
-      {
-        to: toNumber,
-        type: 'template',
-        template: {
-          name: templateName,
-          language: { code: 'en' },
-          components: parameters.length > 0
-            ? [{ type: 'body', parameters }]
-            : [],
-        },
+    payload: {
+      messaging_product: 'whatsapp',
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: 'en', policy: 'deterministic' },
+        namespace: '63f0f6e2_780c_442c_ab96_c3cbf76a513b',
+        to_and_components: [
+          {
+            to: [toNumber],
+            components,
+          },
+        ],
       },
-    ],
+    },
   }
 
   // ── Call MSG91 API ──────────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ async function authUser(req: Request, url: string, key: string): Promise<{ id: s
     console.error('[compliance-profile] registry.profiles lookup failed:', e)
     return [] as unknown[]
   })
-  const isSA = Array.isArray(profile) && profile.length
+  const isSA = Array.isArray(profile) && profile.length > 0
     && (profile[0] as { is_super_admin: boolean | null }).is_super_admin === true
   return { id: u.id, is_super_admin: isSA }
 }

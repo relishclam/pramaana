@@ -132,13 +132,12 @@ export default async function handler(req: Request): Promise<Response> {
     text: String(text),
   }))
 
-  // /bulk/ endpoint requires payload to be an array even for a single message
+  // /bulk/ endpoint requires payload array; omit messaging_product (MSG91-specific, not Meta)
   const payload = {
     integrated_number: senderNumber,
     content_type: 'template',
     payload: [
       {
-        messaging_product: 'whatsapp',
         to: toNumber,
         type: 'template',
         template: {

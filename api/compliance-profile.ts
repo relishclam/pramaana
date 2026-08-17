@@ -35,10 +35,15 @@ async function authUser(req: Request, url: string, key: string): Promise<{ id: s
   const res = await fetch(`${url}/auth/v1/user`, { headers: { apikey: key, Authorization: header } })
   if (!res.ok) return null
   const u = await res.json() as { id: string }
-  // Check super_admin
-  const profile = await pg(url, key, `profiles?id=eq.${u.id}&select=is_super_admin`).catch(() => [] as unknown[])
-  const isSA = Array.isArray(profile) && profile.length && (profile[0] as { is_super_admin: boolean }).is_super_admin
-  return { id: u.id, is_super_admin: !!isSA }
+  // registry.profiles is the canonical profile table; explicit schema arg guards against default drift
+  const profile = await pg(url, key, `profiles?id=eq.${u.id}&select=is_super_admin`,
+    'GET', undefined, 'registry').catch((e: unknown) => {
+    console.error('[compliance-profile] registry.profiles lookup failed:', e)
+    return [] as unknown[]
+  })
+  const isSA = Array.isArray(profile) && profile.length
+    && (profile[0] as { is_super_admin: boolean | null }).is_super_admin === true
+  return { id: u.id, is_super_admin: isSA }
 }
 
 export async function GET(req: Request): Promise<Response> {

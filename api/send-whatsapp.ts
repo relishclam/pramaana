@@ -132,21 +132,24 @@ export default async function handler(req: Request): Promise<Response> {
     text: String(text),
   }))
 
+  // /bulk/ endpoint requires payload to be an array even for a single message
   const payload = {
     integrated_number: senderNumber,
     content_type: 'template',
-    payload: {
-      messaging_product: 'whatsapp',
-      to: toNumber,
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: 'en' },
-        components: parameters.length > 0
-          ? [{ type: 'body', parameters }]
-          : [],
+    payload: [
+      {
+        messaging_product: 'whatsapp',
+        to: toNumber,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: 'en' },
+          components: parameters.length > 0
+            ? [{ type: 'body', parameters }]
+            : [],
+        },
       },
-    },
+    ],
   }
 
   // ── Call MSG91 API ──────────────────────────────────────────────────────────

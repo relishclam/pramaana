@@ -239,22 +239,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        {/* COMPLIANCE */}
-        {canViewReports && (
-          <div className={css.navGroup}>
-            <button className={css.navGroupToggle} onClick={() => toggleGroup('compliance')} aria-expanded={groupOpen.compliance}>
-              <span>Compliance</span>
-              <ChevronDown size={13} className={`${css.groupChevron}${groupOpen.compliance ? ` ${css.groupChevronOpen}` : ''}`} />
-            </button>
-            <div className={`${css.groupBody}${groupOpen.compliance ? ` ${css.groupBodyOpen}` : ''}`}>
-              <NavLink to="/compliance" end className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>Calendar</NavLink>
-              <NavLink to="/reports/gst" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>GST Reports</NavLink>
-              <NavLink to="/reports/tds" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>TDS Reports</NavLink>
-              <NavLink to="/reports/schedule-iii" end={false} className={({ isActive }) => `${css.reportLink}${isActive ? ` ${css.reportLinkActive}` : ''}`}>Schedule III</NavLink>
-            </div>
-          </div>
-        )}
-
         {/* INVENTORY */}
         <div className={css.navGroup}>
           <button className={css.navGroupToggle} onClick={() => toggleGroup('inventory')} aria-expanded={groupOpen.inventory}>

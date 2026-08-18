@@ -24,90 +24,41 @@ interface TdsRow {
 // ── Query ─────────────────────────────────────────────────────────────────────
 
 async function fetchTdsData(companyId: string, from: string, to: string): Promise<TdsRow[]> {
-  // 1. Find all TDS-applicable ledgers for this company
-  const { data: tdsLedgers, error: le } = await supabase
+  // v_tds_report_entries flattens the voucher_entries → vouchers → ledgers +
+  // registry.entities join, removing the cross-schema embed that caused parse errors.
+  const { data: entries, error: ee } = await supabase
     .schema('pramaana')
-    .from('ledgers')
-    .select('id, name, tds_rate, tds_section_code')
+    .from('v_tds_report_entries')
+    .select('ledger_id,entry_type,amount,voucher_id,voucher_date,status,party_name,party_pan,tds_section_code,ledger_name,tds_rate,is_tds_payable_ledger')
     .eq('company_id', companyId)
-    .eq('is_tds_applicable', true)
-    .eq('is_active', true)
-
-  if (le) throw new Error('Failed to load TDS ledgers: ' + le.message)
-  if (!tdsLedgers?.length) return []
-
-  // 2. Find voucher entries hitting those ledgers in the date range
-  const tdsLedgerIds = tdsLedgers.map(l => l.id)
-
-  // Supabase's TS parser cannot handle a cross-schema sub-join (registry.entities)
-  // nested inside a renamed !inner relation, so we cast through unknown.
-  type RawEntry = {
-    ledger_id:  string
-    entry_type: string
-    amount:     number | string
-    voucher:    {
-      id:           string
-      voucher_date: string
-      entity_id:    string | null
-      status:       string
-      entity:       { display_name: string | null; pan: string | null } | { display_name: string | null; pan: string | null }[] | null
-    } | {
-      id:           string
-      voucher_date: string
-      entity_id:    string | null
-      status:       string
-      entity:       { display_name: string | null; pan: string | null } | { display_name: string | null; pan: string | null }[] | null
-    }[] | null
-  }
-
-  const { data: entries, error: ee } = (await supabase
-    .schema('pramaana')
-    .from('voucher_entries')
-    .select(`
-      ledger_id,
-      entry_type,
-      amount,
-      voucher:vouchers!inner(
-        id, voucher_date, entity_id, status,
-        entity:registry.entities(display_name, pan)
-      )
-    `)
-    .in('ledger_id', tdsLedgerIds)
-    .gte('voucher.voucher_date', from)
-    .lte('voucher.voucher_date', to)
-    .in('voucher.status', ['approved', 'completed', 'awaiting_payment', 'posted'])
-  ) as unknown as { data: RawEntry[] | null; error: { message: string } | null }
+    .gte('voucher_date', from)
+    .lte('voucher_date', to)
+    .in('status', ['approved', 'completed', 'awaiting_payment', 'posted'])
 
   if (ee) throw new Error('Failed to load TDS entries: ' + ee.message)
   if (!entries?.length) return []
 
-  // 3. Aggregate by entity + section
-  const ledgerMap = new Map(tdsLedgers.map(l => [l.id, l]))
-
+  // Aggregate by deductee PAN (or name as fallback) + TDS section
+  // Three-way entry_type logic:
+  //   Cr on TDS Payable ledger  → tds_amount (deduction at source)
+  //   Dr on TDS Payable ledger  → skip       (CBDT remittance, not a payment to deductee)
+  //   Dr on non-payable ledger  → gross_amount (future: once party ledgers are tagged)
   type AggKey = string
   const agg = new Map<AggKey, TdsRow>()
 
-  for (const e of entries ?? []) {
-    const ledger  = ledgerMap.get(e.ledger_id)
-    if (!ledger) continue
+  for (const e of entries) {
+    if (e.is_tds_payable_ledger && e.entry_type === 'Dr') continue  // remittance
 
-    // Supabase joins return arrays for 1:M — take first
-    const voucher = Array.isArray(e.voucher) ? e.voucher[0] : e.voucher
-    if (!voucher) continue
-    const entity  = Array.isArray(voucher.entity) ? voucher.entity[0] : voucher.entity
-
-    const entityName = entity?.display_name ?? 'Unknown'
-    const entityPan  = entity?.pan ?? null
-    const sectionCode = ledger.tds_section_code ?? 'Unclassified'
-    const key = `${voucher.entity_id ?? 'none'}__${sectionCode}`
+    const sectionCode = e.tds_section_code ?? 'Unclassified'
+    const key = `${e.party_pan ?? e.party_name ?? 'none'}__${sectionCode}`
 
     if (!agg.has(key)) {
       agg.set(key, {
-        entity_name:      entityName,
-        entity_pan:       entityPan,
-        tds_section_code: ledger.tds_section_code,
-        ledger_name:      ledger.name,
-        tds_rate:         ledger.tds_rate,
+        entity_name:      e.party_name      ?? 'Unknown',
+        entity_pan:       e.party_pan       ?? null,
+        tds_section_code: e.tds_section_code,
+        ledger_name:      e.ledger_name     ?? '',
+        tds_rate:         e.tds_rate        ?? null,
         payment_dates:    [],
         gross_amount:     0,
         tds_amount:       0,
@@ -115,16 +66,14 @@ async function fetchTdsData(companyId: string, from: string, to: string): Promis
       })
     }
 
-    const row = agg.get(key)!
+    const row    = agg.get(key)!
     const amount = Number(e.amount) || 0
 
-    // TDS entries are usually Cr (TDS Payable → credit side)
-    // Gross payment = Dr side of the same voucher (reconstructed from amount)
     if (e.entry_type === 'Cr') {
       row.tds_amount += amount
       row.voucher_count++
-      if (!row.payment_dates.includes(voucher.voucher_date)) {
-        row.payment_dates.push(voucher.voucher_date)
+      if (!row.payment_dates.includes(e.voucher_date)) {
+        row.payment_dates.push(e.voucher_date)
       }
     } else {
       row.gross_amount += amount
@@ -142,8 +91,8 @@ async function fetchTdsData(companyId: string, from: string, to: string): Promis
 function exportCsv(rows: TdsRow[], from: string, to: string, companyName: string) {
   const header = [
     'Deductee Name', 'PAN', 'Section', 'TDS Ledger', 'Rate %',
-    'No. of Payments', 'Gross Amount', 'TDS Deducted',
-    'Payment Dates',
+    'Deductions', 'Gross Amount', 'TDS Deducted',
+    'Deduction Dates',
   ].join(',')
 
   const lines = rows.map(r => [
@@ -153,18 +102,12 @@ function exportCsv(rows: TdsRow[], from: string, to: string, companyName: string
     `"${r.ledger_name}"`,
     r.tds_rate ?? '',
     r.voucher_count,
-    r.gross_amount.toFixed(2),
+    r.gross_amount > 0 ? r.gross_amount.toFixed(2) : '',
     r.tds_amount.toFixed(2),
     `"${r.payment_dates.sort().join('; ')}"`,
   ].join(','))
 
-  const csv = [
-    `# TDS Summary — ${companyName} — ${from} to ${to}`,
-    `# Form 26Q data (quarterly). File via TRACES/NSDL TDS Return filing.`,
-    '',
-    header,
-    ...lines,
-  ].join('\n')
+  const csv = [header, ...lines].join('\n')
 
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url  = URL.createObjectURL(blob)
@@ -277,8 +220,8 @@ export default function TdsReports() {
                 <th>Section</th>
                 <th>TDS Ledger</th>
                 <th className={css.numCol}>Rate %</th>
-                <th className={css.numCol}>Payments</th>
-                <th className={css.numCol}>Gross Amt</th>
+                <th className={css.numCol}>Deductions</th>
+                <th className={css.numCol}>Gross Amt ²</th>
                 <th className={css.numCol}>TDS Deducted</th>
               </tr>
             </thead>
@@ -297,7 +240,7 @@ export default function TdsReports() {
                   <td className={css.muted}>{r.ledger_name}</td>
                   <td className={css.numCol}>{r.tds_rate ?? '—'}</td>
                   <td className={css.numCol}>{r.voucher_count}</td>
-                  <td className={css.numCol}>{fmtAmt(r.gross_amount)}</td>
+                  <td className={css.numCol}>{r.gross_amount > 0 ? fmtAmt(r.gross_amount) : '—'}</td>
                   <td className={css.numCol}>{fmtAmt(r.tds_amount)}</td>
                 </tr>
               ))}
@@ -314,6 +257,8 @@ export default function TdsReports() {
           <p className={css.footNote}>
             Export the CSV and use it to fill Form 26Q via the TRACES portal or your TDS return filing software.
             Challan details (BSR code, date of deposit, challan serial number) must be added manually from your bank records.
+            <br />
+            ² Gross Amt is populated once party/expense ledgers are linked via the TDS deduction engine (C2). Until then, use Gross Amt from your payment vouchers.
           </p>
         </>
       )}

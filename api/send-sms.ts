@@ -13,12 +13,13 @@
  *   Pramaana-Payment Approval  — VAR1=OTP
  */
 
-export const config = { runtime: 'edge' }
+// Node.js runtime — 2factor.in (Indian gateway) can take 15-20s from non-India edge nodes
+export const config = { maxDuration: 30 }
 
 const SENDER_ID = 'RELISH'
 const API_BASE  = 'https://2factor.in/API/V1'
 
-const PROVIDER_TIMEOUT_MS = 12000
+const PROVIDER_TIMEOUT_MS = 25000
 
 function env(name: string): string | undefined {
   // Works in Vercel edge + local dev shims (no direct `process` reference for edge TS compat)
@@ -187,10 +188,18 @@ export default async function handler(req: Request): Promise<Response> {
     VAR3:         finalVars[2] ?? '',
   })
 
-  const tfRes = await fetch(
-    `${API_BASE}/${apiKey}/ADDON_SERVICES/SEND/TSMS`,
-    { method: 'POST', body: params, signal: timeoutSignal(PROVIDER_TIMEOUT_MS) },
-  )
+  let tfRes: Response
+  try {
+    tfRes = await fetch(
+      `${API_BASE}/${apiKey}/ADDON_SERVICES/SEND/TSMS`,
+      { method: 'POST', body: params, signal: timeoutSignal(PROVIDER_TIMEOUT_MS) },
+    )
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : 'timeout'
+    return new Response(JSON.stringify({ error: `2Factor TSMS request failed: ${reason}` }), {
+      status: 504, headers: { 'Content-Type': 'application/json' },
+    })
+  }
 
   const data = await parse2FactorResponse(tfRes) as { Status?: string; Details?: string }
 

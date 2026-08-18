@@ -21,7 +21,7 @@ export type SmsResult =
   | { sent: true;  dryRun?: boolean; sessionId?: string }
   | { sent: false; reason: string }
 
-const API_TIMEOUT_MS = 15000
+const API_TIMEOUT_MS = 28000
 
 // ── Core SMS caller ───────────────────────────────────────────────────────────
 

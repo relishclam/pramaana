@@ -261,7 +261,7 @@ function HistoryTimeline({
 // and enters it here on the payee's behalf.
 
 const OTP_LENGTH = 6
-const RESEND_COOLDOWN_SECONDS = 60
+const RESEND_COOLDOWN_SECONDS = 600
 
 interface OtpPanelProps {
   voucherId:    string

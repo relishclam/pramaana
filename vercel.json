@@ -10,7 +10,8 @@
       "maxDuration": 60
     },
     "api/send-sms.ts": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "regions": ["bom1"]
     }
   },
   "rewrites": [

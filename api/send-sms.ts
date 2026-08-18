@@ -36,9 +36,7 @@ function normalizeIndianMobile(input: string): string | null {
 }
 
 function timeoutSignal(ms: number): AbortSignal {
-  const ctrl = new AbortController()
-  setTimeout(() => ctrl.abort(), ms)
-  return ctrl.signal
+  return AbortSignal.timeout(ms)
 }
 
 async function parse2FactorResponse(res: Response): Promise<{ Status?: string; Details?: string }> {

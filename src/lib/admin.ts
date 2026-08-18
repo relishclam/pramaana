@@ -377,3 +377,81 @@ export async function clearPeriodLock(companyId: string): Promise<void> {
     .eq('company_id', companyId)
   if (error) throw new Error('Failed to clear period lock: ' + error.message)
 }
+
+// ── Entity / Vendor import ────────────────────────────────────────────────────
+
+export interface EntityRow {
+  _line:        number
+  _error?:      string
+  name:         string
+  mobile:       string | null
+  email:        string | null
+  gstin:        string | null
+  pan:          string | null
+  upi_id:       string | null
+  bank_name:    string | null
+  bank_account: string | null
+  bank_ifsc:    string | null
+}
+
+export const ENTITIES_TEMPLATE = `Name,Mobile,Email,GSTIN,PAN,UPI ID,Bank Name,Account Number,IFSC
+GOODMORNING ENTERPRISES,+919947031113,,,goodmorning00@fbi,Federal Bank,10155000002894,FDRL0001015
+MSS Transport,+919360002354,,,msslogistics@okicici,,,
+Shameer Transportation,+918137931304,,,siddiqueshameer970@oksbi,,,
+Neelakandan Saw Mill,+917510529465,,,shylasudarsansn@oksbi,,,
+Nivetha Tex,+917034233104,,,paytmrdsl0174pus@paytm,,,
+`
+
+export function parseEntitiesCsv(text: string): EntityRow[] {
+  const rows = parseCsvText(text)
+  if (rows.length < 2) return []
+  return rows.slice(1).map((cols, i) => {
+    const row: EntityRow = {
+      _line:        i + 2,
+      name:         (cols[0] ?? '').trim(),
+      mobile:       (cols[1] ?? '').trim() || null,
+      email:        (cols[2] ?? '').trim() || null,
+      gstin:        (cols[3] ?? '').trim() || null,
+      pan:          (cols[4] ?? '').trim() || null,
+      upi_id:       (cols[5] ?? '').trim() || null,
+      bank_name:    (cols[6] ?? '').trim() || null,
+      bank_account: (cols[7] ?? '').trim() || null,
+      bank_ifsc:    (cols[8] ?? '').trim() || null,
+    }
+    if (!row.name) row._error = 'Name is required'
+    return row
+  })
+}
+
+export async function importEntities(
+  rows: EntityRow[],
+  onProgress: (done: number, total: number) => void,
+): Promise<ImportResult> {
+  const result: ImportResult = { imported: 0, reused: 0, skipped: 0, errors: [] }
+  const valid = rows.filter(r => !r._error)
+
+  for (let i = 0; i < valid.length; i++) {
+    const row = valid[i]
+    const { error } = await supabase.rpc('upsert_entity_payee', {
+      p_display_name: row.name,
+      p_mobile:       row.mobile,
+      p_email:        row.email,
+      p_gstin:        row.gstin,
+      p_pan:          row.pan,
+      p_upi_id:       row.upi_id,
+      p_bank_name:    row.bank_name,
+      p_bank_account: row.bank_account,
+      p_bank_ifsc:    row.bank_ifsc,
+    })
+
+    if (error) {
+      result.errors.push({ line: row._line, name: row.name, reason: error.message })
+      result.skipped++
+    } else {
+      result.imported++
+    }
+    onProgress(i + 1, valid.length)
+  }
+
+  return result
+}

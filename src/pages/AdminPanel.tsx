@@ -10,15 +10,19 @@ import {
   importLedgerGroups,
   parseLedgersCsv,
   importLedgers,
+  parseEntitiesCsv,
+  importEntities,
   downloadCsvTemplate,
   fetchPeriodLock,
   setPeriodLock,
   clearPeriodLock,
   LEDGER_GROUPS_TEMPLATE,
   LEDGERS_TEMPLATE,
+  ENTITIES_TEMPLATE,
   type ResetPreview,
   type LedgerGroupRow,
   type LedgerRow,
+  type EntityRow,
   type ImportResult,
   type PeriodLock,
 } from '@/lib/admin'
@@ -761,7 +765,7 @@ function UnlinkedLedgersManagement({ companyId }: { companyId: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-type Tab = 'reset' | 'groups' | 'ledgers' | 'payments' | 'lock' | 'unlinked' | 'unlinked'
+type Tab = 'reset' | 'groups' | 'ledgers' | 'entities' | 'payments' | 'lock' | 'unlinked'
 
 export default function AdminPanel() {
   const { user } = useAuth()
@@ -824,6 +828,12 @@ export default function AdminPanel() {
           onClick={() => setTab('ledgers')}
         >
           Import: Ledgers
+        </button>
+        <button
+          className={tab === 'entities' ? css.tabActive : css.tab}
+          onClick={() => setTab('entities')}
+        >
+          Import: Vendors
         </button>
         <button
           className={tab === 'payments' ? css.tabActive : css.tab}
@@ -909,6 +919,41 @@ export default function AdminPanel() {
             </>
           )}
           doImport={ledgerImport}
+        />
+      )}
+
+      {tab === 'entities' && (
+        <ImportSection<EntityRow>
+          title="Vendors / Entities"
+          templateFile="pramaana_vendors_template.csv"
+          templateContent={ENTITIES_TEMPLATE}
+          columns={[
+            { label: 'Name',           required: true  },
+            { label: 'Mobile',         required: false },
+            { label: 'Email',          required: false },
+            { label: 'GSTIN',          required: false },
+            { label: 'PAN',            required: false },
+            { label: 'UPI ID',         required: false },
+            { label: 'Bank Name',      required: false },
+            { label: 'Account Number', required: false },
+            { label: 'IFSC',           required: false },
+          ]}
+          formatNote={
+            'Name is required and matched case-insensitively — existing vendors are updated (gaps filled), ' +
+            'new vendors are created. UPI ID and bank details are added to the primary bank account.'
+          }
+          parseFile={parseEntitiesCsv}
+          columnHeaders={['Name', 'Mobile', 'UPI ID', 'Bank Account', 'IFSC']}
+          renderRow={row => (
+            <>
+              <td>{row.name}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{row.mobile ?? '—'}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{row.upi_id ?? '—'}</td>
+              <td style={{ color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{row.bank_account ?? '—'}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{row.bank_ifsc ?? '—'}</td>
+            </>
+          )}
+          doImport={(_rows, onProgress) => importEntities(_rows, onProgress)}
         />
       )}
 

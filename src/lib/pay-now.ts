@@ -270,6 +270,7 @@ export interface AwaitingPaymentRow {
   voucher_date:     string
   amount:           number
   payment_mode:     string | null
+  entity_id:        string | null
   entity_name:      string | null
   completed_at:     string | null
   queued_at:        string | null
@@ -334,6 +335,7 @@ export async function fetchAwaitingPayments(
     voucher_date:      r.voucher_date,
     amount:            r.amount,
     payment_mode:      r.payment_mode,
+    entity_id:         r.entity_id,
     entity_name:       r.entity_id ? (entityMap.get(r.entity_id) ?? null) : null,
     completed_at:      r.completed_at,
     queued_at:         r.queued_at,

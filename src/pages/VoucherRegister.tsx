@@ -1669,6 +1669,7 @@ function DetailPanel({
                             voucher_number:      row.voucher_number,
                             amount:              row.amount,
                             payment_mode:        detail.payment_mode,
+                            entity_id:           detail.entity_id ?? null,
                             entity_name:         detail.entity_name,
                             entity_upi_id:       detail.entity_upi_id,
                             entity_bank_account: detail.entity_bank_account,

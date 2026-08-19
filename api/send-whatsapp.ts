@@ -1,195 +1,83 @@
 /**
- * Vercel Edge Function — send WhatsApp messages via MSG91.
  * POST /api/send-whatsapp
+ * HTTP endpoint for browser-side WhatsApp sends (T1 settlement link, T3 payment confirmed).
+ * Server-side code (T2 bank recon query) imports api/lib/whatsapp.ts directly.
  *
- * ROUTING RULE:
- *   Payment OTP  → send-sms (2Factor SMS only — NOT this endpoint)
- *   All other notifications → this endpoint (MSG91 WhatsApp)
- *
- * Body:
- *   {
- *     template: 'payment-confirmed' | 'settlement-link' | 'bank-recon-query',
- *     mobile:   string,   // 10-digit Indian mobile, or +91…, or 91…
- *     vars:     string[], // ordered substitution values for the template
- *   }
- *
- * Env vars required (set in Vercel project settings):
- *   MSG91_AUTH_KEY          — MSG91 API auth key
- *   MSG91_WHATSAPP_NUMBER   — Sender WhatsApp Business number incl. country code
- *                             e.g. "916282427364"
- *
- * Approved MSG91 WhatsApp templates:
- *
- *   pramaana_payment_confirmed
- *     Body:   "Relish Pramaana · Payment of Rs.{{1}} for voucher {{2}} has been
- *              processed successfully to your account."
- *     Header: "Relish Pramaana" (TEXT)
- *     Params: {{1}}=amount  {{2}}=voucher#
- *
- *   pramaana_settlement_link
- *     Body:   "Dear {{1}}, you have a pending advance of Rs.{{2}} from Relish.
- *              Please submit your expenses at: {{3}} - Thank you."
- *     Footer: "Relish Pramaana Team"
- *     Params: {{1}}=first name  {{2}}=amount  {{3}}=url
- *
- *   pramaana_bank_recon_query
- *     Body:   "Pramaana Bank Recon: Query {{1}} raised — {{2}} ({{3}} lines).
- *              Please log in to Pramaana and respond."
- *     Footer: "Relish Pramaana Team"
- *     Params: {{1}}=query#  {{2}}=subject  {{3}}=line count
+ * Body: { template, mobile, vars, source? }
+ *   template: 'payment-confirmed' | 'settlement-link' | 'bank-recon-query'
+ *   mobile:   Indian mobile (any normalised form)
+ *   vars:     positional substitution values — MUST match template arity exactly
+ *   source?:  'mode-a' (recorded payment — gated by WA_CONFIRM_ON_RECORDED env)
  */
 
-export const config = { runtime: 'edge' }
+// Node.js runtime — needs AbortSignal.timeout, process.env, Supabase REST writes
+export const config = { maxDuration: 10 }
 
-const MSG91_API = 'https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/'
-const PROVIDER_TIMEOUT_MS = 12000
+import {
+  sendWhatsApp,
+  TEMPLATE_REGISTRY,
+  type TemplateName,
+} from './lib/whatsapp'
 
-// Only the 3 approved templates — OTP is handled by send-sms (2Factor) not here
-const TEMPLATE_NAMES: Record<string, string> = {
+// Map HTTP-friendly aliases to MSG91 template names
+const ALIAS_MAP: Record<string, TemplateName> = {
   'payment-confirmed': 'pramaana_payment_confirmed',
   'settlement-link':   'pramaana_settlement_link',
   'bank-recon-query':  'pramaana_bank_recon_query',
 }
 
-function env(name: string): string | undefined {
-  const proc = (globalThis as Record<string, unknown>)['process'] as
-    { env?: Record<string, string | undefined> } | undefined
-  return proc?.env?.[name]
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function env(k: string): string { return ((globalThis as any)?.process?.env?.[k] as string) ?? '' }
 
-function normalizeIndianMobile(input: string): string | null {
-  const digits = input.replace(/\D/g, '')
-  if (digits.length === 10)                              return `91${digits}`
-  if (digits.length === 11 && digits.startsWith('0'))   return `91${digits.slice(1)}`
-  if (digits.length === 12 && digits.startsWith('91'))  return digits
-  if (digits.length === 13 && digits.startsWith('091')) return digits.slice(1)
-  return null
-}
-
-function timeoutSignal(ms: number): AbortSignal {
-  const ctrl = new AbortController()
-  setTimeout(() => ctrl.abort(), ms)
-  return ctrl.signal
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 }
 
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') {
-    return new Response(null, { status: 405 })
-  }
+  if (req.method !== 'POST') return new Response(null, { status: 405 })
 
-  // ── Parse body ──────────────────────────────────────────────────────────────
-  let body: { template?: string; mobile?: string; vars?: unknown }
+  let body: { template?: string; mobile?: string; vars?: unknown; source?: string }
   try {
     body = await req.json() as typeof body
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    })
+    return json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { template, mobile, vars } = body
+  const { template, mobile, vars, source } = body
 
-  if (
-    typeof template !== 'string' ||
-    typeof mobile   !== 'string' ||
-    !Array.isArray(vars)
-  ) {
-    return new Response(JSON.stringify({ error: 'Missing or invalid fields: template, mobile, vars required' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    })
+  if (typeof template !== 'string' || typeof mobile !== 'string' || !Array.isArray(vars)) {
+    return json({ error: 'template, mobile, vars required' }, 400)
   }
 
-  // ── Resolve template name ───────────────────────────────────────────────────
-  const templateName = TEMPLATE_NAMES[template]
-  if (!templateName) {
-    return new Response(JSON.stringify({ error: `Unknown template: ${template}` }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    })
+  const templateName = ALIAS_MAP[template]
+  if (!templateName) return json({ error: `Unknown template alias: ${template}` }, 400)
+
+  // Arity pre-check — return 400 before any network call
+  const expected = TEMPLATE_REGISTRY[templateName].paramCount
+  if ((vars as unknown[]).length !== expected) {
+    return json({
+      error: `Arity mismatch for ${template}: expected ${expected} vars, got ${(vars as unknown[]).length}`,
+    }, 400)
   }
 
-  // ── Env vars ────────────────────────────────────────────────────────────────
-  const authKey       = env('MSG91_AUTH_KEY')
-  const senderNumber  = env('MSG91_WHATSAPP_NUMBER')
+  const supabaseUrl = env('VITE_SUPABASE_URL')
+  const serviceKey  = env('SUPABASE_SERVICE_ROLE_KEY')
 
-  if (!authKey || !senderNumber) {
-    return new Response(JSON.stringify({ error: 'WhatsApp not configured (missing MSG91_AUTH_KEY or MSG91_WHATSAPP_NUMBER)' }), {
-      status: 500, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  // ── Normalize mobile ────────────────────────────────────────────────────────
-  const toNumber = normalizeIndianMobile(mobile)
-  if (!toNumber) {
-    return new Response(JSON.stringify({ error: 'Invalid mobile number format' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  // ── Build MSG91 payload ─────────────────────────────────────────────────────
-  // Variables map to body_1, body_2, … named keys (MSG91 positional format)
-  const components: Record<string, { type: string; value: string }> = {}
-  ;(vars as string[]).forEach((v, i) => {
-    components[`body_${i + 1}`] = { type: 'text', value: String(v) }
-  })
-
-  const payload = {
-    integrated_number: senderNumber,
-    content_type: 'template',
-    payload: {
-      messaging_product: 'whatsapp',
-      type: 'template',
-      template: {
-        name: templateName,
-        language: { code: 'en', policy: 'deterministic' },
-        namespace: '63f0f6e2_780c_442c_ab96_c3cbf76a513b',
-        to_and_components: [
-          {
-            to: [toNumber],
-            components,
-          },
-        ],
-      },
-    },
-  }
-
-  // ── Call MSG91 API ──────────────────────────────────────────────────────────
-  let res: Response
+  let result
   try {
-    res = await fetch(MSG91_API, {
-      method:  'POST',
-      headers: {
-        'authkey':      authKey,
-        'Content-Type': 'application/json',
-        'Accept':       'application/json',
-      },
-      body:   JSON.stringify(payload),
-      signal: timeoutSignal(PROVIDER_TIMEOUT_MS),
-    })
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : 'timeout'
-    return new Response(JSON.stringify({ error: `MSG91 request failed: ${reason}` }), {
-      status: 504, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  // ── Parse response ──────────────────────────────────────────────────────────
-  let data: { type?: string; message?: string; [k: string]: unknown }
-  try {
-    data = await res.json() as typeof data
-  } catch {
-    data = {}
-  }
-
-  if (!res.ok || data.type === 'error') {
-    console.error('MSG91 WhatsApp error:', JSON.stringify(data))
-    return new Response(
-      JSON.stringify({ error: data.message ?? `HTTP ${res.status}`, detail: data }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } },
+    result = await sendWhatsApp(
+      { template: templateName, phone: mobile, vars: vars as string[], source },
+      supabaseUrl,
+      serviceKey,
     )
+  } catch (e) {
+    // Only thrown for arity violations (programming error)
+    return json({ error: e instanceof Error ? e.message : 'Internal error' }, 500)
   }
 
-  return new Response(
-    JSON.stringify({ sent: true, provider: 'msg91-whatsapp', response: data }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  )
+  if (result.skipped)  return json({ skipped: true, reason: result.skipReason }, 200)
+  if (!result.sent)    return json({ error: result.error }, 502)
+  return json({ sent: true, requestId: result.requestId }, 200)
 }
+
+export const config = { maxDuration: 10 }

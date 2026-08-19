@@ -15,6 +15,8 @@
 
 export const config = { runtime: 'edge' }
 
+import { sendWhatsApp, formatINR } from './lib/whatsapp'
+
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
@@ -127,27 +129,44 @@ export default async function handler(req: Request): Promise<Response> {
       body: JSON.stringify({ query_id: query.id, author_id: user_id, body: message }),
     })
 
-    // Fire WhatsApp notification (best-effort — don't fail query creation if WA fails)
+    // Fire WhatsApp notification to the query raiser (best-effort — never fails query creation)
     try {
-      const mobile = env('ACCOUNTS_WHATSAPP_MOBILE')
-      if (mobile) {
-        await fetch(`${supabaseUrl.replace('/rest/v1', '')}/functions/v1/..`, {
-          // Use the existing send-whatsapp edge function via relative call
-          method: 'POST',
-        })
-        // Simplified: post to our own /api/send-whatsapp
-        const waBody = JSON.stringify({
-          template: 'bank-recon-query',
-          mobile,
-          vars: [query_no, subject, String(line_ids.length)],
-        })
-        await fetch(`https://${req.headers.get('host')}/api/send-whatsapp`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: waBody,
-        })
+      // Resolve raiser's phone via profiles → entity
+      const profRes = await fetch(
+        `${supabaseUrl}/rest/v1/profiles?id=eq.${user_id}&select=entity_id`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Accept-Profile': 'registry' } },
+      )
+      const profRows = profRes.ok ? await profRes.json() as { entity_id: string | null }[] : []
+      const entityId = profRows[0]?.entity_id ?? null
+
+      let phone: string | null = null
+      if (entityId) {
+        const entRes = await fetch(
+          `${supabaseUrl}/rest/v1/entities?id=eq.${entityId}&select=mobile`,
+          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}`, 'Accept-Profile': 'registry' } },
+        )
+        const entRows = entRes.ok ? await entRes.json() as { mobile: string | null }[] : []
+        phone = entRows[0]?.mobile ?? null
       }
-    } catch { /* WA failure is non-fatal */ }
+
+      if (phone) {
+        await sendWhatsApp(
+          {
+            template: 'pramaana_bank_recon_query',
+            phone,
+            vars:    [query_no, subject.slice(0, 60).replace(/\n/g, ' '), String(line_ids.length)],
+            refId:   query.id,
+            refType: 'recon_query',
+          },
+          supabaseUrl,
+          serviceKey,
+        )
+      } else {
+        console.warn(`[T2] No phone for query raiser ${user_id} — notification skipped`)
+      }
+    } catch (e) {
+      console.error('[T2] WhatsApp notification failed (non-fatal):', e)
+    }
 
     return json({ query_id: query.id, query_no })
   }

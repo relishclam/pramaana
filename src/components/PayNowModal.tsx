@@ -24,6 +24,7 @@ import {
   markVoucherPaid,
   type CompanyPaymentAccount,
 } from '@/lib/pay-now'
+import { sendPaymentConfirmedWhatsApp } from '@/lib/sms'
 import styles from './PayNowModal.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ export interface PayNowVoucher {
   voucher_number:       string
   amount:               number
   payment_mode:         string | null
+  entity_id:            string | null
   entity_name:          string | null
   entity_upi_id:        string | null
   entity_bank_account:  string | null
@@ -296,6 +298,11 @@ export default function PayNowModal({ voucher, companyId, userId, onPaid, onClos
       toast.success('Voucher marked as paid')
       onPaid()
       onClose()
+      // T3 Mode A — fire AFTER commit; non-blocking; gated by WA_CONFIRM_ON_RECORDED on server
+      if (voucher.entity_id) {
+        sendPaymentConfirmedWhatsApp(voucher.entity_id, voucher.amount, voucher.voucher_number, 'mode-a')
+          .catch(() => { /* audit row written server-side; ignore client error */ })
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to mark as paid')
     } finally {

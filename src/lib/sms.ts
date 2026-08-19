@@ -146,6 +146,7 @@ async function callWhatsApp(
   template: 'payment-confirmed' | 'settlement-link',
   mobile:   string,
   vars:     string[],
+  source?:  string,
 ): Promise<SmsResult> {
   try {
     const ctrl  = new AbortController()
@@ -153,7 +154,7 @@ async function callWhatsApp(
     const res = await fetch('/api/send-whatsapp', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ template, mobile, vars }),
+      body:    JSON.stringify({ template, mobile, vars, source }),
       signal:  ctrl.signal,
     })
     clearTimeout(timer)
@@ -161,6 +162,8 @@ async function callWhatsApp(
       const err = await res.json().catch(() => ({})) as { error?: string }
       return { sent: false, reason: err.error ?? `HTTP ${res.status}` }
     }
+    const data = await res.json().catch(() => ({})) as { skipped?: boolean; reason?: string }
+    if (data.skipped) return { sent: true, dryRun: true }  // mode-a skipped by server flag
     return { sent: true }
   } catch (e) {
     if (e instanceof Error && e.name === 'AbortError') {
@@ -181,6 +184,7 @@ export async function sendPaymentConfirmedWhatsApp(
   entityId:  string,
   amount:    number,
   voucherNo: string,
+  source?:   string,   // 'mode-a' = recorded payment, gated by WA_CONFIRM_ON_RECORDED server flag
 ): Promise<SmsResult> {
   const { data: entity } = await supabase
     .schema('registry')
@@ -194,7 +198,7 @@ export async function sendPaymentConfirmedWhatsApp(
   return callWhatsApp('payment-confirmed', entity.mobile as string, [
     Math.round(amount).toLocaleString('en-IN'),
     voucherNo,
-  ])
+  ], source)
 }
 
 // ── WhatsApp: Settlement Link ─────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import {
   type SuspenseVoucher, type SuspenseSession, type SuspenseSettlement,
 } from '@/lib/suspense'
 import { formatIndianCurrency } from '@/lib/vouchers'
+import { sendSettlementLinkWhatsApp } from '@/lib/sms'
 import { fetchVoucherAttachments, isImage, formatFileSize, type AttachmentWithUrl } from '@/lib/attachments'
 import styles from './SuspenseRegister.module.css'
 
@@ -249,6 +250,8 @@ function DetailPanel({
   const [rejectEntryReason, setRejectEntryReason] = useState('')
   const [copiedLink,     setCopiedLink]     = useState(false)
   const [settlementUrl,  setSettlementUrl]  = useState<string | null>(null)
+  const [settlementToken, setSettlementToken] = useState<string | null>(null)
+  const [sendingWA,      setSendingWA]      = useState(false)
   const [showAddEntry,   setShowAddEntry]   = useState(false)
   const [showTopUp,      setShowTopUp]      = useState(false)
   const [settlementsLoading, setSettlementsLoading] = useState(false)
@@ -318,6 +321,7 @@ function DetailPanel({
       )
       const url = buildSettlementUrl(sess.token)
       setSettlementUrl(url)
+      setSettlementToken(sess.token)
       if (!row.entity_mobile) toast.info('No mobile on file — copy the link and share manually')
       else toast.success('Settlement link ready — send via WhatsApp below')
       onRefresh()
@@ -713,25 +717,28 @@ function DetailPanel({
                     {copiedLink ? <Check size={14} /> : <Copy size={14} />}
                     {copiedLink ? 'Copied!' : 'Copy'}
                   </button>
-                  {row.entity_mobile ? (
-                    <a
-                      href={buildWhatsAppUrl(
-                        row.entity_mobile,
-                        row.entity_name ?? 'there',
-                        row.amount,
-                        row.suspense_purpose,
-                        settlementUrl,
-                        companyCode,
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {settlementToken && (
+                    <button
                       className={styles.waBtn}
-                      title="Send via WhatsApp"
+                      disabled={sendingWA}
+                      onClick={async () => {
+                        if (!row.entity_id) {
+                          toast.error(`No phone on record for ${row.entity_name ?? 'payee'}`)
+                          return
+                        }
+                        setSendingWA(true)
+                        try {
+                          const res = await sendSettlementLinkWhatsApp(row.entity_id, row.amount, settlementToken)
+                          if (res.sent) toast.success('WhatsApp sent ✓')
+                          else toast.error(res.reason === 'no_mobile'
+                            ? `No phone on record for ${row.entity_name ?? 'payee'}`
+                            : `Send failed: ${res.reason}`)
+                        } finally { setSendingWA(false) }
+                      }}
                     >
+                      {sendingWA ? <Loader2 size={13} className={styles.spin} /> : null}
                       WhatsApp
-                    </a>
-                  ) : (
-                    <span className={styles.noMobile}>No mobile on file</span>
+                    </button>
                   )}
                 </div>
               ) : (

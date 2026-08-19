@@ -65,6 +65,23 @@ GRANT SELECT ON pramaana.receipt_inbox TO authenticated;
 GRANT ALL    ON pramaana.receipt_inbox TO service_role;
 
 -- ── Guard: one UTR per company (prevents double-attach of same payment) ───────
+-- Deduplicate first: keep the voucher with the latest created_at per (company_id, utr_number),
+-- null out utr_number on older duplicates so the unique index can be created.
+UPDATE pramaana.vouchers
+SET    utr_number = NULL
+WHERE  id IN (
+  SELECT id FROM (
+    SELECT id,
+           ROW_NUMBER() OVER (
+             PARTITION BY company_id, utr_number
+             ORDER BY     created_at DESC, id DESC
+           ) AS rn
+    FROM   pramaana.vouchers
+    WHERE  utr_number IS NOT NULL
+  ) ranked
+  WHERE rn > 1
+);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_vouchers_utr
   ON pramaana.vouchers (company_id, utr_number)
   WHERE utr_number IS NOT NULL;

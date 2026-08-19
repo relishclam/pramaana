@@ -14,6 +14,7 @@ import VoucherRegister from '@/pages/VoucherRegister'
 import VoucherSearch from '@/pages/VoucherSearch'
 import SuspenseRegister from '@/pages/SuspenseRegister'
 import SuspenseEntry from '@/pages/SuspenseEntry'
+import ReceiptInbox from '@/pages/ReceiptInbox'
 import { ApprovalProvider, useApprovalCount } from '@/contexts/ApprovalContext'
 import RelayCapture from '@/pages/RelayCapture'
 import SettleCapture from '@/pages/SettleCapture'
@@ -58,7 +59,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const [companyMenuOpen, setCompanyMenuOpen] = useState(false)
 
   const pathGroupKey = (p: string) => {
-    if (['/ledgers','/vouchers','/suspense','/invoices'].some(r => p === r || p.startsWith(r + '/'))) return 'books'
+    if (['/ledgers','/vouchers','/suspense','/invoices','/receipts'].some(r => p === r || p.startsWith(r + '/'))) return 'books'
     if (p.startsWith('/approvals') || p.startsWith('/payments')) return 'workflow'
     if (p.startsWith('/settlement') || p.startsWith('/bank-recon')) return 'recon'
     if (p.startsWith('/compliance') || p === '/reports/gst' || p === '/reports/tds' || p === '/reports/schedule-iii') return 'compliance'
@@ -187,6 +188,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <NavLink to="/vouchers" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Register</NavLink>
             <NavLink to="/vouchers/search" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Search</NavLink>
             <NavLink to="/suspense" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Suspense</span></NavLink>
+            <NavLink to="/receipts/inbox" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Receipts</span></NavLink>
             <NavLink to="/invoices" end={false} className={({ isActive }) => `${css.link}${isActive ? ` ${css.linkActive}` : ''}`}><span>Invoices</span></NavLink>
             <NavLink to="/invoices/scan" end className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Scan</NavLink>
             <NavLink to="/invoices/inbox" end={false} className={({ isActive }) => `${css.subLink}${isActive ? ` ${css.subLinkActive}` : ''}`}>Inbox</NavLink>
@@ -633,6 +635,7 @@ function AppRoutes() {
         <Route path="/vouchers/:id/edit"    element={<VoucherEditGuard />} />
         <Route path="/suspense"       element={<SuspenseRegisterGuard />} />
         <Route path="/suspense/new"   element={<SuspenseEntryGuard />} />
+        <Route path="/receipts/inbox" element={<ReceiptInbox />} />
         <Route path="/approvals"      element={<ApprovalQueueGuard />} />
         <Route path="/payments"        element={<AwaitingPaymentsGuard />} />
         <Route path="/settlement"       element={<SettlementGuard />} />

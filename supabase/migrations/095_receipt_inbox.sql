@@ -65,26 +65,42 @@ GRANT SELECT ON pramaana.receipt_inbox TO authenticated;
 GRANT ALL    ON pramaana.receipt_inbox TO service_role;
 
 -- ── Guard: one UTR per company (prevents double-attach of same payment) ───────
--- Deduplicate first: keep the voucher with the latest created_at per (company_id, utr_number),
--- null out utr_number on older duplicates so the unique index can be created.
-UPDATE pramaana.vouchers
-SET    utr_number = NULL
-WHERE  id IN (
-  SELECT id FROM (
-    SELECT id,
-           ROW_NUMBER() OVER (
-             PARTITION BY company_id, utr_number
-             ORDER BY     created_at DESC, id DESC
-           ) AS rn
-    FROM   pramaana.vouchers
-    WHERE  utr_number IS NOT NULL
-  ) ranked
-  WHERE rn > 1
-);
+-- Deduplicate first: null out utr_number on non-posted older duplicates.
+-- Posted/cancelled vouchers are immutable (fn_prevent_posted_edit trigger)
+-- so we can't touch them; if posted duplicates remain after this step, the
+-- index creation is skipped with a WARNING rather than failing the migration.
+DO $dedup$
+BEGIN
+  UPDATE pramaana.vouchers
+  SET    utr_number = NULL
+  WHERE  id IN (
+    SELECT id FROM (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY company_id, utr_number
+               -- keep posted vouchers over non-posted, then newest first
+               ORDER BY CASE WHEN status = 'posted' THEN 0 ELSE 1 END,
+                        created_at DESC, id DESC
+             ) AS rn
+      FROM   pramaana.vouchers
+      WHERE  utr_number IS NOT NULL
+    ) ranked
+    WHERE rn > 1
+  )
+  AND status NOT IN ('posted', 'cancelled');
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_vouchers_utr
-  ON pramaana.vouchers (company_id, utr_number)
-  WHERE utr_number IS NOT NULL;
+  BEGIN
+    CREATE UNIQUE INDEX uq_vouchers_utr
+      ON pramaana.vouchers (company_id, utr_number)
+      WHERE utr_number IS NOT NULL;
+  EXCEPTION WHEN unique_violation THEN
+    RAISE WARNING
+      'uq_vouchers_utr NOT created — duplicate UTRs remain on posted vouchers. '
+      'Diagnose with: SELECT company_id, utr_number, count(*) '
+      'FROM pramaana.vouchers WHERE utr_number IS NOT NULL '
+      'GROUP BY 1,2 HAVING count(*)>1;';
+  END;
+END $dedup$;
 
 -- ── Storage bucket (private, 10 MB limit) ────────────────────────────────────
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

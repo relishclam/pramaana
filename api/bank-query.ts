@@ -15,7 +15,7 @@
 
 export const config = { runtime: 'edge' }
 
-import { sendWhatsApp, formatINR } from './lib/whatsapp'
+import { sendWhatsApp, formatINR } from './lib/whatsapp.js'
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), {

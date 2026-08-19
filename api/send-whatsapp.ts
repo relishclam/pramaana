@@ -17,7 +17,7 @@ import {
   sendWhatsApp,
   TEMPLATE_REGISTRY,
   type TemplateName,
-} from './lib/whatsapp'
+} from './lib/whatsapp.js'
 
 // Map HTTP-friendly aliases to MSG91 template names
 const ALIAS_MAP: Record<string, TemplateName> = {
@@ -79,5 +79,3 @@ export default async function handler(req: Request): Promise<Response> {
   if (!result.sent)    return json({ error: result.error }, 502)
   return json({ sent: true, requestId: result.requestId }, 200)
 }
-
-export const config = { maxDuration: 10 }

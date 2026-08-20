@@ -10,8 +10,8 @@
  *   source?:  'mode-a' (recorded payment — gated by WA_CONFIRM_ON_RECORDED env)
  */
 
-// Node.js runtime — needs AbortSignal.timeout, process.env, Supabase REST writes
-export const config = { maxDuration: 10 }
+// Edge runtime required — Web fetch API (return new Response) is ignored on Node.js runtime
+export const config = { runtime: 'edge', maxDuration: 10 }
 
 import {
   sendWhatsApp,

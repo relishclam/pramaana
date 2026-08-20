@@ -14,8 +14,8 @@
  *   MSG91_FLOW_ID         — MSG91 flow ID (for non-OTP templates)
  */
 
-// Node.js runtime
-export const config = { maxDuration: 30 }
+// Edge runtime required — Web fetch API (return new Response) is ignored on Node.js runtime
+export const config = { runtime: 'edge', maxDuration: 30 }
 
 const MSG91_OTP_API  = 'https://control.msg91.com/api/v5/otp'
 const MSG91_FLOW_API = 'https://api.msg91.com/api/v5/flow/'

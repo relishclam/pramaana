@@ -94,7 +94,7 @@ export async function markVoucherPaid(
     .from('vouchers')
     .update(update, { count: 'exact' })
     .eq('id', voucherId)
-    .in('status', ['completed', 'awaiting_payment'])
+    .in('status', ['approved', 'completed', 'awaiting_payment'])
 
   if (error) throw new Error('Failed to mark voucher as paid: ' + error.message)
   if (!count) throw new Error('Voucher is not in a payable state (may already be posted)')

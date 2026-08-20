@@ -1022,6 +1022,8 @@ function DetailPanel({
                 <div class="metaItem"><span class="metaLabel">Date:</span> ${escapeHtml(fmtDateTimeLong(detail.voucher_date))}</div>
                 <div class="metaItem"><span class="metaLabel">${escapeHtml(printEntityLabel)}:</span> ${escapeHtml(beneficiaryName)}</div>
                 <div class="metaItem"><span class="metaLabel">Payment Mode:</span> ${escapeHtml(printPaymentMode)}</div>
+                ${detail.utr_number ? `<div class="metaItem"><span class="metaLabel">UTR / Ref No:</span> ${escapeHtml(detail.utr_number)}</div>` : ''}
+                ${detail.cheque_number ? `<div class="metaItem"><span class="metaLabel">Cheque No:</span> ${escapeHtml(detail.cheque_number)}</div>` : ''}
                 <div class="metaItem"><span class="metaLabel">Head of Account:</span> ${escapeHtml(detail.entries[0]?.group_name ?? detail.entries[0]?.ledger_name ?? '—')}</div>
                 <div class="metaItem"><span class="metaLabel">Status:</span> ${escapeHtml(row.status.toUpperCase())}</div>
               </div>
@@ -1736,6 +1738,37 @@ function DetailPanel({
                     />
                   </div>
                 </>
+              )}
+
+              {/* Backlog / bypass: admin can mark an approved payment as paid without OTP */}
+              {row.status === 'approved' && canSeePayNow(role, isSuperAdmin, detail.payment_mode) && (
+                <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={() => onPayNow({
+                      id:                  row.id,
+                      voucher_number:      row.voucher_number,
+                      amount:              row.amount,
+                      payment_mode:        detail.payment_mode,
+                      entity_id:           detail.entity_id ?? null,
+                      entity_name:         detail.entity_name,
+                      entity_upi_id:       detail.entity_upi_id,
+                      entity_bank_account: detail.entity_bank_account,
+                      entity_bank_ifsc:    detail.entity_bank_ifsc,
+                      entity_bank_name:    detail.entity_bank_name,
+                      paid_from_account:   detail.paid_from_account,
+                      paid_at:             detail.paid_at,
+                      utr_number:          detail.utr_number,
+                      cheque_number:       detail.cheque_number,
+                    })}
+                  >
+                    <CreditCard size={13} /> Mark as Paid
+                  </button>
+                  <span style={{ marginLeft: '0.625rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    Payment already made — bypasses OTP
+                  </span>
+                </div>
               )}
 
             </div>

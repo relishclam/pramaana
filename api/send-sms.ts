@@ -120,51 +120,67 @@ export default async function handler(req: Request): Promise<Response> {
 
   const msg91Mobile = toMsg91Mobile(normalizedMobile)
 
-  // ── OTP: use MSG91 OTP API — auto-generates and sends OTP ─────────────────
-  // sessionId returned is the mobile number; MSG91 tracks the OTP session internally.
+  // ── OTP: generate locally, send via Flow API, return hash as sessionId ────
+  // MSG91's OTP API requires a separately-registered OTP template type.
+  // The Flow API works with any DLT-approved template, so we use that instead.
   if (template === 'payment-otp') {
-    const templateId = env('MSG91_OTP_TEMPLATE_ID')
-    const sender     = env('MSG91_SENDER')
-    if (!templateId) {
-      return new Response(JSON.stringify({ error: 'SMS not configured (missing MSG91_OTP_TEMPLATE_ID)' }), {
+    const flowId = env('MSG91_FLOW_ID') ?? env('MSG91_OTP_TEMPLATE_ID')
+    const sender = env('MSG91_SENDER')
+    if (!flowId) {
+      return new Response(JSON.stringify({ error: 'SMS not configured (missing MSG91_FLOW_ID)' }), {
         status: 500, headers: { 'Content-Type': 'application/json' },
       })
     }
 
+    // Generate a 6-digit OTP using Web Crypto
+    const otpDigits = crypto.getRandomValues(new Uint8Array(6))
+    const otp = Array.from(otpDigits).map(b => b % 10).join('')
+
+    // Hash the OTP (same salt:sha256 algorithm as api/otp.ts) for the sessionId
+    const saltBytes = crypto.getRandomValues(new Uint8Array(16))
+    const salt = Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+    const hashInput = new TextEncoder().encode(`${salt}:${otp}`)
+    const digest = await crypto.subtle.digest('SHA-256', hashInput)
+    const hashHex = Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
+    const otpHash = `${salt}:${hashHex}`
+
     let otpRes: Response
     try {
-      otpRes = await fetch(MSG91_OTP_API, {
+      otpRes = await fetch(MSG91_FLOW_API, {
         method: 'POST',
         headers: { authkey: authKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          template_id: templateId,
-          mobile:      msg91Mobile,
-          ...(sender   ? { sender }          : {}),
-          ...(var1     ? { '##name##': var1 } : {}),
-          ...(var2     ? { '##amount##': var2 } : {}),
+          flow_id: flowId,
+          ...(sender ? { sender } : {}),
+          recipients: [{
+            mobiles: msg91Mobile,
+            otp,
+            ...(var1 ? { name:   var1 } : {}),
+            ...(var2 ? { amount: var2 } : {}),
+          }],
         }),
         signal: timeoutSignal(PROVIDER_TIMEOUT_MS),
       })
     } catch (e) {
       const reason = e instanceof Error ? e.message : 'timeout'
-      return new Response(JSON.stringify({ error: `MSG91 OTP request failed: ${reason}` }), {
+      return new Response(JSON.stringify({ error: `MSG91 OTP send failed: ${reason}` }), {
         status: 504, headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    let data: { type?: string; message?: string } = {}
+    let data: { type?: string; message?: string; request_id?: string } = {}
     try { data = await otpRes.json() as typeof data } catch { /* empty */ }
 
     if (!otpRes.ok || data.type === 'error') {
-      console.error('MSG91 OTP API error:', data)
+      console.error('MSG91 OTP Flow error:', data)
       return new Response(JSON.stringify({ error: data.message ?? `HTTP ${otpRes.status}` }), {
         status: 502, headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    // sessionId = mobile number — used by otp.ts verify-msg91 to verify the entered OTP
+    // sessionId = OTP hash — verified locally by api/otp.ts verify-2factor
     return new Response(
-      JSON.stringify({ success: true, sessionId: msg91Mobile }),
+      JSON.stringify({ success: true, sessionId: otpHash }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     )
   }

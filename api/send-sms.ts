@@ -90,7 +90,7 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  const { template, mobile, vars } = body
+  const { template, mobile, vars, var1, var2 } = body
 
   if (typeof template !== 'string' || typeof mobile !== 'string') {
     return new Response(JSON.stringify({ error: 'Missing or invalid fields' }), {
@@ -139,7 +139,9 @@ export default async function handler(req: Request): Promise<Response> {
         body: JSON.stringify({
           template_id: templateId,
           mobile:      msg91Mobile,
-          ...(sender ? { sender } : {}),
+          ...(sender   ? { sender }          : {}),
+          ...(var1     ? { '##name##': var1 } : {}),
+          ...(var2     ? { '##amount##': var2 } : {}),
         }),
         signal: timeoutSignal(PROVIDER_TIMEOUT_MS),
       })

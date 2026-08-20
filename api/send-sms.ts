@@ -1,5 +1,5 @@
 /**
- * Vercel Edge Function — send transactional SMS via 2Factor TSMS API.
+ * Vercel Edge Function — send transactional SMS via MSG91.
  * POST /api/send-sms
  *
  * Body: { template, mobile, vars }
@@ -7,22 +7,22 @@
  *   mobile:   10-digit Indian mobile number (no country code)
  *   vars:     array of variable substitution values
  *
- * Approved DLT templates (Vilpower — Relish Hao Hao Chi Foods):
- *   Pramaana-Settlement-Link   — VAR1=name  VAR2=amount  VAR3=url
- *   Pramaana-Payment-Confirmed — VAR1=amount VAR2=voucher#
- *   Pramaana-Payment Approval  — VAR1=OTP
+ * Env vars required:
+ *   MSG91_AUTH_KEY        — MSG91 authentication key
+ *   MSG91_OTP_TEMPLATE_ID — MSG91 OTP template ID (for payment-otp)
+ *   MSG91_SENDER          — DLT sender ID
+ *   MSG91_FLOW_ID         — MSG91 flow ID (for non-OTP templates)
  */
 
-// Node.js runtime — 2factor.in (Indian gateway) can take 15-20s from non-India edge nodes
+// Node.js runtime
 export const config = { maxDuration: 30 }
 
-const SENDER_ID = 'RELISH'
-const API_BASE  = 'https://2factor.in/API/V1'
+const MSG91_OTP_API  = 'https://control.msg91.com/api/v5/otp'
+const MSG91_FLOW_API = 'https://api.msg91.com/api/v5/flow/'
 
-const PROVIDER_TIMEOUT_MS = 25000
+const PROVIDER_TIMEOUT_MS = 15000
 
 function env(name: string): string | undefined {
-  // Works in Vercel edge + local dev shims (no direct `process` reference for edge TS compat)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (globalThis as any)?.process?.env?.[name] as string | undefined
 }
@@ -33,6 +33,11 @@ function normalizeIndianMobile(input: string): string | null {
   if (digits.length === 11 && digits.startsWith('0')) return digits.slice(1)
   if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2)
   return null
+}
+
+// Returns '91XXXXXXXXXX' for MSG91 API calls
+function toMsg91Mobile(mobile: string): string {
+  return '91' + mobile
 }
 
 function timeoutSignal(ms: number): AbortSignal {
@@ -85,131 +90,131 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  const { template, mobile, vars, var1, var2 } = body
+  const { template, mobile, vars } = body
 
-  if (
-    typeof template !== 'string' ||
-    typeof mobile  !== 'string'
-  ) {
+  if (typeof template !== 'string' || typeof mobile !== 'string') {
     return new Response(JSON.stringify({ error: 'Missing or invalid fields' }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  // vars required for non-OTP templates
   if (template !== 'payment-otp' && !Array.isArray(vars)) {
     return new Response(JSON.stringify({ error: 'Missing or invalid fields' }), {
       status: 400, headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  const apiKey =
-    env('TWOFACTOR_API_KEY') ??
-    env('TWO_FACTOR_API_KEY') ??
-    env('SMS_API_KEY')
-
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'SMS not configured (missing TWOFACTOR_API_KEY)' }), {
+  const authKey = env('MSG91_AUTH_KEY')
+  if (!authKey) {
+    return new Response(JSON.stringify({ error: 'SMS not configured (missing MSG91_AUTH_KEY)' }), {
       status: 500, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  const otpTemplateFromEnv = env('TWOFACTOR_TEMPLATE_NAME')
-  const templateName =
-    template === 'payment-otp' && otpTemplateFromEnv
-      ? otpTemplateFromEnv
-      : TEMPLATE_NAMES[template]
-
-  if (!templateName) {
-    return new Response(JSON.stringify({ error: `Unknown template: ${template}` }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
     })
   }
 
   const normalizedMobile = normalizeIndianMobile(mobile)
   if (!normalizedMobile) {
     return new Response(JSON.stringify({ error: 'Invalid mobile number format' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
+      status: 400, headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  // ── OTP templates: use 2Factor dedicated OTP API endpoint ────────────────
-  // OTP templates registered under "OTP Templates" in 2Factor dashboard
-  // MUST use the /SMS/{phone}/{otp}/{template} URL — NOT the TSMS endpoint.
-  // TSMS returns "Success" silently for OTP templates without delivering.
-  if (template === 'payment-otp') {
-    const safeV1  = encodeURIComponent(var1 ?? '')
-    const safeV2  = encodeURIComponent(var2 ?? '')
-    // AUTOGEN: 2Factor generates and validates the OTP; session_id is returned in Details
-    const otpUrl  =
-      `${API_BASE}/${apiKey}/SMS/${normalizedMobile}/AUTOGEN/Pramaana-Payment-OTP2` +
-      `?var1=${safeV1}&var2=${safeV2}`
+  const msg91Mobile = toMsg91Mobile(normalizedMobile)
 
-    let tfRes: Response
+  // ── OTP: use MSG91 OTP API — auto-generates and sends OTP ─────────────────
+  // sessionId returned is the mobile number; MSG91 tracks the OTP session internally.
+  if (template === 'payment-otp') {
+    const templateId = env('MSG91_OTP_TEMPLATE_ID')
+    const sender     = env('MSG91_SENDER')
+    if (!templateId) {
+      return new Response(JSON.stringify({ error: 'SMS not configured (missing MSG91_OTP_TEMPLATE_ID)' }), {
+        status: 500, headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    let otpRes: Response
     try {
-      tfRes = await fetch(otpUrl, { method: 'GET', signal: timeoutSignal(PROVIDER_TIMEOUT_MS) })
+      otpRes = await fetch(MSG91_OTP_API, {
+        method: 'POST',
+        headers: { authkey: authKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_id: templateId,
+          mobile:      msg91Mobile,
+          ...(sender ? { sender } : {}),
+        }),
+        signal: timeoutSignal(PROVIDER_TIMEOUT_MS),
+      })
     } catch (e) {
       const reason = e instanceof Error ? e.message : 'timeout'
-      return new Response(JSON.stringify({ error: `2Factor OTP request failed: ${reason}` }), {
+      return new Response(JSON.stringify({ error: `MSG91 OTP request failed: ${reason}` }), {
         status: 504, headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    const data = await parse2FactorResponse(tfRes) as { Status?: string; Details?: string }
+    let data: { type?: string; message?: string } = {}
+    try { data = await otpRes.json() as typeof data } catch { /* empty */ }
 
-    if (!tfRes.ok || data.Status !== 'Success') {
-      console.error('2Factor OTP API error:', data)
-      return new Response(JSON.stringify({ error: data.Details ?? `HTTP ${tfRes.status}` }), {
+    if (!otpRes.ok || data.type === 'error') {
+      console.error('MSG91 OTP API error:', data)
+      return new Response(JSON.stringify({ error: data.message ?? `HTTP ${otpRes.status}` }), {
         status: 502, headers: { 'Content-Type': 'application/json' },
       })
     }
 
+    // sessionId = mobile number — used by otp.ts verify-msg91 to verify the entered OTP
     return new Response(
-      JSON.stringify({ success: true, sessionId: data.Details }),
+      JSON.stringify({ success: true, sessionId: msg91Mobile }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     )
   }
 
-  // ── Non-OTP transactional templates: use TSMS endpoint ────────────────────
+  // ── Non-OTP transactional SMS: use MSG91 Flow API ─────────────────────────
+  const flowId = env('MSG91_FLOW_ID')
+  const sender  = env('MSG91_SENDER')
+  if (!flowId) {
+    return new Response(JSON.stringify({ error: 'SMS not configured (missing MSG91_FLOW_ID)' }), {
+      status: 500, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   const finalVars: string[] = [...(vars as string[])]
   if (template === 'settlement-link' && finalVars[2]) {
     finalVars[2] = await shortenUrl(finalVars[2])
   }
 
-  const params = new URLSearchParams({
-    From:         SENDER_ID,
-    To:           normalizedMobile,
-    TemplateName: templateName,
-    VAR1:         finalVars[0] ?? '',
-    VAR2:         finalVars[1] ?? '',
-    VAR3:         finalVars[2] ?? '',
-  })
+  const recipient: Record<string, string> = { mobiles: msg91Mobile }
+  finalVars.forEach((v, i) => { recipient[`var${i + 1}`] = v })
 
   let tfRes: Response
   try {
-    tfRes = await fetch(
-      `${API_BASE}/${apiKey}/ADDON_SERVICES/SEND/TSMS`,
-      { method: 'POST', body: params, signal: timeoutSignal(PROVIDER_TIMEOUT_MS) },
-    )
+    tfRes = await fetch(MSG91_FLOW_API, {
+      method: 'POST',
+      headers: { authkey: authKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        flow_id:    flowId,
+        ...(sender ? { sender } : {}),
+        recipients: [recipient],
+      }),
+      signal: timeoutSignal(PROVIDER_TIMEOUT_MS),
+    })
   } catch (e) {
     const reason = e instanceof Error ? e.message : 'timeout'
-    return new Response(JSON.stringify({ error: `2Factor TSMS request failed: ${reason}` }), {
+    return new Response(JSON.stringify({ error: `MSG91 Flow SMS request failed: ${reason}` }), {
       status: 504, headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  const data = await parse2FactorResponse(tfRes) as { Status?: string; Details?: string }
+  let data: { type?: string; message?: string; request_id?: string } = {}
+  try { data = await tfRes.json() as typeof data } catch { /* empty */ }
 
-  if (!tfRes.ok || data.Status !== 'Success') {
-    console.error('2Factor TSMS error:', data)
-    return new Response(JSON.stringify({ error: data.Details ?? `HTTP ${tfRes.status}` }), {
+  if (!tfRes.ok || data.type === 'error') {
+    console.error('MSG91 Flow SMS error:', data)
+    return new Response(JSON.stringify({ error: data.message ?? `HTTP ${tfRes.status}` }), {
       status: 502, headers: { 'Content-Type': 'application/json' },
     })
   }
 
   return new Response(
-    JSON.stringify({ success: true, sessionId: data.Details }),
+    JSON.stringify({ success: true, requestId: data.request_id ?? data.message }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   )
 }

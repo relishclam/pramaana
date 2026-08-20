@@ -115,7 +115,8 @@ export default async function handler(req: Request): Promise<Response> {
     })
   }
 
-  // ── Verify OTP via 2Factor AUTOGEN session ────────────────────────────────
+  // ── Verify OTP via MSG91 ────────────────────────────────────────────────────
+  // sessionId = '91XXXXXXXXXX' (the mobile number, set by send-sms.ts)
   if (action === 'verify-2factor') {
     if (typeof sessionId !== 'string' || typeof otp !== 'string') {
       return new Response(JSON.stringify({ error: 'Missing sessionId or otp' }), {
@@ -123,28 +124,27 @@ export default async function handler(req: Request): Promise<Response> {
         headers: { 'Content-Type': 'application/json' },
       })
     }
-    const apiKey = env('TWOFACTOR_API_KEY') ?? env('TWO_FACTOR_API_KEY')
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'SMS not configured (missing TWOFACTOR_API_KEY)' }), {
+    const authKey = env('MSG91_AUTH_KEY')
+    if (!authKey) {
+      return new Response(JSON.stringify({ error: 'SMS not configured (missing MSG91_AUTH_KEY)' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-    const verifyUrl = `${TWO_FACTOR_API_BASE}/${apiKey}/SMS/VERIFY/${encodeURIComponent(sessionId)}/${encodeURIComponent(otp)}`
-    let tfRes: Response
+    const verifyUrl = `https://control.msg91.com/api/v5/otp/verify?authkey=${encodeURIComponent(authKey)}&mobile=${encodeURIComponent(sessionId)}&otp=${encodeURIComponent(otp)}`
+    let res: Response
     try {
-      tfRes = await fetch(verifyUrl, { method: 'GET', signal: AbortSignal.timeout(12000) })
+      res = await fetch(verifyUrl, { method: 'GET', signal: AbortSignal.timeout(12000) })
     } catch (e) {
       const reason = e instanceof Error ? e.message : 'timeout'
-      return new Response(JSON.stringify({ error: `2Factor verify request failed: ${reason}` }), {
+      return new Response(JSON.stringify({ error: `MSG91 verify request failed: ${reason}` }), {
         status: 504,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-    const text = await tfRes.text()
-    let data: { Status?: string; Details?: string } = {}
-    try { data = JSON.parse(text) } catch { data = { Status: tfRes.ok ? 'Success' : 'Error', Details: text } }
-    return new Response(JSON.stringify({ match: data.Status === 'Success' }), {
+    let data: { type?: string; message?: string } = {}
+    try { data = await res.json() as typeof data } catch { /* empty */ }
+    return new Response(JSON.stringify({ match: data.type === 'success' }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })

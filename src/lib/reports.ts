@@ -9,6 +9,40 @@ export function currentFY(): { from: string; to: string } {
   return { from: `${year}-04-01`, to: `${year + 1}-03-31` }
 }
 
+/** Convert a FY start year to its date range. */
+export function fyRange(year: number): { from: string; to: string } {
+  return { from: `${year}-04-01`, to: `${year + 1}-03-31` }
+}
+
+/** FY start year from any ISO date (Apr–Mar boundary). */
+export function fyYear(isoDate: string): number {
+  const d = new Date(isoDate + 'T00:00:00')
+  return d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1
+}
+
+/** FY options to show in the selector (2 years centred on current FY). */
+export function fyOptions(): { label: string; year: number }[] {
+  const cur = fyYear(new Date().toISOString().slice(0, 10))
+  return [cur - 1, cur].map(y => ({
+    label: `FY ${String(y).slice(2)}-${String(y + 1).slice(2)}`,
+    year:  y,
+  }))
+}
+
+/** Returns the FY start year of the most recent posted voucher for the company. */
+export async function fetchLatestPostedFY(companyId: string): Promise<number> {
+  const { data } = await supabase
+    .schema('pramaana').from('vouchers')
+    .select('voucher_date')
+    .eq('company_id', companyId)
+    .eq('status', 'posted')
+    .order('voucher_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const date = (data as { voucher_date: string } | null)?.voucher_date
+  return date ? fyYear(date) : fyYear(new Date().toISOString().slice(0, 10))
+}
+
 export function fmtDate(iso: string): string {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',

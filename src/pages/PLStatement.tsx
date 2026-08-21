@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import FoodStreamMini from '@/components/FoodStreamMini'
 import { Loader2, Printer, Download, FileBarChart2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   fetchTrialBalance,
+  fetchLatestPostedFY,
+  fyOptions,
+  fyRange,
   currentFY,
   fmtDate,
   fmtAmt,
@@ -84,10 +87,22 @@ export default function PLStatement() {
   const company   = user?.activeCompany
 
   const fy = currentFY()
+  const [selectedFY, setSelectedFY] = useState<number | null>(null)
   const [from,    setFrom]    = useState(fy.from)
   const [to,      setTo]      = useState(fy.to)
   const [loading, setLoading] = useState(false)
   const [hasRun,  setHasRun]  = useState(false)
+
+  // Default to FY of most recent posted voucher, not today's FY
+  useEffect(() => {
+    if (!companyId) return
+    fetchLatestPostedFY(companyId).then(year => {
+      setSelectedFY(year)
+      const r = fyRange(year)
+      setFrom(r.from)
+      setTo(r.to)
+    }).catch(() => { /* keep currentFY default */ })
+  }, [companyId])
 
   // P&L derived state
   const [incomeGroups,  setIncomeGroups]  = useState<PLGroup[]>([])
@@ -139,12 +154,30 @@ export default function PLStatement() {
       {/* Filter bar */}
       <div className={`${styles.filterBar} ${styles.noPrint}`}>
         <div className={styles.filterGroup}>
+          <label className={styles.filterLabel}>Financial Year</label>
+          <select
+            className={styles.filterSelect}
+            value={selectedFY ?? ''}
+            onChange={e => {
+              const year = Number(e.target.value)
+              setSelectedFY(year)
+              const r = fyRange(year)
+              setFrom(r.from)
+              setTo(r.to)
+            }}
+          >
+            {fyOptions().map(opt => (
+              <option key={opt.year} value={opt.year}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.filterGroup}>
           <label className={styles.filterLabel}>From</label>
           <input
             type="date"
             className={styles.filterInput}
             value={from}
-            onChange={e => setFrom(e.target.value)}
+            onChange={e => { setFrom(e.target.value); setSelectedFY(null) }}
           />
         </div>
         <div className={styles.filterGroup}>
@@ -153,7 +186,7 @@ export default function PLStatement() {
             type="date"
             className={styles.filterInput}
             value={to}
-            onChange={e => setTo(e.target.value)}
+            onChange={e => { setTo(e.target.value); setSelectedFY(null) }}
           />
         </div>
         <button className={styles.btnRun} onClick={runReport} disabled={loading || !from || !to}>

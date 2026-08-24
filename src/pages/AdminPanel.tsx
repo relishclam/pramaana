@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Loader2, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
@@ -717,11 +717,17 @@ function UnlinkedLedgersManagement({ companyId }: { companyId: string }) {
   const filtered = coFilter === 'all' ? ledgers : ledgers.filter(l => l.company_id === coFilter)
   const companies = [...new Set(ledgers.map(l => l.company_id))]
 
+  const companyNames = useMemo(() => {
+    const map = new Map<string, string>()
+    user?.companyUsers.forEach(cu => { if (cu.company) map.set(cu.company_id, cu.company.name) })
+    return map
+  }, [user?.companyUsers])
+
   return (
     <div>
       <p className={css.lockDesc}>
-        Party-nature ledgers without an entity link. Settlement, reporting, and the entity-scoped
-        queries won't work correctly until these are linked.
+        These accounts have not been matched to a contact yet. Payments, reports, and statements
+        will not work correctly for these accounts until they are linked.
       </p>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
         <select
@@ -733,7 +739,7 @@ function UnlinkedLedgersManagement({ companyId }: { companyId: string }) {
           <option value="all">All companies ({ledgers.length})</option>
           {companies.map(c => (
             <option key={c} value={c}>
-              {c === user?.activeCompany?.id ? (user.activeCompany.name ?? c) : c}
+              {companyNames.get(c) ?? c}
               {' '}({ledgers.filter(l => l.company_id === c).length})
             </option>
           ))}
@@ -745,7 +751,7 @@ function UnlinkedLedgersManagement({ companyId }: { companyId: string }) {
       {loading ? (
         <div className={css.empty}>Loading…</div>
       ) : filtered.length === 0 ? (
-        <div className={css.empty}>✓ No unlinked party ledgers — all clear.</div>
+        <div className={css.empty}>✓ All accounts are linked to contacts — nothing to do here.</div>
       ) : (
         <div className={css.unlinkedList}>
           {filtered.map(l => (
@@ -845,7 +851,7 @@ export default function AdminPanel() {
           className={tab === 'unlinked' ? css.tabActive : css.tab}
           onClick={() => setTab('unlinked')}
         >
-          <Link2 size={13} /> Unlinked Ledgers
+          <Link2 size={13} /> Link Contacts
         </button>
       </div>
 

@@ -16,3 +16,4 @@ unmapped_ledgers.csv
 receipt_diagnostic.csv
 scripts/__pycache__/
 diagnose_receipt_attachments.py
+tsconfig.tsbuildinfo

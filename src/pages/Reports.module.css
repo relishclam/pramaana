@@ -186,6 +186,14 @@
   font-size: 0.875rem;
 }
 
+@media (max-width: 768px) {
+  .table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .table th {
   padding: 0.5625rem 0.75rem;
   text-align: left;
@@ -338,12 +346,15 @@
 
 .twoCol {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0;
 }
 
 .colSection {
   padding: 0;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .colSection + .colSection {
@@ -531,8 +542,10 @@
   .page { padding: 1rem; }
 
   .twoCol {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
+
+  .colTable { min-width: 340px; }
 
   .colSection + .colSection {
     border-left: none;

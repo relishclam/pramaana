@@ -309,6 +309,14 @@
   font-size: 0.875rem;
 }
 
+@media (max-width: 768px) {
+  .table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .headerRow th {
   padding: 0.625rem 1rem;
   text-align: left;

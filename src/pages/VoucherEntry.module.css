@@ -847,6 +847,14 @@
   font-size: 0.875rem;
 }
 
+@media (max-width: 768px) {
+  .previewTable {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 .previewTable th, .previewTable td {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
